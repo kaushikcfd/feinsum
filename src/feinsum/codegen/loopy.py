@@ -13,8 +13,9 @@ import islpy as isl
 
 from typing import Union, Tuple
 from pytools import UniqueNameGenerator
-from feinsum.einsum import (Einsum, FreeAxis, SummationAxis, EinsumAxisAccess,
-                            VeryLongAxis, IntegralT, INT_CLASSES)
+from feinsum.einsum import (FusedEinsum, FreeAxis, SummationAxis,
+                            EinsumAxisAccess, VeryLongAxis, IntegralT,
+                            INT_CLASSES)
 import pymbolic.primitives as p
 
 LOOPY_LANG_VERSION = (2018, 2)
@@ -29,7 +30,7 @@ def _idx_to_dim_name(index: EinsumAxisAccess) -> str:
         raise NotImplementedError(type(index))
 
 
-def get_isl_basic_set(einsum: Einsum) -> isl.BasicSet:
+def get_isl_basic_set(einsum: FusedEinsum) -> isl.BasicSet:
     dim_name_to_ubound = {}
     vng = UniqueNameGenerator()
 
@@ -64,12 +65,12 @@ def get_isl_basic_set(einsum: Einsum) -> isl.BasicSet:
     return bset
 
 
-def make_subscript(name: str, axes: Tuple[EinsumAxisAccess, ...]):
+def make_subscript(name: str, axes: Tuple[EinsumAxisAccess, ...]) -> p.Subscript:
     return p.Variable(name)[tuple(p.Variable(_idx_to_dim_name(axis))
                                   for axis in axes)]
 
 
-def generate_loopy(einsum: Einsum) -> lp.TranslationUnit:
+def generate_loopy(einsum: FusedEinsum) -> "lp.TranslationUnit":
     domain = get_isl_basic_set(einsum)
     statements = []
     dummy_indices = tuple(sorted(_idx_to_dim_name(axis)
@@ -94,4 +95,11 @@ def generate_loopy(einsum: Einsum) -> lp.TranslationUnit:
 
     return lp.make_kernel([domain],
                           statements,
+                          kernel_data=([lp.GlobalArg(value, dtype=dtype,
+                                                     shape=lp.auto)
+                                        for value, dtype in sorted(einsum.
+                                                                   value_to_dtype
+                                                                   .items())]
+                                       + [...]
+                                       ),
                           lang_version=LOOPY_LANG_VERSION)

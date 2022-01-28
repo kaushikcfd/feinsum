@@ -31,13 +31,16 @@ THE SOFTWARE.
 
 import re
 import numpy as np
+import numpy.typing as npt
 
-from typing import Tuple, Protocol, Any, List, Optional, FrozenSet
+from typing import (Tuple, Protocol, Any, List, Sequence, Optional, Mapping,
+                    FrozenSet)
 from dataclasses import dataclass
 from pyrsistent import pmap
 from pyrsistent.typing import PMap as PMapT
-from feinsum.einsum import (Einsum, ShapeComponentT, ShapeT, FreeAxis, SummationAxis,
-                            EinsumAxisAccess, VeryLongAxis, INT_CLASSES)
+from feinsum.einsum import (FusedEinsum, ShapeComponentT, ShapeT, FreeAxis,
+                            SummationAxis, EinsumAxisAccess, VeryLongAxis,
+                            INT_CLASSES)
 
 
 class ArrayT(Protocol):
@@ -81,7 +84,7 @@ def _preprocess_shape(shape: Any) -> ShapeT:
     return tuple(_preprocess_component(d) for d in shape)
 
 
-def array(shape: Any, dtype: Any) -> Array:
+def array(shape: Any, dtype: npt.DTypeLike) -> Array:
     return Array(shape=_preprocess_shape(shape), dtype=np.dtype(dtype))
 
 
@@ -129,7 +132,7 @@ def _normalize_einsum_out_subscript(subscript: str) -> PMapT[str,
 
 
 def _normalize_einsum_in_subscript(subscript: str,
-                                   in_operand: ArrayT,
+                                   in_operand_shape: ShapeT,
                                    index_to_descr: PMapT[str,
                                                         EinsumAxisAccess],
                                    index_to_axis_length: PMapT[str,
@@ -169,14 +172,14 @@ def _normalize_einsum_in_subscript(subscript: str,
             raise ValueError(f"Cannot parse '{acc}' in provided einsum"
                              f" '{subscript}'.")
 
-    if len(normalized_indices) != len(in_operand.shape):
+    if len(normalized_indices) != len(in_operand_shape):
         raise ValueError(f"Subscript '{subscript}' doesn't match the dimensionality "
-                         f"of corresponding operand ({len(in_operand.shape)}).")
+                         f"of corresponding operand ({len(in_operand_shape)}).")
 
     in_operand_axis_descrs = []
 
     for iaxis, index_char in enumerate(normalized_indices):
-        in_axis_len = in_operand.shape[iaxis]
+        in_axis_len = in_operand_shape[iaxis]
         if index_char in index_to_descr:
             if index_char in index_to_axis_length:
                 seen_axis_len = index_to_axis_length[index_char]
@@ -209,20 +212,10 @@ def _normalize_einsum_in_subscript(subscript: str,
             index_to_descr, index_to_axis_length)
 
 
-def einsum(subscripts: str, *operands: ArrayT,
-           use_matrix: Optional[Tuple[Tuple[FrozenSet[str], ...]]] = None) -> Einsum:
-    """
-    Returns a :class:`Einsum` with an interface similar to
-    :func:`numpy.einsum`, but corresponds to multiple einsums fused in a single
-    loop. The number of einsum expressions in the computation is inferred from
-    the 0-th dimension length of *use_matrix*.
-
-
-    :param use_matrix: Denotes a matrix of shape ``(noutputs, noperands)`` with
-        the ``(i, j)``-th entry denoting the names of arrays making up the
-        ``j``-th operand in the ``i``-th output einsum.
-    """
-    if len(operands) == 0:
+def _parse_subscripts(subscripts: str,
+                      operand_shapes: Tuple[ShapeT, ...]
+                      ) -> Tuple[Tuple[EinsumAxisAccess, ...], ...]:
+    if len(operand_shapes) == 0:
         raise ValueError("must specify at least one operand")
 
     if "->" not in subscripts:
@@ -235,30 +228,132 @@ def einsum(subscripts: str, *operands: ArrayT,
 
     in_specs = in_spec.split(",")
 
-    if len(operands) != len(in_specs):
+    if len(operand_shapes) != len(in_specs):
         raise ValueError(
-            f"Number of operands should match the number "
-            f"of arg specs: '{in_specs}'. Length of operands is {len(operands)}; "
-            f"expecting {len(in_specs)} operands."
+            f"Number of operands should match the number"
+            f" of arg specs: '{in_specs}'. Length of operands is"
+            f" {len(operand_shapes)}; expecting"
+            f" {len(in_specs)} operands."
         )
 
     index_to_descr = _normalize_einsum_out_subscript(out_spec)
     index_to_axis_length: PMapT[str, ShapeComponentT] = pmap()
     access_descriptors = []
 
-    for in_spec, in_operand in zip(in_specs, operands):
+    for in_spec, in_operand_shape in zip(in_specs, operand_shapes):
         access_descriptor, index_to_descr, index_to_axis_length = (
             _normalize_einsum_in_subscript(in_spec,
-                                           in_operand,
+                                           in_operand_shape,
                                            index_to_descr,
                                            index_to_axis_length))
         access_descriptors.append(access_descriptor)
 
-    if use_matrix is None:
-        use_matrix = tuple(frozenset([f"arg_{i}"])
-                           for i in range(len(operands))),
+    return tuple(access_descriptors)
 
-    assert isinstance(use_matrix, tuple)
+
+def fused_einsum(subscripts: str,
+                 operand_shapes: Sequence[Any],
+                 use_matrix: npt.ArrayLike,
+                 dtypes: Optional[npt.DTypeLike] = None,
+                 value_to_dtype: Optional[Mapping[str, npt.DTypeLike]] = None,
+                 ) -> FusedEinsum:
+    """
+    Returns a :class:`FusedEinsum` with an interface similar to
+    :func:`numpy.einsum`.
+
+    :param subscripts: A :class:`str` describing the Einstein summation as
+        accepted by :func:`numpy.einsum`.
+    :param dtypes: The dtype of all the value the operands use. Cannot be
+        provide both *value_to_dtype* and *dtypes.
+    :param value_to_dtype: A mapping from the values the operands of the einsum
+        depend on to their dtypes. Cannot be provide both *value_to_dtype* and
+        *dtypes.
+    :param operand_shapes: A sequence of shapes of the operands of the Einstein
+        Summation.
+    :param use_matrix: A 2D :mod:`numpy` array-like object, where ``i,j``-th
+        entry corresponds to the :class:`frozenset` of :class:`str` of value
+        names that the ``j``-th operand of the ``i``-th einsum accesses.
+    """
+    from functools import reduce
+
+    proc_op_shapes = tuple(_preprocess_shape(shape) for shape in operand_shapes)
+    access_descriptors = _parse_subscripts(subscripts, proc_op_shapes)
+
+    use_matrix = np.array(use_matrix)
+
+    # {{{ sanity checks
+
+    if use_matrix.ndim != 2:
+        raise ValueError("``use_matrix`` is not a matrix.")
+
+    if not np.all(
+            np.vectorize(lambda x: (isinstance(x, frozenset)
+                                    and all(isinstance(k, str) for k in x))
+                         )(use_matrix)):
+        raise ValueError("Each element of the array-like ``use_matrix`` must be"
+                         " an instance of FrozenSet[str].")
+
+    all_values_from_use_matrix: FrozenSet[str] = reduce(frozenset.union,
+                                                        use_matrix.ravel(),
+                                                        frozenset())
+    if use_matrix.shape[1] != len(proc_op_shapes):
+        raise ValueError("use_matrix.shape[1] != len(proc_op_shapes)")
+
+    if dtypes is not None:
+        if value_to_dtype is not None:
+            raise ValueError("cannot pass both ``dtypes`` and ``value_to_dtype``")
+
+        value_to_proc_dtype = {value: np.dtype(dtypes)
+                               for value in all_values_from_use_matrix}
+    else:
+        if value_to_dtype is None:
+            raise ValueError("must pass either ``value_to_dtype`` or ``dtypes``")
+        value_to_proc_dtype = {value: np.dtype(dtype)
+                               for value, dtype in value_to_dtype.items()}
+
+    if all_values_from_use_matrix != frozenset(value_to_proc_dtype.keys()):
+        raise ValueError("The values inferred via ``value_to_dtype`` do"
+                         " not match the values inferred via ``use_matrix``")
+
+    # }}}
+
+    return FusedEinsum(proc_op_shapes,
+                       pmap(value_to_proc_dtype),
+                       access_descriptors,
+                       tuple(tuple(use_row)  # type: ignore[arg-type]
+                             for use_row in use_matrix)
+                       )
+
+
+def einsum(subscripts: str,
+           *operands: ArrayT,
+           arg_names: Optional[Sequence[str]] = None) -> FusedEinsum:
+    """
+    Returns a :class:`FusedEinsum` with an interface similar to
+    :func:`numpy.einsum`.
+
+    :param arg_names: An optional sequence of :class:`str`. If not provided,
+        defaults to the sequence: ``"arg_0", "arg_1", "arg_2", ...``.
+    """
+
+    # FIXME: Rewrite using 'fused_einsum'.
+
+    access_descriptors = _parse_subscripts(subscripts,
+                                           tuple(op.shape for op in operands))
+
+    if arg_names is None:
+        arg_names = [f"arg_{i}" for i in range(len(operands))]
+
+    if len(arg_names) != len(operands):
+        raise ValueError(f"Number of argument names ({len(arg_names)}) "
+                         " does not match the number of operands"
+                         f" ({len(operands)}).")
+
+    use_matrix = tuple(frozenset([arg_name])
+                       for arg_name in arg_names),
+    value_to_dtype = {arg_name: operand.dtype
+                      for arg_name, operand in zip(arg_names, operands)}
+
     assert all(isinstance(k, tuple) for k in use_matrix)
     assert all(all((isinstance(use, frozenset)
                     and all(isinstance(k, str) for k in use))
@@ -267,9 +362,10 @@ def einsum(subscripts: str, *operands: ArrayT,
     assert all(len(use_row) == len(operands)
                for use_row in use_matrix)
 
-    return Einsum(tuple(operand.shape
-                        for operand in operands),
-                  tuple(operand.dtype
-                        for operand in operands),
-                  tuple(access_descriptors),
-                  use_matrix)
+    return FusedEinsum(tuple(operand.shape
+                             for operand in operands),
+                       pmap(value_to_dtype),
+                       access_descriptors,
+                       use_matrix)
+
+# vim: foldmethod=marker

@@ -63,15 +63,15 @@ class SummationAxis(EinsumAxisAccess):
 
 
 @dataclass(frozen=True, eq=True, repr=True)
-class Einsum:
+class FusedEinsum:
     """
-    An einsum expression.
+    A fused einsum expression.
 
     .. attribute:: shape
     .. automethod:: index_to_dim_length
     """
     arg_shapes: Tuple[ShapeT, ...]
-    arg_dtypes: Tuple[np.dtype[Any], ...]
+    value_to_dtype: PMapT[str, np.dtype[Any]]
     access_descriptors: Tuple[Tuple[EinsumAxisAccess, ...], ...]
     use_matrix: Tuple[Tuple[FrozenSet[str], ...]]
 
