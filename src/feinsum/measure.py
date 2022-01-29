@@ -79,10 +79,10 @@ def timeit(einsum: FusedEinsum,
     cq = cl.CommandQueue(cl_ctx)
 
     t_unit = generate_loopy(einsum)
-    t_unit = lp.fix_paramters(t_unit, **{name: long_dim_length
-                                         for name in (t_unit
-                                                      .default_entrypoint
-                                                      .all_params())})
+    t_unit = lp.fix_parameters(t_unit, **{name: long_dim_length
+                                          for name in (t_unit
+                                                       .default_entrypoint
+                                                       .all_params())})
 
     param_dict = generate_input_arrays(cq, einsum, long_dim_length)
     out_dict = generate_out_arrays(cq, t_unit)
