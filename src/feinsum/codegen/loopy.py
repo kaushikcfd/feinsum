@@ -23,7 +23,7 @@ def get_isl_basic_set(einsum: FusedEinsum) -> isl.BasicSet:
 
     for idx, dim in einsum.index_to_dim_length().items():
         if isinstance(dim, VeryLongAxis):
-            proc_dim: Union[str, IntegralT] = vng("DIM_LONG")
+            proc_dim: Union[str, IntegralT] = vng(f"N_{einsum.index_names[idx]}")
         else:
             proc_dim = dim
 

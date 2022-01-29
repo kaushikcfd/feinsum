@@ -17,7 +17,7 @@ import numpy as np
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from typing import Union, Tuple, Any, FrozenSet
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import cached_property, cache
 
 
