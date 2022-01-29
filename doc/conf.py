@@ -28,4 +28,6 @@ intersphinx_mapping = {
 
 nitpick_ignore_regex = [
     ["py:class", r"numpy.(u?)int[\d]+"],
+    ["py:class", r"numpy.typing.(.+)"],
+    ["py:class", r"pyrsistent.typing.(.+)"],
 ]

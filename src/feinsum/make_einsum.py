@@ -260,7 +260,7 @@ def fused_einsum(subscripts: str,
                  value_to_dtype: Optional[Mapping[str, npt.DTypeLike]] = None,
                  ) -> FusedEinsum:
     """
-    Returns a :class:`FusedEinsum` with an interface similar to
+    Returns a :class:`~feinsum.einsum.FusedEinsum` with an interface similar to
     :func:`numpy.einsum`.
 
     :param subscripts: A :class:`str` describing the Einstein summation as
@@ -332,7 +332,7 @@ def einsum(subscripts: str,
            *operands: ArrayT,
            arg_names: Optional[Sequence[str]] = None) -> FusedEinsum:
     """
-    Returns a :class:`FusedEinsum` with an interface similar to
+    Returns a :class:`~feinsum.einsum.FusedEinsum` with an interface similar to
     :func:`numpy.einsum`.
 
     :param arg_names: An optional sequence of :class:`str`. If not provided,
