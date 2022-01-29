@@ -1,0 +1,5 @@
+Abstraction
+===========
+
+.. automodule:: feinsum.einsum
+

@@ -1,3 +1,12 @@
+"""
+.. currentmodule:: feinsum.measure
+
+.. autofunction:: timeit
+.. autofunction:: measure_giga_op_rate
+"""
+
+
+
 import numpy as np
 import numpy.typing as npt
 import pyopencl as cl
@@ -75,6 +84,13 @@ def timeit(einsum: FusedEinsum,
            cl_ctx: cl.Context,
            long_dim_length: int = 100000
            ) -> float:
+    """
+    Returns the runtime in seconds for executing *einsum* on OpenCL context
+    *cl_ctx*.
+
+    :param transform: The transformation to be applied to
+        :class:`loopy.TranslationUnit` lowered from *einsum*.
+    """
     from time import time
     from feinsum.codegen.loopy import generate_loopy
 
@@ -154,6 +170,10 @@ def measure_giga_op_rate(expr: FusedEinsum,
                          *,
                          long_dim_length: int = 100000,
                          ) -> float:
+    """
+    Returns the arithmetic operations rate (in Giga Ops per second) for
+    arithmetic operations involving *dtype*.
+    """
     from feinsum.codegen.loopy import generate_loopy
     runtime = timeit(expr,
                      transform=transform,

@@ -1,3 +1,14 @@
+"""
+.. currentmodule:: feinsum.einsum
+
+.. autoclass:: FusedEinsum
+.. autoclass:: VeryLongAxis
+.. autoclass:: EinsumAxisAccess
+.. autoclass:: FreeAxis
+.. autoclass:: SummationAxis
+"""
+
+
 from __future__ import annotations
 
 import abc
@@ -23,7 +34,7 @@ ShapeT = Tuple[ShapeComponentT, ...]
 @dataclass(frozen=True, eq=True, repr=True)
 class VeryLongAxis:
     """
-    Describes a shape which can be assumed to be very large.
+    Describes a dimension length which is to be assumed to be very large.
     """
     # TODO: Record the threshold over which an axis could be considered as
     # "VeryLong."
@@ -68,6 +79,7 @@ class FusedEinsum:
     A fused einsum expression.
 
     .. attribute:: shape
+    .. attribute:: ndim
     .. automethod:: index_to_dim_length
     """
     arg_shapes: Tuple[ShapeT, ...]

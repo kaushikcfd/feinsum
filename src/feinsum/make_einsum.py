@@ -1,5 +1,5 @@
 """
-.. currentmodule:: feinsum
+.. currentmodule:: feinsum.make_einsum
 
 .. autofunction:: einsum
 .. autofunction:: fused_einsum
@@ -266,10 +266,10 @@ def fused_einsum(subscripts: str,
     :param subscripts: A :class:`str` describing the Einstein summation as
         accepted by :func:`numpy.einsum`.
     :param dtypes: The dtype of all the value the operands use. Cannot be
-        provide both *value_to_dtype* and *dtypes.
+        provide both *value_to_dtype* and *dtypes*.
     :param value_to_dtype: A mapping from the values the operands of the einsum
         depend on to their dtypes. Cannot be provide both *value_to_dtype* and
-        *dtypes.
+        *dtypes*.
     :param operand_shapes: A sequence of shapes of the operands of the Einstein
         Summation.
     :param use_matrix: A 2D :mod:`numpy` array-like object, where ``i,j``-th

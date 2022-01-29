@@ -1,11 +1,7 @@
 """
-Generates Loopy kernels on which transformations could be applied.
-
-
-.. currentmodule:: feinsum
+.. currentmodule:: feinsum.codegen.loopy
 
 .. autofunction:: generate_loopy
-
 """
 
 import loopy as lp

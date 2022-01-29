@@ -2,16 +2,24 @@
 feinsum
 =======
 
-TODO
+.. module:: feinsum
+
+``feinsum`` is a tool to aid tabulating and transforming multiple `Einstein
+summation expressions <https://en.wikipedia.org/wiki/Einstein_notation>`__ fused
+in a single loop nest.
 
 
 .. toctree::
     :maxdepth: 2
     :caption: Contents:
 
-    design
-    🚀 Github <https://github.com/kaushikcfd/feinsum>
-    💾 Download Releases <https://pypi.org/project/feinsum>
+    abstraction
+    building
+    codegen
+    metrics
+
+    🚀 Github <https://github.com/inducer/pytato>
+    💾 Download Releases <https://pypi.org/project/pytato>
 
 Indices and tables
 ==================
