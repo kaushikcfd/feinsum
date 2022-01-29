@@ -17,15 +17,6 @@ import pymbolic.primitives as p
 LOOPY_LANG_VERSION = (2018, 2)
 
 
-def _idx_to_dim_name(index: EinsumAxisAccess) -> str:
-    if isinstance(index, FreeAxis):
-        return f"ifree_{index.output_index}"
-    elif isinstance(index, SummationAxis):
-        return f"idummy_{index.index}"
-    else:
-        raise NotImplementedError(type(index))
-
-
 def get_isl_basic_set(einsum: FusedEinsum) -> isl.BasicSet:
     dim_name_to_ubound = {}
     vng = UniqueNameGenerator()
@@ -36,7 +27,7 @@ def get_isl_basic_set(einsum: FusedEinsum) -> isl.BasicSet:
         else:
             proc_dim = dim
 
-        dim_name_to_ubound[_idx_to_dim_name(idx)] = proc_dim
+        dim_name_to_ubound[einsum.index_names[idx]] = proc_dim
 
     space = isl.Space.create_from_names(isl.DEFAULT_CONTEXT,
                                         set=sorted(dim_name_to_ubound),
@@ -63,22 +54,28 @@ def get_isl_basic_set(einsum: FusedEinsum) -> isl.BasicSet:
     return bset
 
 
-def make_subscript(name: str, axes: Tuple[EinsumAxisAccess, ...]) -> p.Subscript:
-    return p.Variable(name)[tuple(p.Variable(_idx_to_dim_name(axis))
+def make_subscript(name: str,
+                   axes: Tuple[EinsumAxisAccess, ...],
+                   einsum: FusedEinsum,
+                   ) -> p.Subscript:
+    return p.Variable(name)[tuple(p.Variable(einsum.index_names[axis])
                                   for axis in axes)]
 
 
 def generate_loopy(einsum: FusedEinsum) -> "lp.TranslationUnit":
     domain = get_isl_basic_set(einsum)
     statements = []
-    dummy_indices = tuple(sorted(_idx_to_dim_name(axis)
+    dummy_indices = tuple(sorted(einsum.index_names[axis]
                                  for axis in einsum.index_to_dim_length()
                                  if isinstance(axis, SummationAxis)))
 
     for i_out in range(einsum.noutputs):
-        lhs = make_subscript(f"out_{i_out}", tuple(FreeAxis(idim)
-                                                   for idim in range(einsum.ndim)))
-        rhs = p.Product(tuple(p.Sum(tuple(make_subscript(dep, axes)
+        lhs = make_subscript(f"out_{i_out}",
+                             tuple(FreeAxis(idim)
+                                                   for idim in
+                                   range(einsum.ndim)),
+                             einsum)
+        rhs = p.Product(tuple(p.Sum(tuple(make_subscript(dep, axes, einsum)
                                           for dep in deps)
                                     )
                               for deps, axes in zip(einsum.use_matrix[i_out],

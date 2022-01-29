@@ -216,7 +216,8 @@ def _normalize_einsum_in_subscript(subscript: str,
 
 def _parse_subscripts(subscripts: str,
                       operand_shapes: Tuple[ShapeT, ...]
-                      ) -> Tuple[Tuple[EinsumAxisAccess, ...], ...]:
+                      ) -> Tuple[Tuple[Tuple[EinsumAxisAccess, ...], ...],
+                                 PMapT[str, EinsumAxisAccess]]:
     if len(operand_shapes) == 0:
         raise ValueError("must specify at least one operand")
 
@@ -250,7 +251,7 @@ def _parse_subscripts(subscripts: str,
                                            index_to_axis_length))
         access_descriptors.append(access_descriptor)
 
-    return tuple(access_descriptors)
+    return tuple(access_descriptors), index_to_descr
 
 
 def fused_einsum(subscripts: str,
@@ -276,10 +277,12 @@ def fused_einsum(subscripts: str,
         entry corresponds to the :class:`frozenset` of :class:`str` of value
         names that the ``j``-th operand of the ``i``-th einsum accesses.
     """
+
     from functools import reduce
 
     proc_op_shapes = tuple(_preprocess_shape(shape) for shape in operand_shapes)
-    access_descriptors = _parse_subscripts(subscripts, proc_op_shapes)
+    access_descriptors, index_to_descr = _parse_subscripts(subscripts,
+                                                           proc_op_shapes)
 
     use_matrix = np.array(use_matrix)
 
@@ -324,7 +327,8 @@ def fused_einsum(subscripts: str,
                        pmap(value_to_proc_dtype),
                        access_descriptors,
                        tuple(tuple(use_row)  # type: ignore[arg-type]
-                             for use_row in use_matrix)
+                             for use_row in use_matrix),
+                       index_names=pmap({v: k for k, v in index_to_descr.items()})
                        )
 
 
@@ -339,11 +343,6 @@ def einsum(subscripts: str,
         defaults to the sequence: ``"arg_0", "arg_1", "arg_2", ...``.
     """
 
-    # FIXME: Rewrite using 'fused_einsum'.
-
-    access_descriptors = _parse_subscripts(subscripts,
-                                           tuple(op.shape for op in operands))
-
     if arg_names is None:
         arg_names = [f"arg_{i}" for i in range(len(operands))]
 
@@ -352,23 +351,13 @@ def einsum(subscripts: str,
                          " does not match the number of operands"
                          f" ({len(operands)}).")
 
-    use_matrix = tuple(frozenset([arg_name])
-                       for arg_name in arg_names),
+    use_matrix = [[{arg_name} for arg_name in arg_names]]
     value_to_dtype = {arg_name: operand.dtype
                       for arg_name, operand in zip(arg_names, operands)}
 
-    assert all(isinstance(k, tuple) for k in use_matrix)
-    assert all(all((isinstance(use, frozenset)
-                    and all(isinstance(k, str) for k in use))
-                   for use in use_row)
-               for use_row in use_matrix)
-    assert all(len(use_row) == len(operands)
-               for use_row in use_matrix)
-
-    return FusedEinsum(tuple(operand.shape
-                             for operand in operands),
-                       pmap(value_to_dtype),
-                       access_descriptors,
-                       use_matrix)
+    return fused_einsum(subscripts,
+                        tuple(op.shape for op in operands),
+                        use_matrix=use_matrix,  # type: ignore[arg-type]
+                        value_to_dtype=value_to_dtype)
 
 # vim: foldmethod=marker

@@ -17,7 +17,7 @@ import numpy as np
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from typing import Union, Tuple, Any, FrozenSet
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property, cache
 
 
@@ -86,6 +86,7 @@ class FusedEinsum:
     value_to_dtype: PMapT[str, np.dtype[Any]]
     access_descriptors: Tuple[Tuple[EinsumAxisAccess, ...], ...]
     use_matrix: Tuple[Tuple[FrozenSet[str], ...]]
+    index_names: PMapT[EinsumAxisAccess, str]
 
     @property
     def noutputs(self) -> int:
