@@ -89,7 +89,6 @@ jobs:
                 python-version: '3.x'
         -   name: "Main Script"
             run: |
-                ./.ci-support/fix-code-for-docs.sh
                 curl -L -O -k https://tiker.net/ci-support-v0
                 . ci-support-v0
                 build_py_project_in_conda_env

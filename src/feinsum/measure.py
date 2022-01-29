@@ -5,8 +5,6 @@
 .. autofunction:: measure_giga_op_rate
 """
 
-
-
 import numpy as np
 import numpy.typing as npt
 import pyopencl as cl
