@@ -4,6 +4,7 @@ from feinsum.einsum import (FusedEinsum,
 from feinsum.make_einsum import (einsum, Array, ArrayT, array, fused_einsum)
 
 from feinsum.codegen.loopy import generate_loopy
+from feinsum.measure import (timeit, measure_giga_op_rate)
 
 
 __all__ = (
@@ -13,4 +14,6 @@ __all__ = (
     "einsum", "Array", "ArrayT", "array", "fused_einsum",
 
     "generate_loopy",
+
+    "timeit", "measure_giga_op_rate",
 )

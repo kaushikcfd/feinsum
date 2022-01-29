@@ -53,14 +53,16 @@ def get_isl_basic_set(einsum: FusedEinsum) -> isl.BasicSet:
     for dim_name, ubound in sorted(dim_name_to_ubound.items()):
         if isinstance(ubound, str):
             bset = bset.add_constraint(
-                isl.Constraint.ineq_from_names(space, {ubound: 1, dim_name: -1}))
+                isl.Constraint.ineq_from_names(space, {1: -1,
+                                                       ubound: 1,
+                                                       dim_name: -1}))
         else:
             assert isinstance(ubound, INT_CLASSES)
             bset = bset.add_constraint(
-                isl.Constraint.ineq_from_names(space, {1: ubound, dim_name: -1}))
+                isl.Constraint.ineq_from_names(space, {1: ubound-1, dim_name: -1}))
 
         bset = bset.add_constraint(
-            isl.Constraint.ineq_from_names(space, {1: -1, dim_name: 1}))
+            isl.Constraint.ineq_from_names(space, {1: 0, dim_name: 1}))
 
     return bset
 

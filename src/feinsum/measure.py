@@ -8,6 +8,8 @@ from typing import Callable, Dict
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from feinsum.einsum import FusedEinsum, INT_CLASSES, ShapeT
+import logging
+logger = logging.getLogger(__name__)
 
 
 N_WARMUP_ROUNDS = 20
@@ -67,10 +69,10 @@ def generate_input_arrays(queue: cl.CommandQueue,
 
 
 def timeit(einsum: FusedEinsum,
+           *,
            transform: Callable[[lp.TranslationUnit],
                                lp.TranslationUnit],
            cl_ctx: cl.Context,
-           *,
            long_dim_length: int = 100000
            ) -> float:
     from time import time
@@ -153,7 +155,9 @@ def measure_giga_op_rate(expr: FusedEinsum,
                          long_dim_length: int = 100000,
                          ) -> float:
     from feinsum.codegen.loopy import generate_loopy
-    runtime = timeit(expr, transform, cl_ctx,
+    runtime = timeit(expr,
+                     transform=transform,
+                     cl_ctx=cl_ctx,
                      long_dim_length=long_dim_length)
     t_unit = generate_loopy(expr)
     kernel = t_unit.default_entrypoint
