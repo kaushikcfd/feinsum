@@ -1,6 +1,8 @@
 """
 .. currentmodule:: feinsum
+
 .. autofunction:: einsum
+.. autofunction:: fused_einsum
 """
 
 __copyright__ = """
@@ -287,12 +289,13 @@ def fused_einsum(subscripts: str,
         raise ValueError("``use_matrix`` is not a matrix.")
 
     if not np.all(
-            np.vectorize(lambda x: (isinstance(x, frozenset)
+            np.vectorize(lambda x: (isinstance(x, (frozenset, set))
                                     and all(isinstance(k, str) for k in x))
                          )(use_matrix)):
         raise ValueError("Each element of the array-like ``use_matrix`` must be"
                          " an instance of FrozenSet[str].")
 
+    use_matrix = np.vectorize(lambda x: frozenset(x))(use_matrix)
     all_values_from_use_matrix: FrozenSet[str] = reduce(frozenset.union,
                                                         use_matrix.ravel(),
                                                         frozenset())
