@@ -9,6 +9,7 @@ import islpy as isl
 
 from typing import Union, Tuple
 from pytools import UniqueNameGenerator
+from more_itertools import zip_equal as zip
 from feinsum.einsum import (FusedEinsum, FreeAxis, SummationAxis,
                             EinsumAxisAccess, VeryLongAxis, IntegralT,
                             INT_CLASSES)
@@ -79,8 +80,7 @@ def generate_loopy(einsum: FusedEinsum) -> "lp.TranslationUnit":
                                           for dep in deps)
                                     )
                               for deps, axes in zip(einsum.use_matrix[i_out],
-                                                    einsum.access_descriptors,
-                                                    strict=True))
+                                                    einsum.access_descriptors))
                         )
         if dummy_indices:
             rhs = lp.Reduction("sum", tuple(p.Variable(idx)

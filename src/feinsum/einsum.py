@@ -19,6 +19,7 @@ from pyrsistent import pmap
 from typing import Union, Tuple, Any, FrozenSet
 from dataclasses import dataclass
 from functools import cached_property, cache
+from more_itertools import zip_equal as zip
 
 
 IntegralT = Union[int, np.int8, np.int16, np.int32, np.int64, np.uint8,
@@ -96,10 +97,8 @@ class FusedEinsum:
     def index_to_dim_length(self) -> PMapT[EinsumAxisAccess, ShapeComponentT]:
         index_to_dim = {}
         for arg_shape, arg_axes in zip(self.arg_shapes,
-                                       self.access_descriptors,
-                                       strict=True):
-            for dim, index in zip(arg_shape, arg_axes,
-                                  strict=True):
+                                       self.access_descriptors):
+            for dim, index in zip(arg_shape, arg_axes):
                 if dim not in index_to_dim:
                     index_to_dim[index] = dim
                 else:
