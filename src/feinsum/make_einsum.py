@@ -87,7 +87,8 @@ def _preprocess_component(s: Any) -> ShapeComponentT:
 
 
 def _preprocess_shape(shape: Any) -> ShapeT:
-    if not isinstance(shape, tuple):
+    from collections.abc import Sequence
+    if not isinstance(shape, Sequence):
         shape = shape,
 
     return tuple(_preprocess_component(d) for d in shape)

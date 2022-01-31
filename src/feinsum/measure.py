@@ -166,7 +166,23 @@ def _get_giga_ops_from_kernel(expr: FusedEinsum,
                               dtype: np.dtype[Any],
                               long_dim_length: int) -> float:
     from feinsum.codegen.loopy import generate_loopy
-    t_unit = generate_loopy(expr)
+    from feinsum.einsum import contraction_schedule_from_opt_einsum, SizeParam
+    from feinsum.make_einsum import array
+    import opt_einsum
+
+    _, path_info = opt_einsum.contract_path(expr.get_subscripts(),
+                                            *[array([long_dim_length
+                                                     if isinstance(dim, SizeParam)
+                                                     else dim
+                                                     for dim in arg_shape],
+                                                    np.float64)
+                                              for arg_shape in expr.arg_shapes],
+                                            optimize="optimal",
+                                            use_blas=False)
+
+    t_unit = generate_loopy(expr,
+                            contraction_schedule_from_opt_einsum(path_info))
+
     t_unit = lp.fix_parameters(t_unit, **{name: long_dim_length
                                           for name in (t_unit
                                                        .default_entrypoint
