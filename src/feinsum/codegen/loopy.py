@@ -231,10 +231,11 @@ def generate_loopy(einsum: FusedEinsum,
 
     # Temporary Variables
     for i_output in range(einsum.noutputs):
-        for itemp in range(schedule.nsteps-1):
+        for istep in range(schedule.nsteps-1):
             kernel_data.append(
                 lp.TemporaryVariable(result_name_in_lpy_knl[i_output][istep],
-                                     dtype=lp.auto, shape=lp.auto))
+                                     dtype=lp.auto, shape=lp.auto,
+                                     address_space=lp.AddressSpace.GLOBAL))
 
     # }}}
 
