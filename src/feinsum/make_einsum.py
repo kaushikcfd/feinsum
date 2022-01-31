@@ -36,13 +36,17 @@ import numpy as np
 import numpy.typing as npt
 
 from typing import (Tuple, Protocol, Any, List, Sequence, Optional, Mapping,
-                    FrozenSet)
+                    FrozenSet, Union)
 from dataclasses import dataclass
 from pyrsistent import pmap
 from pyrsistent.typing import PMap as PMapT
-from feinsum.einsum import (FusedEinsum, ShapeComponentT, ShapeT, FreeAxis,
+from feinsum.einsum import (FusedEinsum, ShapeComponentT, FreeAxis,
                             SummationAxis, EinsumAxisAccess, VeryLongAxis,
-                            INT_CLASSES)
+                            INT_CLASSES, IntegralT, SizeParam)
+from more_itertools import zip_equal as szip  # strict zip
+from pytools import UniqueNameGenerator
+
+ShapeT = Tuple[Union[VeryLongAxis, IntegralT], ...]
 
 
 class ArrayT(Protocol):
@@ -69,7 +73,7 @@ class Array:
     dtype: np.dtype[Any]
 
 
-def _preprocess_component(s: Any) -> ShapeComponentT:
+def _preprocess_component(s: Any) -> Union[VeryLongAxis, IntegralT]:
     if (isinstance(s, VeryLongAxis)
             or np.isposinf(s)):
         return VeryLongAxis()
@@ -243,7 +247,7 @@ def _parse_subscripts(subscripts: str,
     index_to_axis_length: PMapT[str, ShapeComponentT] = pmap()
     access_descriptors = []
 
-    for in_spec, in_operand_shape in zip(in_specs, operand_shapes):
+    for in_spec, in_operand_shape in szip(in_specs, operand_shapes):
         access_descriptor, index_to_descr, index_to_axis_length = (
             _normalize_einsum_in_subscript(in_spec,
                                            in_operand_shape,
@@ -323,12 +327,43 @@ def fused_einsum(subscripts: str,
 
     # }}}
 
-    return FusedEinsum(proc_op_shapes,
+    axis_to_name = pmap({v: k for k, v in index_to_descr.items()})
+    vng = UniqueNameGenerator()
+    vng.add_names(value_to_proc_dtype.keys())
+
+    # {{{ process operand shapes to
+
+    size_param_op_shapes = []
+    axis_to_dim = {}
+
+    for axes, op_shape in szip(access_descriptors,
+                               proc_op_shapes):
+        size_param_op_shape = []
+        for axis, dim in szip(axes, op_shape):
+            if axis in axis_to_dim:
+                if isinstance(dim, INT_CLASSES):
+                    assert axis_to_dim[axis] == dim
+                else:
+                    assert isinstance(dim, VeryLongAxis)
+            else:
+                if isinstance(dim, INT_CLASSES):
+                    axis_to_dim[axis] = dim
+                else:
+                    assert isinstance(dim, VeryLongAxis)
+                    axis_to_dim[axis] = SizeParam(vng(f"N_{axis_to_name[axis]}"))
+
+            size_param_op_shape.append(axis_to_dim[axis])
+
+        size_param_op_shapes.append(tuple(size_param_op_shape))
+
+    # }}}
+
+    return FusedEinsum(tuple(size_param_op_shapes),
                        pmap(value_to_proc_dtype),
                        access_descriptors,
                        tuple(tuple(use_row)  # type: ignore[arg-type]
                              for use_row in use_matrix),
-                       index_names=pmap({v: k for k, v in index_to_descr.items()})
+                       index_names=axis_to_name,
                        )
 
 
@@ -353,7 +388,7 @@ def einsum(subscripts: str,
 
     use_matrix = [[{arg_name} for arg_name in arg_names]]
     value_to_dtype = {arg_name: operand.dtype
-                      for arg_name, operand in zip(arg_names, operands)}
+                      for arg_name, operand in szip(arg_names, operands)}
 
     return fused_einsum(subscripts,
                         tuple(op.shape for op in operands),
