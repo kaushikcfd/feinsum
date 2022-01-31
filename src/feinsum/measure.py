@@ -101,6 +101,8 @@ def timeit(einsum: FusedEinsum,
                                                        .default_entrypoint
                                                        .all_params())})
 
+    t_unit = lp.set_options(t_unit, "no_numpy")
+
     param_dict = generate_input_arrays(cq, einsum, long_dim_length)
     out_dict = generate_out_arrays(cq, t_unit)
 
@@ -127,14 +129,14 @@ def timeit(einsum: FusedEinsum,
 
         clock_start = time()
 
-        for _ in range(100):
+        for _ in range(10):
             evt, _ = t_unit(cq, **arg_dict)
 
         evt.wait()
         clock_end = time()
 
         total_sim_time += (clock_end - clock_start)
-        total_rounds += 100
+        total_rounds += 10
 
     # TODO: verify the results in out_dict, with ref_solution
 
