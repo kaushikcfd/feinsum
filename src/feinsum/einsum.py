@@ -155,9 +155,9 @@ class FusedEinsum:
                           for i in range(self.ndim))
                 )
 
-    def copy(self, **kwargs) -> FusedEinsum:
+    def copy(self, **kwargs: Any) -> FusedEinsum:
         from dataclasses import replace
-        replace(self, **kwargs)
+        return replace(self, **kwargs)
 
 
 class Argument(abc.ABC):
@@ -209,7 +209,7 @@ class ContractionSchedule:
     result_names: Tuple[str, ...]
     arguments: Tuple[Tuple[Argument, ...], ...]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         assert len(self.subscripts) == len(self.result_names) == len(self.arguments)
 
     @property
@@ -219,14 +219,15 @@ class ContractionSchedule:
         """
         return len(self.subscripts)
 
-    def copy(self, **kwargs) -> FusedEinsum:
+    def copy(self, **kwargs: Any) -> ContractionSchedule:
         from dataclasses import replace
-        replace(self, **kwargs)
+        return replace(self, **kwargs)
 
 
 def contraction_schedule_from_opt_einsum(path: "PathInfo") -> ContractionSchedule:
-    current_args = [EinsumOperand(i)
-                    for i in range(path.input_subscripts.count(",") + 1)]
+    current_args: List[Argument] = [
+        EinsumOperand(i)
+        for i in range(path.input_subscripts.count(",") + 1)]
     vng = UniqueNameGenerator()
 
     subscripts: List[str] = []
@@ -239,7 +240,7 @@ def contraction_schedule_from_opt_einsum(path: "PathInfo") -> ContractionSchedul
         subscripts.append(subscript)
         result_names.append(vng("_fe_tmp"))
         current_args = ([arg
-                         for idx, arg in current_args
+                         for idx, arg in enumerate(current_args)
                          if idx not in arg_indices]
                         + [IntermediateResult(result_names[-1])])
 

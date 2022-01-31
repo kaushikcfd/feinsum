@@ -9,12 +9,13 @@ import islpy as isl
 import pymbolic.primitives as p
 import numpy as np
 
-from typing import Union, Tuple, Optional
+from typing import Union, Tuple, Optional, Any, Dict
 from pytools import UniqueNameGenerator
 from feinsum.einsum import (FusedEinsum, FreeAxis, SummationAxis,
-                            EinsumAxisAccess, VeryLongAxis, IntegralT,
-                            INT_CLASSES, ContractionSchedule,
-                            EinsumOperand, IntermediateResult, SizeParam)
+                            EinsumAxisAccess, IntegralT, INT_CLASSES,
+                            ContractionSchedule, EinsumOperand,
+                            IntermediateResult, SizeParam, Argument,
+                            ShapeT)
 from feinsum.make_einsum import fused_einsum
 from more_itertools import zip_equal as szip
 from pyrsistent import pmap
@@ -23,14 +24,12 @@ from pyrsistent import pmap
 LOOPY_LANG_VERSION = (2018, 2)
 
 
-def get_isl_basic_set(einsum: FusedEinsum,
-                      schedule: ContractionSchedule) -> isl.BasicSet:
+def get_isl_basic_set(einsum: FusedEinsum) -> isl.BasicSet:
     dim_name_to_ubound = {}
-    vng = UniqueNameGenerator()
 
     for idx, dim in einsum.index_to_dim_length().items():
-        if isinstance(dim, VeryLongAxis):
-            proc_dim: Union[str, IntegralT] = vng(f"N_{einsum.index_names[idx]}")
+        if isinstance(dim, SizeParam):
+            proc_dim: Union[str, IntegralT] = dim.name
         else:
             proc_dim = dim
 
@@ -138,7 +137,7 @@ def generate_loopy(einsum: FusedEinsum,
 
     # {{{ start holding a mapping from argument to shapes
 
-    arg_to_shape = {}
+    arg_to_shape: Dict[Argument, ShapeT] = {}
 
     for ioperand, arg_shape in enumerate(einsum.arg_shapes):
         arg_to_shape[EinsumOperand(ioperand)] = arg_shape
@@ -164,7 +163,7 @@ def generate_loopy(einsum: FusedEinsum,
     value_to_dtype = einsum.value_to_dtype
 
     for i_output in range(einsum.noutputs):
-        arg_to_dtype = {
+        arg_to_dtype: Dict[Argument, np.dtype[Any]] = {
             EinsumOperand(ioperand): np.find_common_type({value_to_dtype[use]
                                                           for use in uses},
                                                          [])
@@ -172,11 +171,11 @@ def generate_loopy(einsum: FusedEinsum,
                                             .use_matrix[i_output])}
 
         for name_in_lpy_knl, name_in_feinsum, args in (
-                szip(result_name_in_lpy_knl[i_output],
-                     schedule.result_names,
-                     schedule.arguments)):
+                zip(result_name_in_lpy_knl[i_output],
+                    schedule.result_names,
+                    schedule.arguments)):
             dtype = np.find_common_type({arg_to_dtype[arg] for arg in args}, [])
-            value_to_dtype[result_name_in_lpy_knl] = dtype
+            value_to_dtype = value_to_dtype.set(name_in_lpy_knl, dtype)
             arg_to_dtype[IntermediateResult(name_in_feinsum)] = dtype
 
     # }}}
@@ -186,9 +185,9 @@ def generate_loopy(einsum: FusedEinsum,
     kernel_data = []
 
     for istep, (name_in_feinsum, subscripts, args) in enumerate(
-            szip(schedule.result_names,
-                 schedule.subscripts,
-                 schedule.arguments)):
+            zip(schedule.result_names,
+                schedule.subscripts,
+                schedule.arguments)):
 
         subeinsum_value_to_dtype = {}
         subeinsum_use_matrix = []
@@ -207,21 +206,21 @@ def generate_loopy(einsum: FusedEinsum,
                 else:
                     raise NotImplementedError(type(arg))
 
-            subeinsum_use_matrix.append(tuple(subeinsum_use_row))
+            subeinsum_use_matrix.append(subeinsum_use_row)
 
         subeinsum = fused_einsum(subscripts,
                                  [arg_to_shape[arg] for arg in args],
-                                 subeinsum_use_matrix,
-                                 value_to_dtype=subeinsum_value_to_dtype)
+                                 subeinsum_use_matrix,  # type: ignore[arg-type]
+                                 value_to_dtype=pmap(subeinsum_value_to_dtype))
         subeinsum = subeinsum.copy(
-            index_to_names=pmap({idx: name if istep == 0 else f"{name}_{istep-1}"
-                                 for idx, name in subeinsum.idx_to_names.items()}))
+            index_names=pmap({idx: name if istep == 0 else f"{name}_{istep-1}"
+                              for idx, name in subeinsum.index_names.items()}))
         arg_to_shape[IntermediateResult(name_in_feinsum)] = subeinsum.shape
 
         subeinsum_domains, subeinsum_statements = _generate_trivial_einsum(
             subeinsum,
-            [result_name_in_lpy_knl[i_output][istep]
-             for i_output in range(einsum.noutputs)])
+            tuple([result_name_in_lpy_knl[i_output][istep]
+                   for i_output in range(einsum.noutputs)]))
 
         domains.extend(subeinsum_domains)
         statements.extend(subeinsum_statements)
@@ -234,7 +233,7 @@ def generate_loopy(einsum: FusedEinsum,
 
     # Outputs
     for i_output in range(einsum.noutputs):
-        kernel_data.append(lp.GlobalArg(name_in_feinsum_to_lpy[i_output][-1],
+        kernel_data.append(lp.GlobalArg(result_name_in_lpy_knl[i_output][-1],
                                         dtype=lp.auto, shape=lp.auto))
 
     # Temporary Variables

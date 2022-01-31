@@ -36,17 +36,19 @@ import numpy as np
 import numpy.typing as npt
 
 from typing import (Tuple, Protocol, Any, List, Sequence, Optional, Mapping,
-                    FrozenSet, Union)
+                    FrozenSet, Union, Dict)
 from dataclasses import dataclass
 from pyrsistent import pmap
 from pyrsistent.typing import PMap as PMapT
-from feinsum.einsum import (FusedEinsum, ShapeComponentT, FreeAxis,
+from feinsum.einsum import (FusedEinsum, FreeAxis,
                             SummationAxis, EinsumAxisAccess, VeryLongAxis,
                             INT_CLASSES, IntegralT, SizeParam)
 from more_itertools import zip_equal as szip  # strict zip
 from pytools import UniqueNameGenerator
 
-ShapeT = Tuple[Union[VeryLongAxis, IntegralT], ...]
+
+ShapeComponentT = Union[VeryLongAxis, IntegralT]
+ShapeT = Tuple[ShapeComponentT, ...]
 
 
 class ArrayT(Protocol):
@@ -333,8 +335,10 @@ def fused_einsum(subscripts: str,
 
     # {{{ process operand shapes to
 
+    from feinsum.einsum import ShapeComponentT as ProcessedShapeComponentT
+
     size_param_op_shapes = []
-    axis_to_dim = {}
+    axis_to_dim: Dict[EinsumAxisAccess, ProcessedShapeComponentT] = {}
 
     for axes, op_shape in szip(access_descriptors,
                                proc_op_shapes):
