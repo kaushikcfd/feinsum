@@ -24,6 +24,7 @@ intersphinx_mapping = {
     "https://documen.tician.de/pymbolic/": None,
     "https://documen.tician.de/loopy/": None,
     "https://documen.tician.de/islpy/": None,
+    "https://optimized-einsum.readthedocs.io/en/stable/": None,
 }
 
 nitpick_ignore_regex = [
