@@ -10,6 +10,7 @@
 .. autoclass:: EinsumOperand
 .. autoclass:: IntermediateResult
 .. autoclass:: ContractionSchedule
+.. autoclass:: SizeParam
 
 
 Helper routines
@@ -163,7 +164,7 @@ class FusedEinsum:
 class Argument(abc.ABC):
     """
     An abstract class denoting an argument to an einsum in
-    :class:`ContractionSchedule.` See :attr:`ContractionSchedule.arguments`.
+    :class:`ContractionSchedule`. See :attr:`ContractionSchedule.arguments`.
     """
 
 
