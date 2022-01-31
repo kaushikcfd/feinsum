@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import abc
 import numpy as np
+import sys
 
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
@@ -46,7 +47,8 @@ ShapeComponentT = Union[IntegralT, "SizeParam"]
 ShapeT = Tuple[ShapeComponentT, ...]
 
 
-if TYPE_CHECKING:
+if TYPE_CHECKING or getattr(sys, "FEINSUM_BUILDING_SPHINX_DOCS", False):
+    # Avoid making opt_einsum a hard dep.
     from opt_einsum.contract import PathInfo
 
 

@@ -32,3 +32,6 @@ nitpick_ignore_regex = [
     ["py:class", r"numpy.typing.(.+)"],
     ["py:class", r"pyrsistent.typing.(.+)"],
 ]
+
+import sys
+sys.FEINSUM_BUILDING_SPHINX_DOCS = True
