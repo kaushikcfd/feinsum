@@ -70,7 +70,7 @@ def make_subscript(name: str,
 
 def _generate_trivial_einsum(einsum: FusedEinsum,
                              output_names: Tuple[str, ...],
-                             ) -> "lp.TranslationUnit":
+                             ) -> Tuple[isl.BasicSet, "lp.TranslationUnit"]:
     assert len(output_names) == einsum.noutputs
 
     domain = get_isl_basic_set(einsum)
@@ -98,13 +98,6 @@ def _generate_trivial_einsum(einsum: FusedEinsum,
         statements.append(lp.Assignment(lhs, rhs))
 
     return domain, statements
-
-    return lp.make_kernel([domain],
-                          statements,
-                          kernel_data=(
-                                       + [...]
-                                       ),
-                          lang_version=LOOPY_LANG_VERSION)
 
 
 def generate_loopy(einsum: FusedEinsum,
@@ -217,12 +210,12 @@ def generate_loopy(einsum: FusedEinsum,
                               for idx, name in subeinsum.index_names.items()}))
         arg_to_shape[IntermediateResult(name_in_feinsum)] = subeinsum.shape
 
-        subeinsum_domains, subeinsum_statements = _generate_trivial_einsum(
+        subeinsum_domain, subeinsum_statements = _generate_trivial_einsum(
             subeinsum,
             tuple([result_name_in_lpy_knl[i_output][istep]
                    for i_output in range(einsum.noutputs)]))
 
-        domains.extend(subeinsum_domains)
+        domains.append(subeinsum_domain)
         statements.extend(subeinsum_statements)
 
     # {{{ Populate kernel_data

@@ -47,7 +47,7 @@ from more_itertools import zip_equal as szip  # strict zip
 from pytools import UniqueNameGenerator
 
 
-ShapeComponentT = Union[VeryLongAxis, IntegralT]
+ShapeComponentT = Union[VeryLongAxis, IntegralT, SizeParam]
 ShapeT = Tuple[ShapeComponentT, ...]
 
 
@@ -75,9 +75,10 @@ class Array:
     dtype: np.dtype[Any]
 
 
-def _preprocess_component(s: Any) -> Union[VeryLongAxis, IntegralT]:
-    if (isinstance(s, VeryLongAxis)
-            or np.isposinf(s)):
+def _preprocess_component(s: Any) -> ShapeComponentT:
+    if isinstance(s, SizeParam):
+        return s
+    elif (isinstance(s, VeryLongAxis) or np.isposinf(s)):
         return VeryLongAxis()
     elif (isinstance(s, INT_CLASSES) and (s >= 0)):
         return s
@@ -345,12 +346,12 @@ def fused_einsum(subscripts: str,
         size_param_op_shape = []
         for axis, dim in szip(axes, op_shape):
             if axis in axis_to_dim:
-                if isinstance(dim, INT_CLASSES):
+                if isinstance(dim, INT_CLASSES + (SizeParam,)):
                     assert axis_to_dim[axis] == dim
                 else:
                     assert isinstance(dim, VeryLongAxis)
             else:
-                if isinstance(dim, INT_CLASSES):
+                if isinstance(dim, INT_CLASSES + (SizeParam,)):
                     axis_to_dim[axis] = dim
                 else:
                     assert isinstance(dim, VeryLongAxis)
