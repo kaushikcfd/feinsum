@@ -25,6 +25,8 @@ import numpy as np
 from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 import feinsum as f
+import opt_einsum
+import loopy as lp
 
 
 def test_wave_div_components(ctx_factory):
@@ -91,3 +93,33 @@ def test_wave_grad(ctx_factory):
              transform=lambda x: x,
              cl_ctx=cl_ctx,
              long_dim_length=300)
+
+
+def test_opt_einsum_contract_schedule(ctx_factory):
+    Ndofs = 35
+    Ndim = 3
+    cl_ctx = ctx_factory()
+
+    expr = f.einsum("xre,rij,ej->xei",
+                    f.array((Ndim, Ndim, np.inf,),
+                            "float64"),
+                    f.array((Ndim, Ndofs, Ndofs),
+                            "float64"),
+                    f.array((np.inf, Ndofs),
+                            "float64"),
+                    arg_names=["J", "R", "u"])
+    _, path_info = path, path_info = opt_einsum.contract_path("xre,rij,ej->xei",
+                                                              f.array((3, 3, 50_000),
+                                                                      "float32"),
+                                                              f.array((3, 35, 35),
+                                                                      "float32"),
+                                                              f.array((50_000, 35),
+                                                                      "float64"),
+                                                              optimize="optimal",
+                                                              use_blas=False)
+    knl1 = f.generate_loopy(expr)
+    knl2 = f.generate_loopy(expr,
+                            f.contraction_schedule_from_opt_einsum(path_info))
+    assert len(knl1.default_entrypoint.instructions) == 1
+    assert len(knl2.default_entrypoint.instructions) == 2
+    lp.auto_test_vs_ref(knl1, cl_ctx, knl2, parameters={"N_e": 5})
