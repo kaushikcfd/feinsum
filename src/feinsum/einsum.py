@@ -245,7 +245,7 @@ def contraction_schedule_from_opt_einsum(path: "PathInfo") -> ContractionSchedul
                          if idx not in arg_indices]
                         + [IntermediateResult(result_names[-1])])
 
-    assert len(current_args) == 0
+    assert len(current_args) == 1
     result_names[-1] = vng("_fe_out")
 
     return ContractionSchedule(tuple(subscripts),
