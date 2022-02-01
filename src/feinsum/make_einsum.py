@@ -194,10 +194,10 @@ def _normalize_einsum_in_subscript(subscript: str,
             if index_char in index_to_axis_length:
                 seen_axis_len = index_to_axis_length[index_char]
                 if in_axis_len != seen_axis_len:
-                    if in_axis_len != 1:
+                    if in_axis_len == 1:
                         # Broadcast the current axis
                         pass
-                    elif seen_axis_len != 1:
+                    elif seen_axis_len == 1:
                         # Broadcast to the length of the current axis
                         index_to_axis_length = (index_to_axis_length
                                                 .set(index_char, in_axis_len))
