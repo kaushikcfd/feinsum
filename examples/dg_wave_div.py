@@ -34,10 +34,8 @@ def variant_0(t_unit):
                                  new_inames=["e_2", "i_2", "j_2", "s_2"])
 
     for iel, idof in [("e_0", "i_0"), ("e_1", "i_1"), ("e_2", "i_2")]:
-        t_unit = lp.split_iname(t_unit, iel, 8,
-                                outer_tag="g.0", inner_tag="l.1")
-        t_unit = lp.split_iname(t_unit,
-                                idof, 4, inner_tag="l.0")
+        t_unit = lp.split_iname(t_unit, iel, 32,
+                                outer_tag="g.0", inner_tag="l.0")
 
     return t_unit
 
@@ -46,11 +44,36 @@ def variant_1(t_unit):
     """
     Simple work division strategy.
     """
+    t_unit = lp.tag_inames(t_unit, {"s": "unr"})
     t_unit = lp.split_iname(t_unit, "e", 8,
                             outer_tag="g.0", inner_tag="l.1")
     t_unit = lp.split_iname(t_unit, "i", 4,
-                            inner_tag="l.0")
+                            inner_tag="l.0", outer_tag="ilp")
 
+    return t_unit
+
+
+def variant_3(t_unit):
+    # Based on https://github.com/nchristensen/grudge/'s transformation
+    # algorithm
+    assert t_unit.default_entrypoint.arg_dict["R"].shape == (3, 35, 35)
+    imatrix = "s"
+    iel = "e"
+    idof = "i"
+
+    dof_vecs = [arg.name for arg in t_unit.default_entrypoint.args
+                if arg.name in ["ux", "uy", "uz"]]
+    t_unit = lp.tag_inames(t_unit, {imatrix: "unr"})
+    t_unit = lp.split_iname(t_unit, iel, 16, outer_tag="g.0")
+    t_unit = lp.split_iname(t_unit, f"{iel}_inner", 8, outer_tag="ilp",
+                            inner_tag="l.0")
+    t_unit = lp.tag_inames(t_unit, {idof: "l.1"})
+    for vec in dof_vecs:
+        t_unit = lp.add_prefetch(t_unit, vec,
+                                 f"j,{iel}_inner_outer,{iel}_inner_inner",
+                                 temporary_name=f"{vec}_prftch",
+                                 default_tag="l.auto")
+    t_unit = lp.add_inames_for_unused_hw_axes(t_unit)
     return t_unit
 
 
