@@ -110,6 +110,44 @@ def _get_op_info_for_db(einsum: FusedEinsum, long_dim_length: int) -> str:
                      for k, v in dtype_to_ops.items())
 
 
+def _get_log_str_for_run(einsum: FusedEinsum,
+                         runtime: float,
+                         device: "cl.Device",
+                         long_dim_length: int) -> str:
+
+    try:
+        from tabulate import tabulate
+    except ImportError:
+        raise ImportError("`tabulate` is need for pretty printing."
+                          " Install via `pip install tabulate`.")
+
+    from feinsum.measure import (_get_giga_ops_from_einsum,
+                                 _get_footprint_gbytes)
+    from feinsum.data.device_info import (DEV_TO_PEAK_GFLOPS,
+                                          DEV_TO_PEAK_BW)
+    from pymbolic.mapper.evaluator import evaluate_to_float
+
+    perf_table = [["Dtype", "Measured GOps/s", "Roofline GOps/s"]]
+
+    eval_context = {dim.name: long_dim_length
+                    for dim in einsum.index_to_dim_length().values()
+                    if isinstance(dim, SizeParam)}
+    dtype_to_ops = {k: evaluate_to_float(v, eval_context)
+                    for k, v in _get_giga_ops_from_einsum(einsum).items()}
+    ngbs = _get_footprint_gbytes(einsum, long_dim_length=long_dim_length)
+
+    for dtype, ops in sorted(dtype_to_ops.items(),
+                             key=lambda x: x[0].itemsize):
+        roofline_flops = (ops
+                          / max(ops/DEV_TO_PEAK_GFLOPS[device.name][dtype.name],
+                                ngbs/DEV_TO_PEAK_BW[device.name]))
+        perf_table.append([dtype.name,
+                           f"{(ops/runtime):.1f}",
+                           f"{roofline_flops:.1f}"])
+
+    return tabulate(perf_table, tablefmt="fancy_grid")
+
+
 def _get_cl_device_name_for_db(cl_device: "cl.Device") -> str:
     dev_name = cl_device.name
     assert isinstance(dev_name, str)
@@ -132,14 +170,19 @@ def record(einsum: FusedEinsum,
            remarks: str = "",
            database: str = DEFAULT_TRANSFORM_ARCHIVE,
            long_dim_length: int = 50_000,
+           log_performance_data: bool = True,
            ) -> None:
+    """
+    :param log_performance_data: If *True* will log the run results via
+        :mod:`logging`.
+    """
 
     from feinsum.measure import timeit
     from feinsum.codegen.loopy import generate_loopy
 
     # TODO: Instead of taking in a long_dim_length, should allow setting each
     # parameter its value.
-    # How to record the FusedEinsum in sqlite? The
+    # TODO: Normalizing the FusedEinsum.
     # interaction matrix is more or less clear, but what permutation to apply
     # to t.
     if (transform_str is not None) and (transform_file_path is not None):
@@ -179,6 +222,7 @@ def record(einsum: FusedEinsum,
 
     if not cursor.fetchall():
         # device table not available
+        logger.info(f"Table for {device_name} not in DB, creating one.")
         cursor.execute(f"CREATE TABLE {device_name} ("
                        " subscripts TEXT,"
                        " index_to_length TEXT,"
@@ -190,6 +234,7 @@ def record(einsum: FusedEinsum,
                        " compiler_version TEXT,"
                        " cl_kernel TEXT,"
                        " giga_op_info TEXT,"
+                       " timestamp TEXT,"
                        " remarks TEXT"
                        ")")
 
@@ -205,9 +250,31 @@ def record(einsum: FusedEinsum,
     compiler_version = _get_cl_version_for_db(cl_device)
     op_info = _get_op_info_for_db(einsum, long_dim_length=long_dim_length)
 
+    # {{{ logging values
+
+    if log_performance_data:
+        logger.info("Recorded --\n"
+                    + _get_log_str_for_run(einsum,
+                                           runtime=runtime,
+                                           device=cl_device,
+                                           long_dim_length=long_dim_length))
+
+    # }}}
+
+    # {{{ compute timestamp in Chicago
+
+    import pytz
+    from datetime import datetime
+
+    timestamp = (datetime
+                .now(pytz.timezone("America/Chicago"))
+                .strftime("%Y_%m_%d_%H%M%S"))
+
+    # }}}
+
     cursor.execute(f"INSERT INTO {device_name}"
                    " VALUES ("
-                   f"'{subscripts}',"        # subscripts
+                   f"'{subscripts}',"         # subscripts
                    f" '{index_to_length}',"   # index_to_length
                    f" '{use_matrix}',"        # use_matrix
                    f" '{value_to_dtype}',"    # value_to_dtype
@@ -217,8 +284,10 @@ def record(einsum: FusedEinsum,
                    f" '{compiler_version}',"  # compiler_version
                    f" '{cl_kernel}',"         # cl_kernel
                    f" '{op_info}',"           # giga_op_info
-                   f" '{remarks}'"           # remarks
+                   f" '{timestamp}',"         # timestamp
+                   f" '{remarks}'"            # remarks
                    ")")
+
     conn.commit()
 
 
