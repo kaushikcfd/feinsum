@@ -1,0 +1,4 @@
+Tabulating
+=================
+
+.. automodule:: feinsum.tabulate

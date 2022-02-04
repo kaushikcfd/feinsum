@@ -9,13 +9,14 @@
 import numpy as np
 import numpy.typing as npt
 import pyopencl as cl
+import pymbolic.primitives as prim
 import loopy as lp
 import pyopencl.array as cla
 
 from typing import Callable, Dict, Any
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
-from feinsum.einsum import FusedEinsum, INT_CLASSES, ShapeT
+from feinsum.einsum import FusedEinsum, INT_CLASSES, ShapeT, SizeParam
 from more_itertools import zip_equal as zip
 import logging
 logger = logging.getLogger(__name__)
@@ -143,37 +144,15 @@ def timeit(einsum: FusedEinsum,
     return total_sim_time / total_rounds
 
 
-def _get_flops_from_complex_ops(op_map: "lp.ToCountMap",
-                                complex_dtype: npt.DTypeLike,
-                                kernel_name: str) -> int:
-
-    complex_add = op_map.filter_by(dtype=[complex_dtype],
-                                   name="add",
-                                   kernel_name=kernel_name).eval_and_sum({})
-
-    complex_mul = op_map.filter_by(dtype=[complex_dtype],
-                                   name="mul",
-                                   kernel_name=kernel_name).eval_and_sum({})
-
-    complex_div = op_map.filter_by(dtype=[complex_dtype],
-                                   name="div",
-                                   kernel_name=kernel_name).eval_and_sum({})
-
-    return (2 * complex_add  # type: ignore[no-any-return]
-            + 6 * complex_mul
-            + (6 + 3 + 2) * complex_div)
-
-
-def _get_giga_ops_from_kernel(expr: FusedEinsum,
-                              dtype: np.dtype[Any],
-                              long_dim_length: int) -> float:
+def _get_giga_ops_from_einsum(expr: FusedEinsum) -> PMapT[np.dtype[Any],
+                                                          prim.Expression]:
     from feinsum.codegen.loopy import generate_loopy
     from feinsum.einsum import contraction_schedule_from_opt_einsum, SizeParam
     from feinsum.make_einsum import array
     import opt_einsum
 
     _, path_info = opt_einsum.contract_path(expr.get_subscripts(),
-                                            *[array([long_dim_length
+                                            *[array([1_000_000
                                                      if isinstance(dim, SizeParam)
                                                      else dim
                                                      for dim in arg_shape],
@@ -185,30 +164,34 @@ def _get_giga_ops_from_kernel(expr: FusedEinsum,
     t_unit = generate_loopy(expr,
                             contraction_schedule_from_opt_einsum(path_info))
 
-    t_unit = lp.fix_parameters(t_unit, **{name: long_dim_length
-                                          for name in (t_unit
-                                                       .default_entrypoint
-                                                       .all_params())})
-
     kernel = t_unit.default_entrypoint
     kernel = kernel.copy(silenced_warnings=(kernel.silenced_warnings
                                             + ["insn_count_subgroups_upper_bound",
                                                "summing_if_branches_ops"]))
     t_unit = t_unit.with_kernel(kernel)
-    dtype = np.dtype(dtype)
     op_map = lp.get_op_map(t_unit, subgroup_size=1)
-    extra_ops = 0
+    new_op_map: Dict[np.dtype[Any], prim.Expression] = {}
 
-    if dtype == np.dtype(np.float32):
-        extra_ops += _get_flops_from_complex_ops(op_map, np.complex64, kernel.name)
-    elif dtype == np.dtype(np.float64):
-        extra_ops += _get_flops_from_complex_ops(op_map, np.complex128, kernel.name)
-    else:
-        pass
+    for dtype in {op.dtype.numpy_dtype for op in op_map.keys()}:
+        if dtype.kind == "c":
+            c_ops = {op_type: op_map.filter_by(dtype=[dtype],
+                                               name="add",
+                                               kernel_name=kernel.name)
+                     for op_type in ["add", "mul", "div"]}
 
-    return ((op_map.filter_by(dtype=[dtype.type],  # type: ignore[no-any-return]
-                              kernel_name=kernel.name).eval_and_sum({})
-             + extra_ops) * 1e-9)
+            ops = (2 * c_ops["add"] + 6 * c_ops["mul"] + (6 + 3 + 2) * c_ops["div"])
+            dtype = np.empty(0, dtype=dtype).real.dtype
+        else:
+            ops = op_map.filter_by(dtype=[dtype], kernel_name=kernel.name)
+
+        (_, qpoly), = ops.sum().pwqpolynomial.get_pieces()
+
+        from loopy.symbolic import qpolynomial_to_expr
+
+        new_op_map.setdefault(dtype, 0)
+        new_op_map[dtype] = (new_op_map[dtype] + qpolynomial_to_expr(qpoly) * 1e-9)
+
+    return pmap(new_op_map)
 
 
 def _get_footprint_gbytes(expr: FusedEinsum, long_dim_length: int) -> float:
@@ -234,7 +217,7 @@ def measure_giga_op_rate(expr: FusedEinsum,
                          cl_ctx: cl.Context,
                          dtype: npt.DTypeLike = "float64",
                          long_dim_length: int = 100000,
-                         ) -> float:
+                         ) -> PMapT[np.dtype[Any], float]:
     """
     Returns the arithmetic operations rate (in Giga Ops per second) for
     arithmetic operations involving *dtype*.
@@ -244,9 +227,12 @@ def measure_giga_op_rate(expr: FusedEinsum,
                      cl_ctx=cl_ctx,
                      long_dim_length=long_dim_length)
 
-    return _get_giga_ops_from_kernel(expr,
-                                     dtype=np.dtype(dtype),
-                                     long_dim_length=long_dim_length) / runtime
+    from pymbolic.mapper.evaluator import evaluate_to_float
+    eval_context = {dim.name: long_dim_length
+                    for dim in expr.index_to_dim_length().values()
+                    if isinstance(dim, SizeParam)}
+    return pmap({k: evaluate_to_float(v, eval_context)/runtime
+                 for k, v in _get_giga_ops_from_einsum(expr).items()})
 
 
 def pprint_comparison_vs_roofline(expr: FusedEinsum,
@@ -254,7 +240,6 @@ def pprint_comparison_vs_roofline(expr: FusedEinsum,
                                   transform: Callable[[lp.TranslationUnit],
                                                       lp.TranslationUnit],
                                   cl_ctx: cl.Context,
-                                  dtype: npt.DTypeLike = "float64",
                                   long_dim_length: int = 100000,) -> None:
     """
     Pretty prints the comparison of *expr* transformed with *transform* wrt
@@ -268,14 +253,27 @@ def pprint_comparison_vs_roofline(expr: FusedEinsum,
         raise ImportError("tabulate is need for pretty printing."
                           " Install via `pip install tabulate`.")
 
-    from feinsum.data.device_info import (DEV_TO_PEAK_F64_GFLOPS,
+    from feinsum.data.device_info import (DEV_TO_PEAK_GFLOPS,
                                           DEV_TO_PEAK_BW)
+    from pymbolic.mapper.evaluator import evaluate_to_float
+
     dev, = cl_ctx.devices
 
-    ngflops = _get_giga_ops_from_kernel(expr, np.dtype(dtype), long_dim_length)
+    giga_op_map = _get_giga_ops_from_einsum(expr)
+
+    if len(giga_op_map) > 1:
+        raise ValueError("Cannot evaluate the FlOp-rate"
+                         " for an einsum inolving multiple dtypes.")
+    (dtype, giga_ops_expr), = giga_op_map.items()
+
+    ngflops = evaluate_to_float(giga_ops_expr,
+                                {dim.name: long_dim_length
+                                 for dim in expr.index_to_dim_length().values()
+                                 if isinstance(dim, SizeParam)})
+
     ngbs = _get_footprint_gbytes(expr, long_dim_length)
     roofline_flops = (ngflops
-                      / max(ngflops/DEV_TO_PEAK_F64_GFLOPS[dev.name],
+                      / max(ngflops/DEV_TO_PEAK_GFLOPS[dev.name][dtype.name],
                             ngbs/DEV_TO_PEAK_BW[dev.name]))
 
     measured_flops = measure_giga_op_rate(expr,

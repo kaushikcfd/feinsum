@@ -54,11 +54,11 @@ def test_matvec_with_long_dim_result(ctx_factory):
 
 
 def test_pprint_roofline_comparison(ctx_factory):
-    from feinsum.data.device_info import DEV_TO_PEAK_F64_GFLOPS
+    from feinsum.data.device_info import DEV_TO_PEAK_GFLOPS
     cl_ctx = ctx_factory()
     if len(cl_ctx.devices) != 1:
         pytest.skip("Multiple devices in the context")
-    if cl_ctx.devices[0].name not in DEV_TO_PEAK_F64_GFLOPS:
+    if cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
         pytest.skip("Device not known.")
 
     Ndim = 3

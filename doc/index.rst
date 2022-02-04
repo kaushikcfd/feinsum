@@ -17,6 +17,7 @@ in a single loop nest.
     building
     codegen
     metrics
+    tabulation
 
     🚀 Github <https://github.com/inducer/pytato>
     💾 Download Releases <https://pypi.org/project/pytato>

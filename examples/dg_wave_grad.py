@@ -91,13 +91,13 @@ def variant_2(t_unit, nwork_items_per_cell=4, ncells_per_workgroup=8):
 
 
 def main():
-    from feinsum.data.device_info import DEV_TO_PEAK_F64_GFLOPS
+    from feinsum.data.device_info import DEV_TO_PEAK_GFLOPS
     cl_ctx = cl.create_some_context()
 
     if len(cl_ctx.devices) != 1:
         logger.info("Multiple devices in the context")
         return
-    if cl_ctx.devices[0].name not in DEV_TO_PEAK_F64_GFLOPS:
+    if cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
         logger.info("Device not known.")
         return
 
