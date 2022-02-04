@@ -283,5 +283,5 @@ def stringify_comparison_vs_roofline(expr: FusedEinsum,
                                           long_dim_length=long_dim_length)
 
     table = [["Current Transform", "Roofline"],
-             [f"{measured_flops:.1f}", f"{roofline_flops:.1f}"]]
+             [f"{measured_flops[dtype]:.1f}", f"{roofline_flops:.1f}"]]
     return tabulate(table, tablefmt="fancy_grid")
