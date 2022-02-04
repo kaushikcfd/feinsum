@@ -6,3 +6,4 @@ opt_einsum
 # some pretty printing
 tabulate
 types-tabulate
+types-pytz
