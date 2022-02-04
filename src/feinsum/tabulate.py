@@ -150,7 +150,14 @@ def record(einsum: FusedEinsum,
     conn = sqlite3.connect(database)
     # TODO: How to handle multiple devices?:
     cl_device, = cl_ctx.devices
-    device_name = cl_device.name.replace(" ", "_")
+    device_name = (cl_device.name
+                   .replace(" ", "_")
+                   .replace("-", "_")
+                   .replace("@", "AT")
+                   .replace("(", "_")
+                   .replace(")", "_")
+                   .replace(".", "DOT")
+                   )
     cursor = conn.cursor()
 
     # {{{ get available tables
