@@ -1,6 +1,7 @@
 """
 .. autofunction:: record
 .. autofunction:: query_with_least_runtime
+.. autoclass:: QueryInfo
 """
 
 import os
