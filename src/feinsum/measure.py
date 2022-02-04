@@ -3,7 +3,7 @@
 
 .. autofunction:: timeit
 .. autofunction:: measure_giga_op_rate
-.. autofunction:: pprint_comparison_vs_roofline
+.. autofunction:: stringify_comparison_vs_roofline
 """
 
 import numpy as np
@@ -235,17 +235,17 @@ def measure_giga_op_rate(expr: FusedEinsum,
                  for k, v in _get_giga_ops_from_einsum(expr).items()})
 
 
-def pprint_comparison_vs_roofline(expr: FusedEinsum,
-                                  *,
-                                  transform: Callable[[lp.TranslationUnit],
-                                                      lp.TranslationUnit],
-                                  cl_ctx: cl.Context,
-                                  long_dim_length: int = 100000,) -> None:
+def stringify_comparison_vs_roofline(expr: FusedEinsum,
+                                     *,
+                                     transform: Callable[[lp.TranslationUnit],
+                                                         lp.TranslationUnit],
+                                     cl_ctx: cl.Context,
+                                     long_dim_length: int = 100000) -> str:
     """
-    Pretty prints the comparison of *expr* transformed with *transform* wrt
-    roofline. The roofline model assumes that kernel's performance is limited
-    by either the device's global memory bandwidth or the device's floating
-    point units being saturated to their maximum throughput.
+    Returns the prettified comparison of *expr* transformed with *transform*
+    wrt roofline. The roofline model assumes that kernel's performance is
+    limited by either the device's global memory bandwidth or the device's
+    floating point units being saturated to their maximum throughput.
     """
     try:
         from tabulate import tabulate
@@ -284,4 +284,4 @@ def pprint_comparison_vs_roofline(expr: FusedEinsum,
 
     table = [["Current Transform", "Roofline"],
              [f"{measured_flops:.1f}", f"{roofline_flops:.1f}"]]
-    print(tabulate(table, tablefmt="fancy_grid"))
+    return tabulate(table, tablefmt="fancy_grid")

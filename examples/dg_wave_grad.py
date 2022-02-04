@@ -102,11 +102,11 @@ def main():
         return
 
     expr = get_grad_einsum(ndofs=35, ndim=3)
-    f.pprint_comparison_vs_roofline(expr,
-                                    cl_ctx=cl_ctx,
-                                    transform=variant_1,
-                                    long_dim_length=50_000,
-                                    )
+    print(f.stringify_comparison_vs_roofline(expr,
+                                             cl_ctx=cl_ctx,
+                                             transform=variant_1,
+                                             long_dim_length=50_000,
+                                             ))
 
 
 if __name__ == "__main__":

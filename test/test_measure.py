@@ -72,7 +72,7 @@ def test_pprint_roofline_comparison(ctx_factory):
                             "float64"),
                     arg_names=["J", "R", "u"])
 
-    f.pprint_comparison_vs_roofline(
+    f.stringify_comparison_vs_roofline(
         expr,
         cl_ctx=cl_ctx,
         transform=lambda x: lp.split_iname(x, "e", 32,

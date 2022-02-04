@@ -6,7 +6,7 @@ from feinsum.make_einsum import (einsum, Array, ArrayT, array, fused_einsum)
 
 from feinsum.codegen.loopy import generate_loopy
 from feinsum.measure import (timeit, measure_giga_op_rate,
-                             pprint_comparison_vs_roofline)
+                             stringify_comparison_vs_roofline)
 from feinsum.tabulate import record, query_with_least_runtime
 
 
@@ -18,7 +18,7 @@ __all__ = (
 
     "generate_loopy",
 
-    "timeit", "measure_giga_op_rate", "pprint_comparison_vs_roofline",
+    "timeit", "measure_giga_op_rate", "stringify_comparison_vs_roofline",
 
     "contraction_schedule_from_opt_einsum",
 

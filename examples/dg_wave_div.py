@@ -89,11 +89,11 @@ def main():
         return
 
     expr = get_div_einsum(ndofs=35, ndim=3)
-    f.pprint_comparison_vs_roofline(expr,
-                                    cl_ctx=cl_ctx,
-                                    transform=variant_1,
-                                    long_dim_length=100_000,
-                                    )
+    print(f.stringify_comparison_vs_roofline(expr,
+                                             cl_ctx=cl_ctx,
+                                             transform=variant_1,
+                                             long_dim_length=100_000,
+                                             ))
 
 
 if __name__ == "__main__":
