@@ -110,6 +110,19 @@ def _get_op_info_for_db(einsum: FusedEinsum, long_dim_length: int) -> str:
                      for k, v in dtype_to_ops.items())
 
 
+def _get_cl_device_name_for_db(cl_device: "cl.Device") -> str:
+    dev_name = cl_device.name
+    assert isinstance(dev_name, str)
+    return (dev_name
+            .replace(" ", "_")
+            .replace("-", "_")
+            .replace("@", "AT")
+            .replace("(", "_")
+            .replace(")", "_")
+            .replace(".", "DOT")
+            )
+
+
 def record(einsum: FusedEinsum,
            cl_ctx: "cl.Context",
            *,
@@ -151,16 +164,12 @@ def record(einsum: FusedEinsum,
                      long_dim_length=long_dim_length)
 
     conn = sqlite3.connect(database)
-    # TODO: How to handle multiple devices?:
+
+    if len(cl_ctx.devices) > 1:
+        raise NotImplementedError("CL contexts with multiple devices not supported")
+
     cl_device, = cl_ctx.devices
-    device_name = (cl_device.name
-                   .replace(" ", "_")
-                   .replace("-", "_")
-                   .replace("@", "AT")
-                   .replace("(", "_")
-                   .replace(")", "_")
-                   .replace(".", "DOT")
-                   )
+    device_name = _get_cl_device_name_for_db(cl_device)
     cursor = conn.cursor()
 
     # {{{ get available tables
