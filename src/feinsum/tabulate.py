@@ -4,6 +4,7 @@
 .. autoclass:: QueryInfo
 """
 
+import sys
 import os
 import logging
 import sqlite3
@@ -20,7 +21,8 @@ from feinsum.einsum import FusedEinsum, INT_CLASSES, SizeParam
 logger = logging.getLogger(__name__)
 
 
-if TYPE_CHECKING:
+if TYPE_CHECKING or getattr(sys, "FEINSUM_BUILDING_SPHINX_DOCS", False):
+    # avoid making pyopencl a hard dep.
     import pyopencl as cl
 
 
