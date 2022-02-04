@@ -307,6 +307,7 @@ def fused_einsum(subscripts: str,
                          " an instance of FrozenSet[str].")
 
     use_matrix = np.vectorize(lambda x: frozenset(x))(use_matrix)
+    assert isinstance(use_matrix, np.ndarray)
     all_values_from_use_matrix: FrozenSet[str] = reduce(frozenset.union,
                                                         use_matrix.ravel(),
                                                         frozenset())
