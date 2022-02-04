@@ -176,7 +176,7 @@ def record(einsum: FusedEinsum,
 
     # }}}
 
-    subscripts = ""  # einsum.get_subscripts()
+    subscripts = einsum.get_subscripts()
     index_to_length = _get_index_to_length_for_db(einsum)
     transform_str = transform_str.replace("\n", "\\n").replace("'", "''")
     use_matrix = _get_use_matrix_for_db(einsum).replace("\n", "\\n")
