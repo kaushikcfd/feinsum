@@ -45,7 +45,10 @@ def _get_clbl_from_string(transform_src: str) -> Callable[["lp.TranslationUnit"]
                                                           "lp.TranslationUnit"]:
 
     result_dict: Dict[Any, Any] = {}
-    exec(transform_src, result_dict)
+    exec(compile(transform_src, "<feinsum transform code>", "exec"), result_dict)
+    # To make the transform code debuggable by pudb
+    result_dict["_MODULE_SOURCE_CODE"] = transform_src
+
     clbl = result_dict["transform"]
     if not callable(result_dict.get("transform")):
         raise ValueError("Provided transform source does not"
