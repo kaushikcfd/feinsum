@@ -16,7 +16,9 @@ from feinsum.einsum import (FusedEinsum, FreeAxis, SummationAxis,
                             EinsumAxisAccess, IntegralT, INT_CLASSES,
                             ContractionSchedule, EinsumOperand,
                             IntermediateResult, SizeParam, Argument,
-                            ShapeT)
+                            ShapeT,
+                            get_opt_einsum_contraction_schedule,
+                            get_trivial_contraction_schedule)
 from feinsum.make_einsum import fused_einsum
 from more_itertools import zip_equal as szip
 from pyrsistent import pmap
@@ -86,9 +88,11 @@ def _generate_trivial_einsum(einsum: FusedEinsum,
                                                    for idim in
                                    range(einsum.ndim)),
                              einsum)
-        rhs = p.Product(tuple(p.Sum(tuple(make_subscript(dep, axes, einsum)
+        rhs = p.Product(tuple((p.Sum(tuple(make_subscript(dep, axes, einsum)
                                           for dep in deps)
-                                    )
+                                     )
+                               if len(deps) > 1
+                               else make_subscript(list(deps)[0], axes, einsum))
                               for deps, axes in zip(einsum.use_matrix[i_out],
                                                     einsum.access_descriptors))
                         )
@@ -114,8 +118,7 @@ def generate_loopy(einsum: FusedEinsum,
     """
 
     if schedule is None:
-        from feinsum.einsum import get_trivial_contract_schedule
-        schedule = get_trivial_contract_schedule(einsum)
+        schedule = get_trivial_contraction_schedule(einsum)
 
     assert isinstance(schedule, ContractionSchedule)
 
@@ -255,35 +258,7 @@ def generate_loopy_with_opt_einsum_schedule(expr: FusedEinsum,
     :func:`opt_einsum.contract_path`.
 
     :param opt_einsum_kwargs: kwargs to be passed to
-        :func:`opt_einsum.contract_path`.
-
-    .. note::
-
-        The following defaults are populated in *opt_einsum_kwargs*, if left
-        unspecified:
-
-        - ``optimize="optimal"``
-        - ``use_blas=False``
+        :func:`~feinsum.einsum.get_opt_einsum_contraction_schedule`.
     """
-    import opt_einsum
-    from feinsum.make_einsum import array
-    from feinsum.einsum import contraction_schedule_from_opt_einsum
-
-    long_dim_length = opt_einsum_kwargs.pop("long_dim_length", 1_000_000)
-
-    if "optimize" not in opt_einsum_kwargs:
-        opt_einsum_kwargs["optimize"] = "optimal"
-
-    if "use_blas" not in opt_einsum_kwargs:
-        opt_einsum_kwargs["use_blas"] = False
-
-    _, path_info = opt_einsum.contract_path(expr.get_subscripts(),
-                                            *[array([d if isinstance(op_shape,
-                                                                     INT_CLASSES)
-                                                     else long_dim_length
-                                                     for d in op_shape],
-                                                    "float64")
-                                              for op_shape in expr.arg_shapes],
-                                            **opt_einsum_kwargs)
     return generate_loopy(expr,
-                          contraction_schedule_from_opt_einsum(path_info))
+                          get_opt_einsum_contraction_schedule(expr))

@@ -146,23 +146,11 @@ def timeit(einsum: FusedEinsum,
 
 def _get_giga_ops_from_einsum(expr: FusedEinsum) -> PMapT[np.dtype[Any],
                                                           prim.Expression]:
-    from feinsum.codegen.loopy import generate_loopy
-    from feinsum.einsum import contraction_schedule_from_opt_einsum, SizeParam
-    from feinsum.make_einsum import array
-    import opt_einsum
+    from feinsum.codegen.loopy import generate_loopy_with_opt_einsum_schedule
 
-    _, path_info = opt_einsum.contract_path(expr.get_subscripts(),
-                                            *[array([1_000_000
-                                                     if isinstance(dim, SizeParam)
-                                                     else dim
-                                                     for dim in arg_shape],
-                                                    np.float64)
-                                              for arg_shape in expr.arg_shapes],
-                                            optimize="optimal",
-                                            use_blas=False)
-
-    t_unit = generate_loopy(expr,
-                            contraction_schedule_from_opt_einsum(path_info))
+    t_unit = generate_loopy_with_opt_einsum_schedule(expr,
+                                                     use_blas=False,
+                                                     optimize="optimal")
 
     kernel = t_unit.default_entrypoint
     kernel = kernel.copy(silenced_warnings=(kernel.silenced_warnings

@@ -16,9 +16,8 @@
 Helper routines
 ^^^^^^^^^^^^^^^
 
-.. autofunction:: construct_subscripts_from_einsum
-.. autofunction:: get_trivial_contract_schedule
-.. autofunction:: contraction_schedule_from_opt_einsum
+.. autofunction:: get_trivial_contraction_schedule
+.. autofunction:: get_opt_einsum_contraction_schedule
 """
 
 
@@ -26,11 +25,10 @@ from __future__ import annotations
 
 import abc
 import numpy as np
-import sys
 
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
-from typing import Union, Tuple, Any, FrozenSet, TYPE_CHECKING, List
+from typing import Union, Tuple, Any, FrozenSet, List
 from dataclasses import dataclass
 from functools import cached_property, cache
 from more_itertools import zip_equal as zip
@@ -45,11 +43,6 @@ INT_CLASSES = (int, np.int8, np.int16, np.int32, np.int64, np.uint8,
 
 ShapeComponentT = Union[IntegralT, "SizeParam"]
 ShapeT = Tuple[ShapeComponentT, ...]
-
-
-if TYPE_CHECKING or getattr(sys, "FEINSUM_BUILDING_SPHINX_DOCS", False):
-    # Avoid making opt_einsum a hard dep.
-    from opt_einsum.contract import PathInfo
 
 
 @dataclass(frozen=True, eq=True, repr=True)
@@ -150,6 +143,9 @@ class FusedEinsum:
 
     @cache
     def get_subscripts(self) -> str:
+        """
+        Returns the subscripts used in the building the *einsum* from it.
+        """
         return (",".join("".join(self.index_names[axis]
                                  for axis in axes)
                         for axes in self.access_descriptors)
@@ -227,7 +223,55 @@ class ContractionSchedule:
         return replace(self, **kwargs)
 
 
-def contraction_schedule_from_opt_einsum(path: "PathInfo") -> ContractionSchedule:
+def get_trivial_contraction_schedule(einsum: FusedEinsum) -> ContractionSchedule:
+    """
+    Returns the :class:`ContractionSchedule` for *einsum* scheduled as a single
+    contraction.
+    """
+    return ContractionSchedule((einsum.get_subscripts(),),
+                               ("_fe_out",),
+                               (tuple(EinsumOperand(i)
+                                      for i, _ in enumerate(einsum.arg_shapes)),)
+                               )
+
+
+def get_opt_einsum_contraction_schedule(expr: FusedEinsum,
+                                        **opt_einsum_kwargs: Any,
+                                        ) -> ContractionSchedule:
+    """
+    Returns a :class:`ContractionSchedule` as computed by
+    :func:`opt_einsum.contract_path`.
+
+    :param opt_einsum_kwargs: kwargs to be passed to
+        :func:`opt_einsum.contract_path`.
+
+    .. note::
+
+        The following defaults are populated in *opt_einsum_kwargs*, if left
+        unspecified:
+
+        - ``optimize="optimal"``
+        - ``use_blas=False``
+    """
+    import opt_einsum
+    from feinsum.make_einsum import array
+    long_dim_length = opt_einsum_kwargs.pop("long_dim_length", 1_000_000)
+
+    if "optimize" not in opt_einsum_kwargs:
+        opt_einsum_kwargs["optimize"] = "optimal"
+
+    if "use_blas" not in opt_einsum_kwargs:
+        opt_einsum_kwargs["use_blas"] = False
+
+    _, path = opt_einsum.contract_path(expr.get_subscripts(),
+                                       *[array([d if isinstance(op_shape,
+                                                                INT_CLASSES)
+                                                else long_dim_length
+                                                for d in op_shape],
+                                               "float64")
+                                         for op_shape in expr.arg_shapes],
+                                       **opt_einsum_kwargs)
+
     current_args: List[Argument] = [
         EinsumOperand(i)
         for i in range(path.input_subscripts.count(",") + 1)]
@@ -253,27 +297,3 @@ def contraction_schedule_from_opt_einsum(path: "PathInfo") -> ContractionSchedul
     return ContractionSchedule(tuple(subscripts),
                                tuple(result_names),
                                tuple(arguments))
-
-
-def construct_subscripts_from_einsum(einsum: FusedEinsum) -> str:
-    """
-    Reconstruct the subscripts used in the building the *einsum* from it.
-    """
-    input_subscripts = ",".join("".join(einsum.index_names[axis]
-                                        for axis in axes)
-                                for axes in einsum.access_descriptors)
-    output_subscripts = "".join(einsum.index_names[FreeAxis(i)]
-                                for i in range(einsum.ndim))
-    return f"{input_subscripts}->{output_subscripts}"
-
-
-def get_trivial_contract_schedule(einsum: FusedEinsum) -> ContractionSchedule:
-    """
-    Returns the :class:`ContractionSchedule` for *einsum* scheduled as a single
-    contraction.
-    """
-    return ContractionSchedule((construct_subscripts_from_einsum(einsum),),
-                               ("_fe_out",),
-                               (tuple(EinsumOperand(i)
-                                      for i, _ in enumerate(einsum.arg_shapes)),)
-                               )

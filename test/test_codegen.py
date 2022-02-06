@@ -108,18 +108,9 @@ def test_opt_einsum_contract_schedule(ctx_factory):
                     f.array((np.inf, Ndofs),
                             "float64"),
                     arg_names=["J", "R", "u"])
-    _, path_info = path, path_info = opt_einsum.contract_path("xre,rij,ej->xei",
-                                                              f.array((3, 3, 50_000),
-                                                                      "float32"),
-                                                              f.array((3, 35, 35),
-                                                                      "float32"),
-                                                              f.array((50_000, 35),
-                                                                      "float64"),
-                                                              optimize="optimal",
-                                                              use_blas=False)
     knl1 = f.generate_loopy(expr)
     knl2 = f.generate_loopy(expr,
-                            f.contraction_schedule_from_opt_einsum(path_info))
+                            f.get_opt_einsum_contraction_schedule(expr))
     assert len(knl1.default_entrypoint.instructions) == 1
     assert len(knl2.default_entrypoint.instructions) == 2
     lp.auto_test_vs_ref(knl1, cl_ctx, knl2, parameters={"N_e": 5})

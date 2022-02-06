@@ -1,7 +1,8 @@
 from feinsum.einsum import (FusedEinsum,
                             VeryLongAxis, EinsumAxisAccess,
                             FreeAxis, SummationAxis,
-                            contraction_schedule_from_opt_einsum)
+                            get_opt_einsum_contraction_schedule,
+                            get_trivial_contraction_schedule)
 from feinsum.make_einsum import (einsum, Array, ArrayT, array, fused_einsum)
 
 from feinsum.codegen.loopy import (generate_loopy,
@@ -21,7 +22,7 @@ __all__ = (
 
     "timeit", "measure_giga_op_rate", "stringify_comparison_vs_roofline",
 
-    "contraction_schedule_from_opt_einsum",
+    "get_opt_einsum_contraction_schedule", "get_trivial_contraction_schedule",
 
     "record", "query_with_least_runtime",
 )
