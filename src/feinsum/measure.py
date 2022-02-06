@@ -13,10 +13,11 @@ import pymbolic.primitives as prim
 import loopy as lp
 import pyopencl.array as cla
 
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, Optional
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
-from feinsum.einsum import FusedEinsum, INT_CLASSES, ShapeT, SizeParam
+from feinsum.einsum import (FusedEinsum, INT_CLASSES, ShapeT, SizeParam,
+                            ContractionSchedule)
 from more_itertools import zip_equal as zip
 import logging
 logger = logging.getLogger(__name__)
@@ -82,7 +83,8 @@ def timeit(einsum: FusedEinsum,
            transform: Callable[[lp.TranslationUnit],
                                lp.TranslationUnit],
            cl_ctx: cl.Context,
-           long_dim_length: int = 100000
+           long_dim_length: int = 100000,
+           schedule: Optional[ContractionSchedule] = None
            ) -> float:
     """
     Returns the runtime in seconds for executing *einsum* on OpenCL context
@@ -96,7 +98,7 @@ def timeit(einsum: FusedEinsum,
 
     cq = cl.CommandQueue(cl_ctx)
 
-    t_unit = generate_loopy(einsum)
+    t_unit = generate_loopy(einsum, schedule=schedule)
     t_unit = lp.fix_parameters(t_unit, **{name: long_dim_length
                                           for name in (t_unit
                                                        .default_entrypoint
@@ -205,6 +207,7 @@ def measure_giga_op_rate(expr: FusedEinsum,
                          cl_ctx: cl.Context,
                          dtype: npt.DTypeLike = "float64",
                          long_dim_length: int = 100000,
+                         schedule: Optional[ContractionSchedule] = None
                          ) -> PMapT[np.dtype[Any], float]:
     """
     Returns the arithmetic operations rate (in Giga Ops per second) for
@@ -213,7 +216,8 @@ def measure_giga_op_rate(expr: FusedEinsum,
     runtime = timeit(expr,
                      transform=transform,
                      cl_ctx=cl_ctx,
-                     long_dim_length=long_dim_length)
+                     long_dim_length=long_dim_length,
+                     schedule=schedule)
 
     from pymbolic.mapper.evaluator import evaluate_to_float
     eval_context = {dim.name: long_dim_length
