@@ -229,6 +229,7 @@ def measure_giga_op_rate(expr: FusedEinsum,
 
 def stringify_comparison_vs_roofline(expr: FusedEinsum,
                                      *,
+                                     schedule: Optional[ContractionSchedule] = None,
                                      transform: Callable[[lp.TranslationUnit],
                                                          lp.TranslationUnit],
                                      cl_ctx: cl.Context,
@@ -270,6 +271,7 @@ def stringify_comparison_vs_roofline(expr: FusedEinsum,
 
     measured_flops = measure_giga_op_rate(expr,
                                           transform=transform,
+                                          schedule=schedule,
                                           cl_ctx=cl_ctx,
                                           dtype=dtype,
                                           long_dim_length=long_dim_length)
