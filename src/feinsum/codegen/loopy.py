@@ -2,6 +2,7 @@
 .. currentmodule:: feinsum.codegen.loopy
 
 .. autofunction:: generate_loopy
+.. autofunction:: generate_loopy_with_opt_einsum_schedule
 """
 
 import loopy as lp
@@ -243,3 +244,46 @@ def generate_loopy(einsum: FusedEinsum,
         domains, statements,
         kernel_data=kernel_data+[...],
         lang_version=LOOPY_LANG_VERSION)
+
+
+def generate_loopy_with_opt_einsum_schedule(expr: FusedEinsum,
+                                            **opt_einsum_kwargs: Any
+                                            ) -> "lp.TranslationUnit":
+    """
+    Returns a :class:`loopy.TranslationUnit` with the
+    :class:`~feinsum.einsum.ContractionSchedule` specified via
+    :func:`opt_einsum.contract_path`.
+
+    :param opt_einsum_kwargs: kwargs to be passed to
+        :func:`opt_einsum.contract_path`.
+
+    .. note::
+
+        The following defaults are populated in *opt_einsum_kwargs*, if left
+        unspecified:
+
+        - ``optimize="optimal"``
+        - ``use_blas=False``
+    """
+    import opt_einsum
+    from feinsum.make_einsum import array
+    from feinsum.einsum import contraction_schedule_from_opt_einsum
+
+    long_dim_length = opt_einsum_kwargs.pop("long_dim_length", 1_000_000)
+
+    if "optimize" not in opt_einsum_kwargs:
+        opt_einsum_kwargs["optimize"] = "optimal"
+
+    if "use_blas" not in opt_einsum_kwargs:
+        opt_einsum_kwargs["use_blas"] = False
+
+    _, path_info = opt_einsum.contract_path(expr.get_subscripts(),
+                                            *[array([d if isinstance(op_shape,
+                                                                     INT_CLASSES)
+                                                     else long_dim_length
+                                                     for d in op_shape],
+                                                    "float64")
+                                              for op_shape in expr.arg_shapes],
+                                            **opt_einsum_kwargs)
+    return generate_loopy(expr,
+                          contraction_schedule_from_opt_einsum(path_info))

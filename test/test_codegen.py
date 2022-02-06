@@ -123,3 +123,37 @@ def test_opt_einsum_contract_schedule(ctx_factory):
     assert len(knl1.default_entrypoint.instructions) == 1
     assert len(knl2.default_entrypoint.instructions) == 2
     lp.auto_test_vs_ref(knl1, cl_ctx, knl2, parameters={"N_e": 5})
+
+
+def test_opt_einsum_contract_schedule_shorthand(ctx_factory):
+    Ndofs = 35
+    Ndim = 3
+    cl_ctx = ctx_factory()
+
+    expr = f.einsum("xre,rij,ej->xei",
+                    f.array((Ndim, Ndim, np.inf,),
+                            "float64"),
+                    f.array((Ndim, Ndofs, Ndofs),
+                            "float64"),
+                    f.array((np.inf, Ndofs),
+                            "float64"),
+                    arg_names=["J", "R", "u"])
+    _, path_info = path, path_info = opt_einsum.contract_path("xre,rij,ej->xei",
+                                                              f.array((3, 3, 50_000),
+                                                                      "float32"),
+                                                              f.array((3, 35, 35),
+                                                                      "float32"),
+                                                              f.array((50_000, 35),
+                                                                      "float64"),
+                                                              optimize="optimal",
+                                                              use_blas=False)
+    knl1 = f.generate_loopy(expr)
+    knl2 = f.generate_loopy_with_opt_einsum_schedule(expr)
+    knl1_flops = (lp.get_op_map(knl1, subgroup_size=1)
+                  .filter_by(dtype=[np.float64])
+                  .eval_and_sum({"N_e": 500_000}))
+    knl2_flops = (lp.get_op_map(knl2, subgroup_size=1)
+                  .filter_by(dtype=[np.float64])
+                  .eval_and_sum({"N_e": 500_000}))
+    assert knl2_flops < knl1_flops
+    lp.auto_test_vs_ref(knl1, cl_ctx, knl2, parameters={"N_e": 5})
