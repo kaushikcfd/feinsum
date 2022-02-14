@@ -18,6 +18,7 @@ in a single loop nest.
     codegen
     metrics
     tabulation
+    extra_loopy
 
     🚀 Github <https://github.com/inducer/pytato>
     💾 Download Releases <https://pypi.org/project/pytato>
