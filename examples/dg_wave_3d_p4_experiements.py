@@ -18,28 +18,31 @@ def get_grad_einsum(ndofs, ndim):
                     arg_names=["J", "R", "u"])
 
 
-# 1. Tiling without putting things into shared memory.
-# 2. Tiling with things in shared memory
-
-
-def transform_opt_einsum_knl(t_unit):
+def transform(t_unit):
     ncells_per_workgroup = 9
     nworkitems_per_cell = 7
     j_tile_len = 9
     i_tile_len = 35
 
-    t_unit = lp.assignment_to_subst(t_unit, "_fe_tmp")
-    t_unit = lp.split_iname(t_unit, "i_0", i_tile_len, outer_iname="i_tile")
+    # {{{ term hoisting to match the flop count of opt_einsum
+
+    t_unit = lp.split_reduction_inward(t_unit, "j")
+    t_unit = f.hoist_reduction_invariant_terms(t_unit, "j")
+    t_unit = f.extract_einsum_terms_as_subst(t_unit,
+                                             "subst(r, e, i)",
+                                             "sum(j, R[r, i, j]*u[e, j])")
+
+    # }}}
+
+    t_unit = lp.split_iname(t_unit, "i", i_tile_len, outer_iname="i_tile")
     t_unit = lp.split_iname(t_unit, "j", j_tile_len, outer_iname="j_tile")
 
-    t_unit = lp.rename_iname(t_unit, "i_0_inner", "i_0")
+    t_unit = lp.rename_iname(t_unit, "i_inner", "i")
     t_unit = lp.rename_iname(t_unit, "j_inner", "j")
-    t_unit = lp.rename_iname(t_unit, "x_0", "x")
-    t_unit = lp.rename_iname(t_unit, "r_0", "r")
-    t_unit = lp.split_iname(t_unit, "e_0", ncells_per_workgroup,
+    t_unit = lp.split_iname(t_unit, "e", ncells_per_workgroup,
                             inner_iname="e_inner", outer_iname="e_outer",
                             outer_tag="g.0", inner_tag="l.1")
-    t_unit = lp.split_iname(t_unit, "i_0", nworkitems_per_cell,
+    t_unit = lp.split_iname(t_unit, "i", nworkitems_per_cell,
                             inner_iname="i_inner", outer_iname="i_outer",
                             inner_tag="l.0")
 
@@ -55,7 +58,7 @@ def transform_opt_einsum_knl(t_unit):
 
     # {{{ TODO: Make precompute smarter (should be a single precompute call)
 
-    t_unit = lp.precompute(t_unit, "_fe_tmp_subst",
+    t_unit = lp.precompute(t_unit, "subst",
                            sweep_inames=["r"],
                            precompute_outer_inames=frozenset({"e_inner",
                                                               "e_outer",
@@ -78,34 +81,16 @@ def transform_opt_einsum_knl(t_unit):
 
     # {{{ Move 'u ' to shared.
 
-    # I know, yuck! But, loopy cannot handle prefetching with inames belonging
-    # to different domains.
-    combined_domain = t_unit.default_entrypoint.combine_domains((0, 1))
-    t_unit = t_unit.with_kernel(t_unit
-                                .default_entrypoint
-                                .copy(domains=[combined_domain]))
-    if 1:
-        # Prefetch 'u' within the tile
-        t_unit = lp.add_prefetch(t_unit, "u",
-                                 sweep_inames=["e_inner", "j"],
-                                 fetch_outer_inames=frozenset(["e_outer",
-                                                               "i_tile",
-                                                               "j_tile"]),
-                                 temporary_address_space=lp.AddressSpace.LOCAL,
-                                 dim_arg_names=["e_prftch", "j_prftch"],
-                                 default_tag=None,
-                                 )
-    elif 0:
-        # Prefetch 'u' once at the top.
-        t_unit = lp.add_prefetch(t_unit, "u",
-                                 sweep_inames=["e_inner", "j", "j_tile"],
-                                 fetch_outer_inames=frozenset(["e_outer"]),
-                                 temporary_address_space=lp.AddressSpace.LOCAL,
-                                 dim_arg_names=["e_prftch", "j_prftch"],
-                                 default_tag=None,
-                                 )
-    else:
-        pass
+    # Prefetch 'u' within the tile
+    t_unit = lp.add_prefetch(t_unit, "u",
+                             sweep_inames=["e_inner", "j"],
+                             fetch_outer_inames=frozenset(["e_outer",
+                                                           "i_tile",
+                                                           "j_tile"]),
+                             temporary_address_space=lp.AddressSpace.LOCAL,
+                             dim_arg_names=["e_prftch", "j_prftch"],
+                             default_tag=None,
+                             )
 
     t_unit = lp.join_inames(t_unit, ["e_prftch", "j_prftch"], "i_uprftch")
     t_unit = lp.split_iname(t_unit, "i_uprftch",
@@ -183,9 +168,6 @@ def transform_opt_einsum_knl(t_unit):
 
     # }}}
 
-    # t_unit = lp.tag_inames(t_unit, "x:unr, r:unr")
-    # t_unit = lp.set_options(t_unit, "write_cl")
-
     return t_unit
 
 
@@ -207,8 +189,7 @@ def main():
         f.stringify_comparison_vs_roofline(
             expr,
             cl_ctx=cl_ctx,
-            transform=transform_opt_einsum_knl,
-            schedule=f.get_opt_einsum_contraction_schedule(expr)))
+            transform=transform))
 
 
 if __name__ == "__main__":
