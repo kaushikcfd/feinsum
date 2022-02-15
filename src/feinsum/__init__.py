@@ -10,6 +10,7 @@ from feinsum.codegen.loopy import (generate_loopy,
 from feinsum.measure import (timeit, measure_giga_op_rate,
                              stringify_comparison_vs_roofline)
 from feinsum.tabulate import record, query_with_least_runtime
+from feinsum.loopy_utils import match_t_unit_to_einsum
 
 
 __all__ = (
@@ -25,4 +26,6 @@ __all__ = (
     "get_opt_einsum_contraction_schedule", "get_trivial_contraction_schedule",
 
     "record", "query_with_least_runtime",
+
+    "match_t_unit_to_einsum",
 )

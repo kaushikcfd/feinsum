@@ -3,6 +3,7 @@
 upstreaming the heavy lifting parts to :mod:`loopy` itself.
 
 .. autofunction:: extract_subexpr_of_associative_op_as_subst
+.. autofunction:: match_t_unit_to_einsum
 """
 
 import loopy as lp
@@ -10,12 +11,20 @@ import pymbolic.interop.matchpy as m
 import pymbolic.primitives as p
 
 from multiset import Multiset
-from typing import Union, ClassVar, Optional
+from typing import Union, ClassVar, Optional, Tuple
+from pyrsistent.typing import PMap as PMapT
+from pyrsistent import pmap
 from dataclasses import dataclass
+from more_itertools import zip_equal as szip
 from pymbolic.interop.matchpy.tofrom import (
     ToMatchpyExpressionMapper as BaseToMatchpyExpressionMapper,
     FromMatchpyExpressionMapper as BaseFromMatchpyExpressionMapper)
 from matchpy import Arity
+from feinsum.einsum import (FusedEinsum, FreeAxis, SizeParam, EinsumAxisAccess,
+                            SummationAxis)
+from feinsum.diagnostics import EinsumTunitMatchError
+from pytools.tag import Tag
+from loopy.symbolic import pw_aff_to_expr
 
 PYMBOLIC_ASSOC_OPS = (p.Product, p.Sum, p.BitwiseOr, p.BitwiseXor,
                       p.BitwiseAnd, p.LogicalAnd, p.LogicalOr)
@@ -163,6 +172,166 @@ def extract_subexpr_of_associative_op_as_subst(
 
     kernel = kernel.copy(substitutions=new_substitutions)
     return kernel
+
+# }}}
+
+
+# {{{ matching loopy kernel against a ref. einsum
+
+def _get_indices_from_assignee(assignee: p.Expression) -> Tuple[str, ...]:
+    if isinstance(assignee, p.Variable):
+        return ()
+    elif (isinstance(assignee, p.Subscript)
+              and all(isinstance(idx, p.Variable)
+                      for idx in assignee.index_tuple)):
+        return tuple(idx.name for idx in assignee.index_tuple)
+    else:
+        raise EinsumTunitMatchError("Not all instructions assign to Variable or"
+                                    " a Subscript with free indices --"
+                                    " not allowed.")
+
+
+def _check_if_t_unit_and_ref_einsum_have_the_same_axis_dim(ref_idx: EinsumAxisAccess,
+                                                           physical_idx: str,
+                                                           ref_einsum: FusedEinsum,
+                                                           kernel: lp.LoopKernel,
+                                                           long_dim_length: int,
+                                                           ) -> None:
+
+    idx_bounds = kernel.get_iname_bounds(physical_idx)
+    if not idx_bounds.lower_bound_pw_aff.non_zero_set().is_empty():
+        # TODO: Not sure whether we can also support lower bound with
+        # offset
+        raise NotImplementedError("Non-zero lower bounds not yet"
+                                  " supported.")
+    if not idx_bounds.upper_bound_pw_aff.is_cst():
+        if not isinstance(ref_einsum.index_to_dim_length()[ref_idx], SizeParam):
+            raise EinsumTunitMatchError(f"Index '{physical_idx}' in the"
+                                        " t-unit is of parametric length,"
+                                        " while not in the reference"
+                                        " einsum.")
+    else:
+        knl_axis_size = pw_aff_to_expr(idx_bounds.upper_bound_pw_aff) + 1
+        if (knl_axis_size == ref_einsum.index_to_dim_length()[ref_idx]
+                or ((knl_axis_size > long_dim_length)
+                    and isinstance(ref_einsum.index_to_dim_length()[ref_idx],
+                                   SizeParam))):
+            pass
+        else:
+            raise EinsumTunitMatchError(f"Index '{physical_idx}' in the"
+                                        " t-unit does not have the same"
+                                        " dimensionality as in einsum.")
+
+
+def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
+                           insn_match_tag: Optional[Tag] = None,
+                           long_dim_length: int = 5_000) -> PMapT[str, str]:
+    """
+    Returns a mapping from the variable names in *ref_einsum* to the variables
+    in *t_unit*. The unification is done by matching the instructions tagged
+    with *insn_match_tag* against *ref_einsum*.
+
+    :param t_unit: The subject translation unit which is being matched against
+        *ref_einsum*.
+    :param ref_einsum: The pattern to match *t_unit* against.
+    :param insn_match_tag: An optional tag representing the subset of the
+        kernel's instructions that are to be considered as the subject of
+        matching against the *ref_einsum* pattern.
+    :param long_dim_length: Axis length above which can be assumed to be long
+        enough to be invariant of having any noticeable effects on the kernel's
+        performance.
+    """
+    subst_map = {}
+
+    if len({clbl
+            for clbl in t_unit.callables_table.values()
+            if isinstance(clbl, lp.CallableKernel)}) > 1:
+        # The logic for matching against multiple callables is more inolved,
+        # skipping for now.
+        raise NotImplementedError("Handling translation units with multiple"
+                                  " kernels is currently not supported.")
+
+    if insn_match_tag is None:
+        insns = t_unit.default_entrypoint.instructions
+    else:
+        insns = [insn
+                 for insn in t_unit.default_entrypoint.instructions
+                 if insn.tags_of_type(insn_match_tag)]
+
+    if len({insn.within_inames for insn in insns}) != 1:
+        raise EinsumTunitMatchError("Instructions forming the subject have"
+                                    " more than 1 enclosing loop nest -- not"
+                                    " allowed.")
+
+    if len(insns) != ref_einsum.noutputs:
+        raise EinsumTunitMatchError("Number of outputs in ref_einsum, t_unit"
+                                    " do not match.")
+
+    free_indices_set = {_get_indices_from_assignee(insn.assignees[0])
+                        for insn in insns}
+    if len(free_indices_set) != 1:
+        raise EinsumTunitMatchError("Instructions have differing free indices"
+                                    " -- not allowed.")
+    free_indices, = free_indices_set
+
+    if len(free_indices) != ref_einsum.ndim:
+        raise EinsumTunitMatchError("#free indices in the t_unit not equal"
+                                    " to the #free indices in ref_einsum.")
+
+    for i, physical_idx in enumerate(free_indices):
+        if physical_idx in subst_map:
+            raise EinsumTunitMatchError("Cannot have repeating free indices --"
+                                        " not an einsum")
+        else:
+            _check_if_t_unit_and_ref_einsum_have_the_same_axis_dim(
+                FreeAxis(i),
+                physical_idx,
+                ref_einsum,
+                t_unit.default_entrypoint,
+                long_dim_length=long_dim_length)
+            subst_map[physical_idx] = ref_einsum.index_names[FreeAxis(i)]
+
+    for insn, use_row in szip(insns, ref_einsum.use_matrix):
+        if not isinstance(insn.expression, lp.Reduction):
+            raise EinsumTunitMatchError(f"Instruction {insn} does not have a"
+                                        " reduction RHS.")
+
+        match_pattern = 1
+        for access_descrs, values in szip(ref_einsum.access_descriptors,
+                                         use_row):
+            if len(values) > 1:
+                raise NotImplementedError("Fused einsums with multiple"
+                                          " values for a use -- not supported.")
+            value, = values
+            wc_indices = []
+            for access_descr in access_descrs:
+                ref_idx_name = ref_einsum.index_names[access_descr]
+                if isinstance(access_descr, FreeAxis):
+                    wc_indices.append(p.Variable(subst_map[ref_idx_name]))
+                elif isinstance(access_descr, SummationAxis):
+                    wc_indices.append(p.DotWildcard(ref_idx_name))
+                else:
+                    raise AssertionError()
+            match_pattern *= p.DotWildcard(value)[tuple(wc_indices)]
+
+        matches = list(m.match(insn.expression.expr, match_pattern))
+        if len(matches) == 0:
+            raise EinsumTunitMatchError(f"Expression matching for '{insn}' failed.")
+        elif len(matches) > 1:
+            raise NotImplementedError("Obtained more than 1 matches"
+                                      " -- not yet supported.")
+        else:
+            for name_in_ref_einsum, name_in_t_unit in matches[0].items():
+                # FIXME: Make sure to check the lengths of the reduction axes
+                if name_in_ref_einsum in subst_map:
+                    if subst_map[name_in_ref_einsum] != name_in_t_unit.name:
+                        raise EinsumTunitMatchError("Non-unique values obtained for"
+                                                    f" '{name_in_ref_einsum}'"
+                                                    " variable of the einsum.")
+                else:
+                    subst_map[name_in_ref_einsum] = name_in_t_unit.name
+
+    return pmap(subst_map)
 
 # }}}
 
