@@ -77,3 +77,39 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
              .eval_and_sum({"N_e": 1}))
             == (lp.get_op_map(opt_einsum_t_unit, subgroup_size=1)
                 .eval_and_sum({"N_e": 1})))
+
+
+def test_hoist_reduction_invariant_terms(ctx_factory):
+    cl_ctx = ctx_factory()
+    nel = 1
+    ndim = 3
+    ndofs = 35
+    expr = f.fused_einsum("xre, rij, ej->xei",
+                          ((ndim, ndim, nel),
+                           (ndim, ndofs, ndofs),
+                           (nel, ndofs)),
+                          dtypes="float32",
+                          use_matrix=[
+                              [{"J"}, {"R"}, {"u"}]
+                          ])
+    t_unit = f.generate_loopy(expr)
+
+    # {{{ hoist the "j" redn-loop over "x" loop
+
+    hoisted_t_unit = lp.split_reduction_inward(t_unit, "j")
+    hoisted_t_unit = f.hoist_reduction_invariant_terms(hoisted_t_unit, "j")
+    hoisted_t_unit = f.extract_einsum_terms_as_subst(hoisted_t_unit,
+                                                     "subst(r, e, i)",
+                                                     "sum(j, R[r, i, j]*u[e, j])")
+
+    hoisted_t_unit = lp.precompute(hoisted_t_unit,
+                                   "subst",
+                                   sweep_inames=["r", "i"],
+                                   precompute_outer_inames=frozenset("e"))
+
+    # }}}
+
+    trivial_ops = lp.get_op_map(t_unit, subgroup_size=1).eval_and_sum()
+    opt_ops = lp.get_op_map(hoisted_t_unit, subgroup_size=1).eval_and_sum()
+    assert trivial_ops > 4 * opt_ops
+    lp.auto_test_vs_ref(t_unit, cl_ctx, hoisted_t_unit)

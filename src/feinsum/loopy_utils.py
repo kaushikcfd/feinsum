@@ -11,7 +11,7 @@ import pymbolic.interop.matchpy as m
 import pymbolic.primitives as p
 
 from multiset import Multiset
-from typing import Union, ClassVar, Optional, Tuple
+from typing import Union, ClassVar, Optional, Tuple, FrozenSet
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from dataclasses import dataclass
@@ -24,7 +24,8 @@ from feinsum.einsum import (FusedEinsum, FreeAxis, SizeParam, EinsumAxisAccess,
                             SummationAxis)
 from feinsum.diagnostics import EinsumTunitMatchError
 from pytools.tag import Tag
-from loopy.symbolic import pw_aff_to_expr
+from loopy.symbolic import pw_aff_to_expr, IdentityMapper as BaseIdentityMapper
+from more_itertools import partition
 
 PYMBOLIC_ASSOC_OPS = (p.Product, p.Sum, p.BitwiseOr, p.BitwiseXor,
                       p.BitwiseAnd, p.LogicalAnd, p.LogicalOr)
@@ -93,7 +94,7 @@ class TemplateReplacer:
 def extract_subexpr_of_associative_op_as_subst(
         kernel: lp.LoopKernel,
         rule_lhs: Union[p.Call, p.Variable, str],
-        rule_rhs: p.Expression) -> lp.LoopKernel:
+        rule_rhs: Union[p.Expression, str]) -> lp.LoopKernel:
     from loopy.symbolic import parse, get_dependencies
     vng = kernel.get_var_name_generator()
     to_matchpy_expr = ToMatchpyExpressionMapper()
@@ -150,6 +151,8 @@ def extract_subexpr_of_associative_op_as_subst(
         pattern=type(rule_rhs)(rule_rhs.children +
                                (p.StarWildcard(extra_wildcard_name),)),
         replacement=TemplateReplacer(rule_lhs, rule_rhs, extra_wildcard_name),
+        to_matchpy_expr=to_matchpy_expr,
+        from_matchpy_expr=from_matchpy_expr,
     )
 
     new_insns = [
@@ -332,6 +335,89 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
                     subst_map[name_in_ref_einsum] = name_in_t_unit.name
 
     return pmap(subst_map)
+
+
+def extract_einsum_terms_as_subst(t_unit: lp.TranslationUnit,
+                                  rule_lhs: Union[str, p.Expression],
+                                  rule_rhs: Union[str, p.Expression]
+                                  ) -> lp.TranslationUnit:
+    from loopy.symbolic import parse
+    knl = t_unit.default_entrypoint
+
+    if isinstance(rule_rhs, str):
+        rule_rhs = parse(rule_rhs)
+
+    if not isinstance(rule_rhs, p.Product):
+        rule_rhs = p.Product((rule_rhs,))
+
+    return t_unit.with_kernel(extract_subexpr_of_associative_op_as_subst(knl,
+                                                                         rule_lhs,
+                                                                         rule_rhs
+                                                                         ))
+# }}}
+
+
+# {{{ pull_out_subproduct
+
+# type-ignore-reason:  cannot subclass from BaseIdentityMapper (inferred as type Any)
+class EinsumTermsHoister(BaseIdentityMapper):  # type: ignore[misc]
+    """
+    Mapper to hoist products out of a sum-reduction.
+    """
+    def __init__(self, reduction_inames: FrozenSet[str]):
+        super().__init__()
+        self.reduction_inames = reduction_inames
+
+    def map_reduction(self, expr: lp.Reduction) -> p.Expression:
+        if frozenset(expr.inames) != self.reduction_inames:
+            return super().map_reduction(expr)
+
+        from loopy.library.reduction import SumReductionOperation
+        from loopy.symbolic import get_dependencies
+        if isinstance(expr.expr, p.Product) and isinstance(expr.operation,
+                                                           SumReductionOperation):
+            inner_expr = self.rec(expr.expr)
+            assert isinstance(inner_expr, p.Product)
+            invariants, variants = partition(lambda x: (get_dependencies(x)
+                                                        & self.reduction_inames),
+                                             inner_expr.children)
+
+            return p.Product(tuple(invariants)) * lp.Reduction(
+                expr.operation,
+                inames=expr.inames,
+                expr=p.Product(tuple(variants)),
+                allow_simultaneous=expr.allow_simultaneous)
+        else:
+            raise NotImplementedError(expr.expr)
+
+
+def hoist_reduction_invariant_terms(t_unit: lp.TranslationUnit,
+                                    reduction_inames: Union[str, FrozenSet[str]],
+                                    ) -> lp.TranslationUnit:
+    """
+    Hoists loop-invariant terms in a sum reduction expression with a product
+    inner expression.
+
+    .. note::
+
+        Placeholder until
+        `Loopy-541 <https://github.com/inducer/loopy/issues/541>`_
+        is fixed.
+    """
+    if isinstance(reduction_inames, str):
+        reduction_inames = frozenset(reduction_inames)
+
+    if not (reduction_inames <= t_unit.default_entrypoint.all_inames()):
+        raise ValueError(f"Some inames in '{reduction_inames}' not a part of"
+                         " the kernel")
+
+    term_hoister = EinsumTermsHoister(reduction_inames)
+
+    return t_unit.with_kernel(
+        lp.map_instructions(t_unit.default_entrypoint,
+                            insn_match=None,
+                            f=lambda x: x.with_transformed_expressions(term_hoister)
+                            ))
 
 # }}}
 
