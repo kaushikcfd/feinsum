@@ -65,17 +65,15 @@ def variant_1(t_unit):
 
 
 def variant_2(t_unit):
-    # Must be applied with contraction schedule obtained by opt_einsum
     ncells_per_group = 16
     nworkitems_per_cell = 12
 
-    for tmp in ["_fe_tmp",
-                "_fe_tmp_0",
-                "_fe_tmp_1",
-                "_fe_tmp_2"]:
-        t_unit = lp.assignment_to_subst(t_unit, tmp)
+    for i in range(4):
+        t_unit = f.extract_einsum_terms_as_subst(t_unit,
+                                                 f"subst{i}(f, e, j)",
+                                                 f"v{i}[f, e, j]*J[e, f]")
 
-    t_unit = lp.split_iname(t_unit, "e_0", ncells_per_group,
+    t_unit = lp.split_iname(t_unit, "e", ncells_per_group,
                             inner_iname="e_inner", outer_iname="e_outer",
                             outer_tag="g.0", inner_tag="l.1")
 
@@ -83,7 +81,7 @@ def variant_2(t_unit):
 
     t_unit = lp.add_prefetch(t_unit,
                              "R",
-                             ["f_0", "i_0", "j_0"],
+                             ["f", "i", "j"],
                              fetch_outer_inames=frozenset(["e_outer"]),
                              temporary_address_space=lp.AddressSpace.LOCAL,
                              default_tag=None,
@@ -101,11 +99,18 @@ def variant_2(t_unit):
 
     # }}}
 
-    t_unit = lp.rename_iname(t_unit, "i_0", "i_1",
+    t_unit = lp.rename_iname(t_unit, "i", "i_0",
+                             within="writes:_fe_out or writes:_fe_out_0")
+    t_unit = lp.rename_iname(t_unit, "f", "f_0",
+                             within="writes:_fe_out or writes:_fe_out_0")
+    t_unit = lp.rename_iname(t_unit, "j", "j_0",
+                             within="writes:_fe_out or writes:_fe_out_0")
+
+    t_unit = lp.rename_iname(t_unit, "i", "i_1",
                              within="writes:_fe_out_1 or writes:_fe_out_2")
-    t_unit = lp.rename_iname(t_unit, "f_0", "f_1",
+    t_unit = lp.rename_iname(t_unit, "f", "f_1",
                              within="writes:_fe_out_1 or writes:_fe_out_2")
-    t_unit = lp.rename_iname(t_unit, "j_0", "j_1",
+    t_unit = lp.rename_iname(t_unit, "j", "j_1",
                              within="writes:_fe_out_1 or writes:_fe_out_2")
 
     t_unit = lp.split_iname(t_unit, "i_0", nworkitems_per_cell,
@@ -113,10 +118,10 @@ def variant_2(t_unit):
     t_unit = lp.split_iname(t_unit, "i_1", nworkitems_per_cell,
                             inner_tag="l.0", outer_tag="unr")
 
-    for igrp, prcmpt_tmp, subst in [(0, "prcmpt_tmp_0", "_fe_tmp_subst"),
-                                    (0, "prcmpt_tmp_1", "_fe_tmp_0_subst"),
-                                    (1, "prcmpt_tmp_0", "_fe_tmp_1_subst"),
-                                    (1, "prcmpt_tmp_1", "_fe_tmp_2_subst")]:
+    for igrp, prcmpt_tmp, subst in [(0, "prcmpt_tmp_0", "subst0"),
+                                    (0, "prcmpt_tmp_1", "subst1"),
+                                    (1, "prcmpt_tmp_0", "subst2"),
+                                    (1, "prcmpt_tmp_1", "subst3")]:
         logger.info(f"Precomputing {subst}")
         t_unit = lp.precompute(t_unit,
                                subst,
@@ -142,7 +147,7 @@ def variant_2(t_unit):
                                 inner_tag="l.0", outer_tag="unr")
 
     t_unit = lp.add_dependency(t_unit,
-                               "id:_fe_tmp_1_subst or id:_fe_tmp_2_subst",
+                               "id:subst2 or id:subst3",
                                "writes:_fe_out or writes:_fe_out_0")
 
     logger.info("Done with transformations.")
@@ -163,7 +168,6 @@ def main():
     expr = get_face_mass_einsum(nface=4, nvoldofs=35, nfacedofs=15)
     print(f.stringify_comparison_vs_roofline(
         expr,
-        schedule=f.get_opt_einsum_contraction_schedule(expr),
         cl_ctx=cl_ctx,
         transform=variant_2,
         long_dim_length=100_000,
