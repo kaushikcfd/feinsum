@@ -24,6 +24,7 @@ from feinsum.einsum import (FusedEinsum, FreeAxis, SizeParam, EinsumAxisAccess,
                             SummationAxis)
 from feinsum.diagnostics import EinsumTunitMatchError
 from pytools.tag import Tag
+from pytools import UniqueNameGenerator
 from loopy.symbolic import pw_aff_to_expr, IdentityMapper as BaseIdentityMapper
 from more_itertools import partition
 
@@ -333,6 +334,15 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
                                                     " variable of the einsum.")
                 else:
                     subst_map[name_in_ref_einsum] = name_in_t_unit.name
+
+    # {{{ output names
+
+    vng = UniqueNameGenerator()
+
+    for insn in insns:
+        subst_map[vng("_fe_out")] = insn.assignee_name
+
+    # }}}
 
     return pmap(subst_map)
 
