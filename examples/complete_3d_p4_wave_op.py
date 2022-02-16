@@ -6,28 +6,8 @@ import logging
 logging.basicConfig(level="INFO")
 logger = logging.getLogger(__name__)
 
-from pytools.tag import Tag
 
-
-class DivInsnTag(Tag):
-    """
-    Tagged to divergence op statements.
-    """
-
-
-class GradInsnTag(Tag):
-    """
-    Tagged to grad statements.
-    """
-
-
-class LiftInsnTag(Tag):
-    """
-    Tagged to Lift operator statements.
-    """
-
-
-def transform_div(t_unit, insn_tag=None, kernel_name=None):
+def transform_div(t_unit, insn_match=None, kernel_name=None):
     ndim = 3
     ndofs = 35
     ref_einsum = fnsm.fused_einsum("es, sij, ej -> ei",
@@ -40,7 +20,7 @@ def transform_div(t_unit, insn_tag=None, kernel_name=None):
                                     [{"Jy"}, {"R"}, {"uy"}],
                                     [{"Jz"}, {"R"}, {"uz"}],
                                 ])
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_tag)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
     t_unit = lp.tag_inames(t_unit, {subst_map["s"]: "unr"})
     t_unit = lp.split_iname(t_unit, subst_map["e"], 8,
                             outer_tag="g.0", inner_tag="l.1")
@@ -50,7 +30,9 @@ def transform_div(t_unit, insn_tag=None, kernel_name=None):
     return t_unit
 
 
-def transform_grad(t_unit, insn_tag=None, kernel_name=None):
+def transform_grad(t_unit, insn_match=None, kernel_name=None):
+    from loopy.match import parse_match
+    insn_match = parse_match(insn_match)
 
     # {{{ define ref_einsum; get subst_map
 
@@ -66,7 +48,7 @@ def transform_grad(t_unit, insn_tag=None, kernel_name=None):
                             "float64"),
                     arg_names=["J", "R", "u"])
 
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_tag)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
 
     # }}}
 
@@ -191,6 +173,7 @@ def transform_grad(t_unit, insn_tag=None, kernel_name=None):
                              temporary_address_space=lp.AddressSpace.LOCAL,
                              dim_arg_names=[r_prftch, i_prftch, j_prftch],
                              default_tag=None,
+                             within="id:insn_hoist",
                              )
     t_unit = lp.join_inames(t_unit, [r_prftch, i_prftch, j_prftch],
                             "i_Rprftch")
@@ -251,7 +234,7 @@ def transform_grad(t_unit, insn_tag=None, kernel_name=None):
     return t_unit
 
 
-def transform_face_mass(t_unit, insn_tag=None, kernel_name=None):
+def transform_face_mass(t_unit, insn_match=None, kernel_name=None):
     # {{{ define ref_einsum; get subst_map
 
     nvoldofs = 35
@@ -268,7 +251,7 @@ def transform_face_mass(t_unit, insn_tag=None, kernel_name=None):
                                        [{"J"}, {"R"}, {"v2"}],
                                        [{"J"}, {"R"}, {"v3"}],
                                    ])
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_tag)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
 
     # }}}
 
@@ -463,21 +446,25 @@ def main():
         div_out_z[iel_0,idof_0] = sum([jdof_0,r_0], \
                                       Jz[iel_0,r_0]*R[r_0,idof_0,jdof_0]*vz[iel_0,jdof_0])
 
-        .. gbarrier {dep_query: (writes:div_out_*)}
+        ... gbarrier {id=g_barrier_0, dep_query=(writes:div_out_*)}
         # ----- Grad(u)
-        grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
-                                           J[x_1, iel_1, r_1]*R[r_1, idof_1, jdof_1]*u[iel_1, jdof_1])
+        with {dep=g_barrier_0}
+            grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
+                                               J[x_1, iel_1, r_1]*R[r_1, idof_1, jdof_1]*u[iel_1, jdof_1])
+        end
 
-        .. gbarrier {dep_query: (writes:grad_out)}
+        ... gbarrier {id=g_barrier_1, dep_query=(writes:grad_out)}
         # ----- Lift(f)
-        lift_0[iel_2, idof_2] = sum([iface, ifacedof], \
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_0[iface, iel_2, ifacedof])
-        lift_1[iel_2, idof_2] = sum([iface, ifacedof], \
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_1[iface, iel_2, ifacedof])
-        lift_2[iel_2, idof_2] = sum([iface, ifacedof], \
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_2[iface, iel_2, ifacedof])
-        lift_3[iel_2, idof_2] = sum([iface, ifacedof], \
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_3[iface, iel_2, ifacedof])
+        with {dep=g_barrier_1}
+            lift_0[iel_2, idof_2] = sum([iface, ifacedof], \
+                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_0[iface, iel_2, ifacedof])
+            lift_1[iel_2, idof_2] = sum([iface, ifacedof], \
+                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_1[iface, iel_2, ifacedof])
+            lift_2[iel_2, idof_2] = sum([iface, ifacedof], \
+                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_2[iface, iel_2, ifacedof])
+            lift_3[iel_2, idof_2] = sum([iface, ifacedof], \
+                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_3[iface, iel_2, ifacedof])
+        end
         """  # noqa: E501
     )
 
@@ -485,9 +472,12 @@ def main():
                            {arg.name: np.float64
                             for arg in t_unit.default_entrypoint.args
                             if arg.is_input})
-    # TODO: Actually transform this kernel wrt to the above 3 transformations.
 
-    print(t_unit)
+    t_unit = transform_div(t_unit, "writes:div_out_*")
+    t_unit = transform_grad(t_unit, "writes:grad_out")
+    t_unit = transform_face_mass(t_unit, "writes:lift_*")
+
+    return t_unit
 
 
 if __name__ == "__main__":
@@ -499,7 +489,7 @@ if __name__ == "__main__":
     elif cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
         logger.info("Device not known.")
     else:
-        # main()
         # report_div_performance(cl_ctx)
         # report_grad_performance(cl_ctx)
-        report_face_mass_performance(cl_ctx)
+        # report_face_mass_performance(cl_ctx)
+        main()
