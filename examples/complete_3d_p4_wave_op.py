@@ -1,7 +1,7 @@
 import numpy as np
 import pyopencl as cl
 import loopy as lp
-import feinsum as f
+import feinsum as fnsm
 import logging
 logging.basicConfig(level="INFO")
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class LiftInsnTag(Tag):
 def transform_div(t_unit, insn_tag=None, kernel_name=None):
     ndim = 3
     ndofs = 35
-    ref_einsum = f.fused_einsum("es, sij, ej -> ei",
+    ref_einsum = fnsm.fused_einsum("es, sij, ej -> ei",
                                 [(np.inf, ndim),
                                  (ndim, ndofs, ndofs),
                                  (np.inf, ndofs)],
@@ -40,7 +40,7 @@ def transform_div(t_unit, insn_tag=None, kernel_name=None):
                                     [{"Jy"}, {"R"}, {"uy"}],
                                     [{"Jz"}, {"R"}, {"uz"}],
                                 ])
-    subst_map = f.match_t_unit_to_einsum(t_unit, ref_einsum, insn_tag)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_tag)
     t_unit = lp.tag_inames(t_unit, {subst_map["s"]: "unr"})
     t_unit = lp.split_iname(t_unit, subst_map["e"], 8,
                             outer_tag="g.0", inner_tag="l.1")
@@ -57,16 +57,16 @@ def transform_grad(t_unit, insn_tag=None, kernel_name=None):
     ndim = 3
     ndofs = 35
 
-    ref_einsum = f.einsum("xer,rij,ej->xei",
-                    f.array((ndim, np.inf, ndim,),
+    ref_einsum = fnsm.einsum("xer,rij,ej->xei",
+                    fnsm.array((ndim, np.inf, ndim,),
                             "float64"),
-                    f.array((ndim, ndofs, ndofs),
+                    fnsm.array((ndim, ndofs, ndofs),
                             "float64"),
-                    f.array((np.inf, ndofs),
+                    fnsm.array((np.inf, ndofs),
                             "float64"),
                     arg_names=["J", "R", "u"])
 
-    subst_map = f.match_t_unit_to_einsum(t_unit, ref_einsum, insn_tag)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_tag)
 
     # }}}
 
@@ -106,8 +106,8 @@ def transform_grad(t_unit, insn_tag=None, kernel_name=None):
     # {{{ term hoisting to match the flop count of opt_einsum
 
     t_unit = lp.split_reduction_inward(t_unit, j)
-    t_unit = f.hoist_reduction_invariant_terms(t_unit, j)
-    t_unit = f.extract_einsum_terms_as_subst(
+    t_unit = fnsm.hoist_reduction_invariant_terms(t_unit, j)
+    t_unit = fnsm.extract_einsum_terms_as_subst(
         t_unit,
         f"subst({r}, {e}, {i})",
         f"sum({j}, {R}[{r}, {i}, {j}]*{u}[{e}, {j}])")
@@ -252,13 +252,145 @@ def transform_grad(t_unit, insn_tag=None, kernel_name=None):
 
 
 def transform_face_mass(t_unit, insn_tag=None, kernel_name=None):
-    ...
+    # {{{ define ref_einsum; get subst_map
+
+    nvoldofs = 35
+    nfacedofs = 15
+    nface = 4
+    ref_einsum = fnsm.fused_einsum("ef, fij, fej -> ei",
+                                   [(np.inf, nface),
+                                    (nface, nvoldofs, nfacedofs),
+                                    (nface, np.inf, nfacedofs)],
+                                   dtypes="float64",
+                                   use_matrix=[
+                                       [{"J"}, {"R"}, {"v0"}],
+                                       [{"J"}, {"R"}, {"v1"}],
+                                       [{"J"}, {"R"}, {"v2"}],
+                                       [{"J"}, {"R"}, {"v3"}],
+                                   ])
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_tag)
+
+    # }}}
+
+    # {{{ read variables
+
+    e = subst_map["e"]
+    e_inner, e_outer = f"{e}_inner", f"{e}_outer"
+    f = subst_map["f"]
+    i = subst_map["i"]
+    j = subst_map["j"]
+    J = subst_map["J"]
+    R = subst_map["R"]
+    i_0, i_1 = f"{i}_0", f"{i}_1"
+    j_0, j_1 = f"{j}_0", f"{j}_1"
+    f_0, f_1 = f"{f}_0", f"{f}_1"
+    out0, out1, out2, out3 = (subst_map["_fe_out"], subst_map["_fe_out_0"],
+                              subst_map["_fe_out_1"], subst_map["_fe_out_2"])
+    v = [subst_map[f"v{i}"] for i in range(4)]
+
+    # }}}
+
+    # {{{ transformation parameters
+
+    ncells_per_group = 16
+    nworkitems_per_cell = 12
+
+    # }}}
+
+    for k in range(4):
+        t_unit = fnsm.extract_einsum_terms_as_subst(
+            t_unit,
+            f"subst{k}({f},{e},{j})",
+            f"{v[k]}[{f},{e},{j}]*{J}[{e},{f}]")
+
+    t_unit = lp.split_iname(t_unit, e, ncells_per_group,
+                            outer_tag="g.0", inner_tag="l.1")
+
+    # {{{ fetch 'R'
+
+    t_unit = lp.add_prefetch(t_unit,
+                             R,
+                             [f, i, j],
+                             fetch_outer_inames=frozenset([e_outer]),
+                             temporary_address_space=lp.AddressSpace.LOCAL,
+                             default_tag=None,
+                             dim_arg_names=["f_Rprftch",
+                                            "i_Rprftch",
+                                            "j_Rprftch"],
+                             )
+
+    t_unit = lp.split_iname(t_unit, "i_Rprftch", ncells_per_group,
+                            inner_tag="l.1", outer_tag="unr")
+    t_unit = lp.split_iname(t_unit, "j_Rprftch", nworkitems_per_cell,
+                            inner_tag="l.0", outer_tag="unr")
+
+    logger.info(f"Prefetched '{R}'")
+
+    # }}}
+
+    t_unit = lp.rename_iname(t_unit, i, i_0,
+                             within=f"writes:{out0} or writes:{out1}")
+    t_unit = lp.rename_iname(t_unit, f, f_0,
+                             within=f"writes:{out0} or writes:{out1}")
+    t_unit = lp.rename_iname(t_unit, j, j_0,
+                             within=f"writes:{out0} or writes:{out1}")
+
+    t_unit = lp.rename_iname(t_unit, i, i_1,
+                             within=f"writes:{out2} or writes:{out3}")
+    t_unit = lp.rename_iname(t_unit, f, f_1,
+                             within=f"writes:{out2} or writes:{out3}")
+    t_unit = lp.rename_iname(t_unit, j, j_1,
+                             within=f"writes:{out2} or writes:{out3}")
+
+    t_unit = lp.split_iname(t_unit, i_0, nworkitems_per_cell,
+                            inner_tag="l.0", outer_tag="unr")
+    t_unit = lp.split_iname(t_unit, i_1, nworkitems_per_cell,
+                            inner_tag="l.0", outer_tag="unr")
+
+    for igrp, fgrp, jgrp, prcmpt_tmp, subst in [(0, f_0, j_0,
+                                                 "prcmpt_tmp_0", "subst0"),
+                                                (0, f_0, j_0,
+                                                 "prcmpt_tmp_1", "subst1"),
+                                                (1, f_1, j_1,
+                                                 "prcmpt_tmp_0", "subst2"),
+                                                (1, f_1, j_1,
+                                                 "prcmpt_tmp_1", "subst3")]:
+        logger.info(f"Precomputing {subst}")
+        t_unit = lp.precompute(t_unit,
+                               subst,
+                               sweep_inames=[fgrp,
+                                             e_inner,
+                                             jgrp],
+                               precompute_outer_inames=frozenset([e_outer]),
+                               precompute_inames=[f"f_prftch_{igrp}",
+                                                  f"e_prftch_{igrp}",
+                                                  f"j_prftch_{igrp}"],
+                               default_tag=None,
+                               temporary_name=prcmpt_tmp,
+                               temporary_address_space=lp.AddressSpace.LOCAL)
+
+    for igrp in [0, 1]:
+        t_unit = lp.split_iname(t_unit,
+                                f"e_prftch_{igrp}",
+                                ncells_per_group,
+                                inner_tag="l.1", outer_tag="unr")
+        t_unit = lp.split_iname(t_unit,
+                                f"j_prftch_{igrp}",
+                                nworkitems_per_cell,
+                                inner_tag="l.0", outer_tag="unr")
+
+    t_unit = lp.add_dependency(t_unit,
+                               "id:subst2 or id:subst3",
+                               f"writes:{out0} or writes:{out1}")
+
+    logger.info("Done with transformations.")
+    return t_unit
 
 
 def report_div_performance(cl_ctx):
     ndim = 3
     ndofs = 35
-    expr = f.fused_einsum("es, sij, ej -> ei",
+    expr = fnsm.fused_einsum("es, sij, ej -> ei",
                           [(np.inf, ndim),
                            (ndim, ndofs, ndofs),
                            (np.inf, ndofs)],
@@ -268,33 +400,50 @@ def report_div_performance(cl_ctx):
                               [{"Jy"}, {"R"}, {"uy"}],
                               [{"Jz"}, {"R"}, {"uz"}],
                           ])
-    print(f.stringify_comparison_vs_roofline(expr,
-                                             cl_ctx=cl_ctx,
-                                             transform=transform_div,
-                                             long_dim_length=100_000,
-                                             ))
+    print(fnsm.stringify_comparison_vs_roofline(expr,
+                                                cl_ctx=cl_ctx,
+                                                transform=transform_div,
+                                                long_dim_length=100_000,
+                                                ))
 
 
 def report_grad_performance(cl_ctx):
     ndim = 3
     ndofs = 35
-    expr = f.einsum("xer,rij,ej->xei",
-                    f.array((ndim, np.inf, ndim,),
+    expr = fnsm.einsum("xer,rij,ej->xei",
+                    fnsm.array((ndim, np.inf, ndim,),
                             "float64"),
-                    f.array((ndim, ndofs, ndofs),
+                    fnsm.array((ndim, ndofs, ndofs),
                             "float64"),
-                    f.array((np.inf, ndofs),
+                    fnsm.array((np.inf, ndofs),
                             "float64"),
                     arg_names=["J", "R", "u"])
     print(
-        f.stringify_comparison_vs_roofline(
+        fnsm.stringify_comparison_vs_roofline(
             expr,
             cl_ctx=cl_ctx,
             transform=transform_grad))
 
 
-def report_face_mass_performance():
-    ...
+def report_face_mass_performance(cl_ctx):
+    nvoldofs = 35
+    nfacedofs = 15
+    nface = 4
+    expr = fnsm.fused_einsum("ef, fij, fej -> ei",
+                          [(np.inf, nface),
+                           (nface, nvoldofs, nfacedofs),
+                           (nface, np.inf, nfacedofs)],
+                          dtypes="float64",
+                          use_matrix=[
+                              [{"J"}, {"R"}, {"v0"}],
+                              [{"J"}, {"R"}, {"v1"}],
+                              [{"J"}, {"R"}, {"v2"}],
+                              [{"J"}, {"R"}, {"v3"}],
+                          ])
+
+    print(fnsm.stringify_comparison_vs_roofline(expr,
+                                                cl_ctx=cl_ctx,
+                                                transform=transform_face_mass))
 
 
 def main():
@@ -352,4 +501,5 @@ if __name__ == "__main__":
     else:
         # main()
         # report_div_performance(cl_ctx)
-        report_grad_performance(cl_ctx)
+        # report_grad_performance(cl_ctx)
+        report_face_mass_performance(cl_ctx)
