@@ -11,7 +11,7 @@ import pymbolic.interop.matchpy as m
 import pymbolic.primitives as p
 
 from multiset import Multiset
-from typing import Union, ClassVar, Optional, Tuple, FrozenSet
+from typing import Union, ClassVar, Optional, Tuple, FrozenSet, Any
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from dataclasses import dataclass
@@ -23,7 +23,6 @@ from matchpy import Arity
 from feinsum.einsum import (FusedEinsum, FreeAxis, SizeParam, EinsumAxisAccess,
                             SummationAxis)
 from feinsum.diagnostics import EinsumTunitMatchError
-from pytools.tag import Tag
 from pytools import UniqueNameGenerator
 from loopy.symbolic import pw_aff_to_expr, IdentityMapper as BaseIdentityMapper
 from more_itertools import partition
@@ -228,7 +227,7 @@ def _check_if_t_unit_and_ref_einsum_have_the_same_axis_dim(ref_idx: EinsumAxisAc
 
 
 def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
-                           insn_match_tag: Optional[Tag] = None,
+                           insn_match: Any = None,
                            long_dim_length: int = 5_000) -> PMapT[str, str]:
     """
     Returns a mapping from the variable names in *ref_einsum* to the variables
@@ -238,7 +237,8 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
     :param t_unit: The subject translation unit which is being matched against
         *ref_einsum*.
     :param ref_einsum: The pattern to match *t_unit* against.
-    :param insn_match_tag: An optional tag representing the subset of the
+    :param insn_match: A match expression as understood by
+        :func:`loopy.match.parse_match` representing the subset of the
         kernel's instructions that are to be considered as the subject of
         matching against the *ref_einsum* pattern.
     :param long_dim_length: Axis length above which can be assumed to be long
@@ -255,12 +255,11 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
         raise NotImplementedError("Handling translation units with multiple"
                                   " kernels is currently not supported.")
 
-    if insn_match_tag is None:
-        insns = t_unit.default_entrypoint.instructions
-    else:
-        insns = [insn
-                 for insn in t_unit.default_entrypoint.instructions
-                 if insn.tags_of_type(insn_match_tag)]
+    from loopy.match import parse_match
+    insn_match = parse_match(insn_match)
+    insns = [insn
+             for insn in t_unit.default_entrypoint.instructions
+             if insn_match(t_unit.default_entrypoint, insn)]
 
     if len({insn.within_inames for insn in insns}) != 1:
         raise EinsumTunitMatchError("Instructions forming the subject have"
@@ -293,7 +292,7 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
                 ref_einsum,
                 t_unit.default_entrypoint,
                 long_dim_length=long_dim_length)
-            subst_map[physical_idx] = ref_einsum.index_names[FreeAxis(i)]
+            subst_map[ref_einsum.index_names[FreeAxis(i)]] = physical_idx
 
     for insn, use_row in szip(insns, ref_einsum.use_matrix):
         if not isinstance(insn.expression, lp.Reduction):
@@ -415,7 +414,7 @@ def hoist_reduction_invariant_terms(t_unit: lp.TranslationUnit,
         is fixed.
     """
     if isinstance(reduction_inames, str):
-        reduction_inames = frozenset(reduction_inames)
+        reduction_inames = frozenset([reduction_inames])
 
     if not (reduction_inames <= t_unit.default_entrypoint.all_inames()):
         raise ValueError(f"Some inames in '{reduction_inames}' not a part of"
