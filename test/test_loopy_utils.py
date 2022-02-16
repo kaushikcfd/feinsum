@@ -113,3 +113,25 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
     opt_ops = lp.get_op_map(hoisted_t_unit, subgroup_size=1).eval_and_sum()
     assert trivial_ops > 4 * opt_ops
     lp.auto_test_vs_ref(t_unit, cl_ctx, hoisted_t_unit)
+
+
+def test_wave_grad_transform_knowledge_transfer(ctx_factory):
+    from testlib import transform_3d_p4_grad
+    cl_ctx = ctx_factory()
+
+    t_unit = lp.make_kernel(
+        "{[iel_1, idof_1, jdof_1, r_1, x_1]:"
+        " 0<=iel_1<Nel and 0<=idof_1,jdof_1<35 and 0<=r_1,x_1<3}",
+        """
+        grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
+                                           J[x_1, iel_1, r_1]*R[r_1, idof_1, jdof_1]*u[iel_1, jdof_1])
+        """  # noqa: E501
+    )
+    t_unit = lp.add_dtypes(t_unit,
+                           {arg.name: np.float64
+                            for arg in t_unit.default_entrypoint.args
+                            if arg.is_input and arg.name != "Nel"})
+    ref_t_unit = t_unit
+    t_unit = transform_3d_p4_grad(t_unit, "writes:grad_out")
+    lp.auto_test_vs_ref(ref_t_unit, cl_ctx, t_unit, parameters={"Nel": 100})
+    return t_unit
