@@ -131,14 +131,10 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
                              default_tag=None,
                              )
 
-    t_unit = lp.join_inames(t_unit, [e_prftch, j_prftch], "i_uprftch")
-    t_unit = lp.split_iname(t_unit, "i_uprftch",
-                            ncells_per_workgroup * nworkitems_per_cell,
-                            outer_tag="unr")
-
-    t_unit = lp.split_iname(t_unit, "i_uprftch_inner",
-                            nworkitems_per_cell,
-                            inner_tag="l.0", outer_tag="l.1")
+    t_unit = lp.split_iname(t_unit, e_prftch, ncells_per_workgroup,
+                            inner_tag="l.1", outer_tag="unr")
+    t_unit = lp.split_iname(t_unit, j_prftch, nworkitems_per_cell,
+                            inner_tag="l.0", outer_tag="unr")
 
     # }}}
 
@@ -154,16 +150,25 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
                              default_tag=None,
                              within="id:insn_hoist",
                              )
-    t_unit = lp.join_inames(t_unit, [r_prftch, i_prftch, j_prftch],
-                            "i_Rprftch")
 
-    t_unit = lp.split_iname(t_unit, "i_Rprftch",
-                            ncells_per_workgroup * nworkitems_per_cell,
-                            outer_tag="unr")
+    if 0:
+        # This branch improves perf. by 20% but, something in loopy
+        # non-deterministically leads to very ugly domains.
+        t_unit = lp.join_inames(t_unit, [r_prftch, i_prftch, j_prftch],
+                                "i_Rprftch")
 
-    t_unit = lp.split_iname(t_unit, "i_Rprftch_inner",
-                            nworkitems_per_cell,
-                            inner_tag="l.0", outer_tag="l.1")
+        t_unit = lp.split_iname(t_unit, "i_Rprftch",
+                                ncells_per_workgroup * nworkitems_per_cell,
+                                outer_tag="unr")
+
+        t_unit = lp.split_iname(t_unit, "i_Rprftch_inner",
+                                nworkitems_per_cell,
+                                inner_tag="l.0", outer_tag="l.1")
+    else:
+        t_unit = lp.split_iname(t_unit, i_prftch, ncells_per_workgroup,
+                                inner_tag="l.1", outer_tag="unr")
+        t_unit = lp.split_iname(t_unit, j_prftch, nworkitems_per_cell,
+                                inner_tag="l.0", outer_tag="unr")
 
     # }}}
 
