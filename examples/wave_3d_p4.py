@@ -151,15 +151,10 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
                              dim_arg_names=[e_prftch, j_prftch],
                              default_tag=None,
                              )
-
-    t_unit = lp.join_inames(t_unit, [e_prftch, j_prftch], "i_uprftch")
-    t_unit = lp.split_iname(t_unit, "i_uprftch",
-                            ncells_per_workgroup * nworkitems_per_cell,
-                            outer_tag="unr")
-
-    t_unit = lp.split_iname(t_unit, "i_uprftch_inner",
-                            nworkitems_per_cell,
-                            inner_tag="l.0", outer_tag="l.1")
+    t_unit = lp.split_iname(t_unit, e_prftch, ncells_per_workgroup,
+                            inner_tag="l.1", outer_tag="unr")
+    t_unit = lp.split_iname(t_unit, j_prftch, nworkitems_per_cell,
+                            inner_tag="l.0", outer_tag="unr")
 
     # }}}
 
@@ -175,16 +170,24 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
                              default_tag=None,
                              within="id:insn_hoist",
                              )
-    t_unit = lp.join_inames(t_unit, [r_prftch, i_prftch, j_prftch],
-                            "i_Rprftch")
+    if 0:
+        # This branch improves perf. by 20% but, something in loopy
+        # non-deterministically leads to very ugly domains.
+        t_unit = lp.join_inames(t_unit, [r_prftch, i_prftch, j_prftch],
+                                "i_Rprftch")
 
-    t_unit = lp.split_iname(t_unit, "i_Rprftch",
-                            ncells_per_workgroup * nworkitems_per_cell,
-                            outer_tag="unr")
+        t_unit = lp.split_iname(t_unit, "i_Rprftch",
+                                ncells_per_workgroup * nworkitems_per_cell,
+                                outer_tag="unr")
 
-    t_unit = lp.split_iname(t_unit, "i_Rprftch_inner",
-                            nworkitems_per_cell,
-                            inner_tag="l.0", outer_tag="l.1")
+        t_unit = lp.split_iname(t_unit, "i_Rprftch_inner",
+                                nworkitems_per_cell,
+                                inner_tag="l.0", outer_tag="l.1")
+    else:
+        t_unit = lp.split_iname(t_unit, i_prftch, ncells_per_workgroup,
+                                inner_tag="l.1", outer_tag="unr")
+        t_unit = lp.split_iname(t_unit, j_prftch, nworkitems_per_cell,
+                                inner_tag="l.0", outer_tag="unr")
 
     # }}}
 
@@ -211,10 +214,11 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
     # {{{ must be smarter way of doing this in loopy
 
     t_unit = lp.realize_reduction(t_unit, insn_id_filter="insn_hoist")
-    t_unit = lp.privatize_temporaries_with_inames(t_unit,
-                                                  frozenset([r_prcmpt,
-                                                             "i_outer_hoist"]),
-                                                  only_var_names={"acc_j_tile_j"})
+    t_unit = lp.privatize_temporaries_with_inames(
+        t_unit,
+        frozenset([r_prcmpt,
+                   "i_outer_hoist"]),
+        only_var_names={f"acc_{j_tile}_{j}"})
     t_unit = lp.duplicate_inames(t_unit,
                                  ["i_outer_hoist", r_prcmpt],
                                  within=f"id:insn_hoist_{j_tile}_{j}_init",
@@ -454,7 +458,7 @@ def main():
         end
 
         ... gbarrier {id=g_barrier_1, dep_query=(writes:grad_out)}
-        # ----- Lift(f)
+        # ----- Lift(f*)
         with {dep=g_barrier_1}
             lift_0[iel_2, idof_2] = sum([iface, ifacedof], \
                                         Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_0[iface, iel_2, ifacedof])
@@ -476,6 +480,20 @@ def main():
     t_unit = transform_div(t_unit, "writes:div_out_*")
     t_unit = transform_grad(t_unit, "writes:grad_out")
     t_unit = transform_face_mass(t_unit, "writes:lift_*")
+
+    # {{{ FIXME: These should've been added by loopy
+
+    t_unit = lp.add_dependency(t_unit,
+                               "id:Rlift_fetch_rule",
+                               "id:g_barrier_1")
+    t_unit = lp.add_dependency(t_unit,
+                               "id:J_fetch_rule",
+                               "id:g_barrier_0")
+    t_unit = lp.add_dependency(t_unit,
+                               "id:g_barrier_1",
+                               "id:store_grad_out")
+
+    # }}}
 
     return t_unit
 
