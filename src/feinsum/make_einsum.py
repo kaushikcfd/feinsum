@@ -370,7 +370,7 @@ def fused_einsum(subscripts: str,
     return FusedEinsum(tuple(size_param_op_shapes),
                        pmap(value_to_proc_dtype),
                        access_descriptors,
-                       tuple(tuple(use_row)  # type: ignore[arg-type]
+                       tuple(tuple(use_row)
                              for use_row in use_matrix),
                        index_names=axis_to_name,
                        )

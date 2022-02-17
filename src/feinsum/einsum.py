@@ -105,7 +105,7 @@ class FusedEinsum:
     arg_shapes: Tuple[ShapeT, ...]
     value_to_dtype: PMapT[str, np.dtype[Any]]
     access_descriptors: Tuple[Tuple[EinsumAxisAccess, ...], ...]
-    use_matrix: Tuple[Tuple[FrozenSet[str], ...]]
+    use_matrix: Tuple[Tuple[FrozenSet[str], ...], ...]
     index_names: PMapT[EinsumAxisAccess, str]
 
     @property
