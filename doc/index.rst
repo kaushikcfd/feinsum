@@ -17,7 +17,7 @@ in a single loop nest.
     building
     codegen
     metrics
-    tabulation
+    database
     extra_loopy
 
     🚀 Github <https://github.com/inducer/pytato>
