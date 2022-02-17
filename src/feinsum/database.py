@@ -343,6 +343,13 @@ def query(einsum: FusedEinsum,
         _get_use_matrix_for_db(einsum))
     value_to_dtype = _get_value_to_dtype_for_db(einsum)
 
+    cursor.execute(" SELECT name FROM sqlite_master"
+                   f" WHERE (type='table' AND name='{device_name}');")
+
+    if not cursor.fetchall():
+        logger.warn(f"No entries for {cl_device}")
+        return ()
+
     cursor.execute(" SELECT"
                    "     loopy_transform,"
                    "     runtime_in_sec,"
