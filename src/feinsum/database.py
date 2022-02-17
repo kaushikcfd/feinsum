@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import (TYPE_CHECKING, Optional, Union, Callable,
                     Tuple, FrozenSet, Any, Dict)
 from pyrsistent.typing import PMap as PMapT
+from pyrsistent import pmap
 from feinsum.einsum import FusedEinsum, INT_CLASSES, SizeParam
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,15 @@ def _get_op_info_for_db(einsum: FusedEinsum, long_dim_length: int) -> str:
                      for k, v in dtype_to_ops.items())
 
 
+def _postprocess_op_info_from_sql(op_info: str) -> PMapT[np.dtype[Any], float]:
+    result = {}
+    for line in op_info.split("\n"):
+        dtype, ops = line.split(":")
+        result[np.dtype(dtype)] = float(ops)
+
+    return pmap(result)
+
+
 def _get_log_str_for_run(einsum: FusedEinsum,
                          runtime: float,
                          device: "cl.Device",
@@ -147,6 +157,17 @@ def _get_cl_device_name_for_db(cl_device: "cl.Device") -> str:
             .replace(")", "_")
             .replace(".", "DOT")
             )
+
+
+def _preprocess_string_for_sql(value: str) -> str:
+    if value.find("''") != -1 or value.find("\\n") != -1:
+        raise NotImplementedError
+
+    return value.replace("\n", "\\n").replace("'", "''")
+
+
+def _postprocess_string_from_sql(value: str) -> str:
+    return value.replace("\\n", "\n").replace("''", "'")
 
 
 def record(einsum: FusedEinsum,
@@ -231,17 +252,19 @@ def record(einsum: FusedEinsum,
 
     subscripts = einsum.get_subscripts()
     index_to_length = _get_index_to_length_for_db(einsum)
-    transform_str = transform_str.replace("\n", "\\n").replace("'", "''")
-    use_matrix = _get_use_matrix_for_db(einsum).replace("\n", "\\n")
+    transform_str = _preprocess_string_for_sql(transform_str)
+    use_matrix = _preprocess_string_for_sql(
+        _get_use_matrix_for_db(einsum))
     value_to_dtype = _get_value_to_dtype_for_db(einsum)
     # type-ignored because last 2 arguments are optional arguments and mypy
     # cannot deduce that.
-    cl_kernel = (lp
-                 .generate_code_v2(transform_clbl(  # type: ignore
-                     generate_loopy(einsum)))
-                 .device_code()).replace("\n", "\\n")
+    cl_kernel = _preprocess_string_for_sql(
+        lp.generate_code_v2(transform_clbl(  # type: ignore
+            generate_loopy(einsum)))
+        .device_code())
     compiler_version = _get_cl_version_for_db(cl_device)
-    op_info = _get_op_info_for_db(einsum, long_dim_length=long_dim_length)
+    op_info = _preprocess_string_for_sql(
+        _get_op_info_for_db(einsum, long_dim_length=long_dim_length))
 
     # {{{ logging values
 
@@ -281,6 +304,7 @@ def record(einsum: FusedEinsum,
                    ")")
 
     conn.commit()
+    conn.close()
 
 
 @dataclass(frozen=True, eq=True, repr=True)
@@ -296,12 +320,62 @@ class QueryInfo:
 
 def query(einsum: FusedEinsum,
           cl_ctx: "cl.Context",
+          *,
           database: str = DEFAULT_TRANSFORM_ARCHIVE,
           ) -> Tuple[QueryInfo, ...]:
     """
     Returns facts of previous recorded runs of *einsum* on *cl_ctx*.
     """
     # TODO: This should  somehow solve the normalized FusedEinsum problem.
-    raise NotImplementedError
+    from feinsum.normalization import normalize_einsum
+    einsum = normalize_einsum(einsum)
+    conn = sqlite3.connect(database)
+    cursor = conn.cursor()
+
+    if len(cl_ctx.devices) > 1:
+        raise NotImplementedError("CL contexts with multiple devices not supported")
+
+    cl_device, = cl_ctx.devices
+    device_name = _get_cl_device_name_for_db(cl_device)
+    subscripts = einsum.get_subscripts()
+    index_to_length = _get_index_to_length_for_db(einsum)
+    use_matrix = _preprocess_string_for_sql(
+        _get_use_matrix_for_db(einsum))
+    value_to_dtype = _get_value_to_dtype_for_db(einsum)
+
+    cursor.execute(" SELECT"
+                   "     loopy_transform,"
+                   "     runtime_in_sec,"
+                   "     authors,"
+                   "     compiler_version,"
+                   "     cl_kernel,"
+                   "     giga_op_info,"
+                   "     timestamp,"
+                   "     remarks"
+                   "  FROM "
+                   f"    {device_name}"
+                   f" WHERE ("
+                   f"    subscripts = '{subscripts}'"
+                   f"    AND index_to_length = '{index_to_length}'"
+                   f"    AND use_matrix = '{use_matrix}'"
+                   f"    AND value_to_dtype = '{value_to_dtype}'"
+                   ");")
+
+    facts = cursor.fetchall()
+    query_result = tuple(
+        QueryInfo(
+            loopy_transform=_get_clbl_from_string(
+                _postprocess_string_from_sql(fact[0])),
+            runtime_in_sec=fact[1],
+            authors=fact[2],
+            compiler_version=fact[3],
+            cl_kernel=_postprocess_string_from_sql(fact[4]),
+            giga_op_info=_postprocess_op_info_from_sql(fact[5]),
+            remarks=_postprocess_string_from_sql(fact[7]))
+        for fact in facts)
+    conn.close()
+
+    return query_result
+
 
 # vim: foldmethod=marker
