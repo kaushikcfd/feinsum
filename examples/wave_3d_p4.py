@@ -480,20 +480,7 @@ def main():
     t_unit = transform_div(t_unit, "writes:div_out_*")
     t_unit = transform_grad(t_unit, "writes:grad_out")
     t_unit = transform_face_mass(t_unit, "writes:lift_*")
-
-    # {{{ FIXME: These should've been added by loopy
-
-    t_unit = lp.add_dependency(t_unit,
-                               "id:Rlift_fetch_rule",
-                               "id:g_barrier_1")
-    t_unit = lp.add_dependency(t_unit,
-                               "id:J_fetch_rule",
-                               "id:g_barrier_0")
-    t_unit = lp.add_dependency(t_unit,
-                               "id:g_barrier_1",
-                               "id:store_grad_out")
-
-    # }}}
+    print(lp.generate_code_v2(t_unit).device_code())
 
     return t_unit
 
@@ -501,13 +488,13 @@ def main():
 if __name__ == "__main__":
     from feinsum.data.device_info import DEV_TO_PEAK_GFLOPS
     cl_ctx = cl.create_some_context()
+    main()
 
     if len(cl_ctx.devices) != 1:
         logger.info("Multiple devices in the context")
     elif cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
-        logger.info("Device not known.")
+        logger.info(f"Device {cl_ctx.devices[0]} not known.")
     else:
-        # report_div_performance(cl_ctx)
-        # report_grad_performance(cl_ctx)
-        # report_face_mass_performance(cl_ctx)
-        main()
+        report_div_performance(cl_ctx)
+        report_grad_performance(cl_ctx)
+        report_face_mass_performance(cl_ctx)
