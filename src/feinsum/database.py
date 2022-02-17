@@ -1,6 +1,6 @@
 """
 .. autofunction:: record
-.. autofunction:: query_with_least_runtime
+.. autofunction:: query
 .. autoclass:: QueryInfo
 """
 
@@ -12,9 +12,8 @@ import numpy as np
 import loopy as lp
 
 from dataclasses import dataclass
-from typing import (TYPE_CHECKING, Optional, Union, Callable, Sequence,
-                    Tuple, FrozenSet, Any, Dict, Mapping)
-from pyrsistent import pmap
+from typing import (TYPE_CHECKING, Optional, Union, Callable,
+                    Tuple, FrozenSet, Any, Dict)
 from pyrsistent.typing import PMap as PMapT
 from feinsum.einsum import FusedEinsum, INT_CLASSES, SizeParam
 
@@ -26,23 +25,19 @@ if TYPE_CHECKING or getattr(sys, "FEINSUM_BUILDING_SPHINX_DOCS", False):
     import pyopencl as cl
 
 
-FallbackT = Union[str, Callable[["lp.TranslationUnit"], "lp.TranslationUnit"]]
+# transform: (t_unit, insn_match, kernel_name)
+TransformT = Callable[["lp.TranslationUnit", Optional[Any], Optional[str]],
+                      "lp.TranslationUnit"]
+FallbackT = Union[str, TransformT]
 
 
 DEFAULT_FALLBACKS = ()
-
-# Normalized representation of feinsum?
-# * Subscript
-# * No assuming non-associative floating point operations.
-# * Suggestion 1:
-#    -
 
 DEFAULT_TRANSFORM_ARCHIVE = os.path.join(os.path.dirname(__file__),
                                          "../../data/transform_archive_v0.db")
 
 
-def _get_clbl_from_string(transform_src: str) -> Callable[["lp.TranslationUnit"],
-                                                          "lp.TranslationUnit"]:
+def _get_clbl_from_string(transform_src: str) -> TransformT:
 
     result_dict: Dict[Any, Any] = {}
     exec(compile(transform_src, "<feinsum transform code>", "exec"), result_dict)
@@ -56,19 +51,11 @@ def _get_clbl_from_string(transform_src: str) -> Callable[["lp.TranslationUnit"]
     return clbl  # type: ignore[no-any-return]
 
 
-def _get_normalized_value_name_mapping_for_db(einsum: FusedEinsum
-                                              ) -> Mapping[str, str]:
-    return pmap({val: f"arg_{i}"
-                 for i, val in enumerate(einsum.value_to_dtype)})
-
-
 def _get_value_to_dtype_for_db(einsum: FusedEinsum) -> str:
-    normalized_value_map = _get_normalized_value_name_mapping_for_db(einsum)
-    normalized_value_to_dtype = {normalized_value_map[k]: v
-                                 for k, v in einsum.value_to_dtype.items()}
     return ("["
             + ", ".join(f"{val}: {dtype.name}"
-                           for val, dtype in sorted(normalized_value_to_dtype
+                           for val, dtype in sorted(einsum
+                                                    .value_to_dtype
                                                     .items()))
             + "]")
 
@@ -80,10 +67,8 @@ def _get_index_to_length_for_db(einsum: FusedEinsum) -> str:
 
 
 def _get_use_matrix_for_db(einsum: FusedEinsum) -> str:
-    normalized_value_map = _get_normalized_value_name_mapping_for_db(einsum)
-
     def _stringify_use_row(use_row: Tuple[FrozenSet[str], ...]) -> str:
-        normalized_use_row = [sorted({normalized_value_map[use]
+        normalized_use_row = [sorted({use
                                       for use in uses})
                               for uses in use_row]
         return ("["
@@ -182,12 +167,11 @@ def record(einsum: FusedEinsum,
 
     from feinsum.measure import timeit
     from feinsum.codegen.loopy import generate_loopy
+    from feinsum.normalization import normalize_einsum
+    einsum = normalize_einsum(einsum)
 
     # TODO: Instead of taking in a long_dim_length, should allow setting each
     # parameter its value.
-    # TODO: Normalizing the FusedEinsum.
-    # interaction matrix is more or less clear, but what permutation to apply
-    # to t.
     if (transform_str is not None) and (transform_file_path is not None):
         raise ValueError("Cannot pass in both transform_str"
                          " and transform_file_path.")
@@ -204,8 +188,10 @@ def record(einsum: FusedEinsum,
     assert transform_str is not None
     transform_clbl = _get_clbl_from_string(transform_str)
 
+    # type-ignored because last 2 arguments are optional arguments and mypy
+    # cannot deduce that.
     runtime = timeit(einsum,
-                     transform=transform_clbl,
+                     transform=transform_clbl,  # type: ignore
                      cl_ctx=cl_ctx,
                      long_dim_length=long_dim_length)
 
@@ -248,7 +234,11 @@ def record(einsum: FusedEinsum,
     transform_str = transform_str.replace("\n", "\\n").replace("'", "''")
     use_matrix = _get_use_matrix_for_db(einsum).replace("\n", "\\n")
     value_to_dtype = _get_value_to_dtype_for_db(einsum)
-    cl_kernel = (lp.generate_code_v2(transform_clbl(generate_loopy(einsum)))
+    # type-ignored because last 2 arguments are optional arguments and mypy
+    # cannot deduce that.
+    cl_kernel = (lp
+                 .generate_code_v2(transform_clbl(  # type: ignore
+                     generate_loopy(einsum)))
                  .device_code()).replace("\n", "\\n")
     compiler_version = _get_cl_version_for_db(cl_device)
     op_info = _get_op_info_for_db(einsum, long_dim_length=long_dim_length)
@@ -270,8 +260,7 @@ def record(einsum: FusedEinsum,
     from datetime import datetime
 
     timestamp = (datetime
-                .now(pytz.timezone("America/Chicago"))
-                .strftime("%Y_%m_%d_%H%M%S"))
+                .now(pytz.timezone("America/Chicago")) .strftime("%Y_%m_%d_%H%M%S"))
 
     # }}}
 
@@ -294,13 +283,9 @@ def record(einsum: FusedEinsum,
     conn.commit()
 
 
-def are_two_einsums_equivalent(e1: FusedEinsum, e2: FusedEinsum) -> bool:
-    raise NotImplementedError
-
-
 @dataclass(frozen=True, eq=True, repr=True)
 class QueryInfo:
-    loopy_transform: str
+    loopy_transform: TransformT
     runtime_in_sec: float
     authors: str
     compiler_version: str
@@ -309,11 +294,13 @@ class QueryInfo:
     remarks: str
 
 
-def query_with_least_runtime(einsum: FusedEinsum,
-                             device_name: str,
-                             database_path: str,
-                             fallbacks: Sequence[FallbackT] = DEFAULT_FALLBACKS,
-                             ) -> QueryInfo:
+def query(einsum: FusedEinsum,
+          cl_ctx: "cl.Context",
+          database: str = DEFAULT_TRANSFORM_ARCHIVE,
+          ) -> Tuple[QueryInfo, ...]:
+    """
+    Returns facts of previous recorded runs of *einsum* on *cl_ctx*.
+    """
     # TODO: This should  somehow solve the normalized FusedEinsum problem.
     raise NotImplementedError
 
