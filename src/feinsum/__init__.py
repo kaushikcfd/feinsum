@@ -13,7 +13,7 @@ from feinsum.database import record, query
 from feinsum.loopy_utils import (match_t_unit_to_einsum,
                                  extract_einsum_terms_as_subst,
                                  hoist_reduction_invariant_terms,
-                                 infer_einsum)
+                                 match_einsum)
 from feinsum.normalization import normalize_einsum
 
 
@@ -32,7 +32,7 @@ __all__ = (
     "record", "query",
 
     "match_t_unit_to_einsum", "hoist_reduction_invariant_terms",
-    "extract_einsum_terms_as_subst", "infer_einsum",
+    "extract_einsum_terms_as_subst", "match_einsum",
 
     "normalize_einsum",
 )

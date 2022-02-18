@@ -137,7 +137,7 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
     return t_unit
 
 
-def test_infer_einsum():
+def test_match_einsum():
     t_unit = lp.make_kernel(
         "{[iel_2, idof_2, ifacedof, iface]:"
         " 0<=iel_2<10000 and 0<=idof_2<35 and 0<=ifacedof<15 and 0<=iface<4}",
@@ -173,5 +173,5 @@ def test_infer_einsum():
                                     [{"J"}, {"R"}, {"v3"}],
                                 ])
 
-    inferred_einsum = f.infer_einsum(t_unit)
+    inferred_einsum = f.match_einsum(t_unit)
     assert f.normalize_einsum(inferred_einsum) == f.normalize_einsum(ref_einsum)

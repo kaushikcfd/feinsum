@@ -4,7 +4,7 @@ upstreaming the heavy lifting parts to :mod:`loopy` itself.
 
 .. autofunction:: extract_subexpr_of_associative_op_as_subst
 .. autofunction:: match_t_unit_to_einsum
-.. autofunction:: infer_einsum
+.. autofunction:: match_einsum
 """
 
 import numpy as np
@@ -435,7 +435,7 @@ def hoist_reduction_invariant_terms(t_unit: lp.TranslationUnit,
 
 # {{{ infer einsum
 
-def infer_einsum(t_unit: lp.TranslationUnit,
+def match_einsum(t_unit: lp.TranslationUnit,
                  insn_match: Any = None,
                  kernel_name: Optional[str] = None,
                  long_dim_length: int = 1000,
