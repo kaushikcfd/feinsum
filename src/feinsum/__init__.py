@@ -12,7 +12,8 @@ from feinsum.measure import (timeit, measure_giga_op_rate,
 from feinsum.database import record, query
 from feinsum.loopy_utils import (match_t_unit_to_einsum,
                                  extract_einsum_terms_as_subst,
-                                 hoist_reduction_invariant_terms)
+                                 hoist_reduction_invariant_terms,
+                                 infer_einsum)
 from feinsum.normalization import normalize_einsum
 
 
@@ -31,7 +32,7 @@ __all__ = (
     "record", "query",
 
     "match_t_unit_to_einsum", "hoist_reduction_invariant_terms",
-    "extract_einsum_terms_as_subst",
+    "extract_einsum_terms_as_subst", "infer_einsum",
 
     "normalize_einsum",
 )

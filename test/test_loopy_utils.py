@@ -135,3 +135,43 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
     t_unit = transform_3d_p4_grad(t_unit, "writes:grad_out")
     lp.auto_test_vs_ref(ref_t_unit, cl_ctx, t_unit, parameters={"Nel": 100})
     return t_unit
+
+
+def test_infer_einsum():
+    t_unit = lp.make_kernel(
+        "{[iel_2, idof_2, ifacedof, iface]:"
+        " 0<=iel_2<10000 and 0<=idof_2<35 and 0<=ifacedof<15 and 0<=iface<4}",
+        """
+        lift_0[iel_2, idof_2] = sum([iface, ifacedof],
+                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_0[iface, iel_2, ifacedof])
+        lift_1[iel_2, idof_2] = sum([iface, ifacedof],
+                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_1[iface, iel_2, ifacedof])
+        lift_2[iel_2, idof_2] = sum([iface, ifacedof],
+                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_2[iface, iel_2, ifacedof])
+        lift_3[iel_2, idof_2] = sum([iface, ifacedof],
+                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_3[iface, iel_2, ifacedof])
+        """  # noqa: E501
+    )
+
+    t_unit = lp.add_dtypes(t_unit,
+                        {arg.name: np.float64
+                            for arg in t_unit.default_entrypoint.args
+                            if arg.is_input})
+
+    nvoldofs = 35
+    nfacedofs = 15
+    nface = 4
+    ref_einsum = f.fused_einsum("ef, fij, fej -> ei",
+                                [(np.inf, nface),
+                                (nface, nvoldofs, nfacedofs),
+                                (nface, np.inf, nfacedofs)],
+                                dtypes="float64",
+                                use_matrix=[
+                                    [{"J"}, {"R"}, {"v0"}],
+                                    [{"J"}, {"R"}, {"v1"}],
+                                    [{"J"}, {"R"}, {"v2"}],
+                                    [{"J"}, {"R"}, {"v3"}],
+                                ])
+
+    inferred_einsum = f.infer_einsum(t_unit)
+    assert f.normalize_einsum(inferred_einsum) == f.normalize_einsum(ref_einsum)

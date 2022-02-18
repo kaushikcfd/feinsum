@@ -4,14 +4,16 @@ upstreaming the heavy lifting parts to :mod:`loopy` itself.
 
 .. autofunction:: extract_subexpr_of_associative_op_as_subst
 .. autofunction:: match_t_unit_to_einsum
+.. autofunction:: infer_einsum
 """
 
+import numpy as np
 import loopy as lp
 import pymbolic.interop.matchpy as m
 import pymbolic.primitives as p
 
 from multiset import Multiset
-from typing import Union, ClassVar, Optional, Tuple, FrozenSet, Any
+from typing import Union, ClassVar, Optional, Tuple, FrozenSet, Any, Dict, List
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from dataclasses import dataclass
@@ -427,6 +429,136 @@ def hoist_reduction_invariant_terms(t_unit: lp.TranslationUnit,
                             insn_match=None,
                             f=lambda x: x.with_transformed_expressions(term_hoister)
                             ))
+
+# }}}
+
+
+# {{{ infer einsum
+
+def infer_einsum(t_unit: lp.TranslationUnit,
+                 insn_match: Any = None,
+                 kernel_name: Optional[str] = None,
+                 long_dim_length: int = 1000,
+                 ) -> FusedEinsum:
+    """
+    Returns the inferred :class:`FusedEinsum` for the instructions spanning
+    *insn_match*.
+
+    :param insn_match: A match expression as understood as
+        :func:`loopy.match.parse_match`.
+    """
+    from loopy.match import parse_match
+    from pymbolic.mapper.flattener import flatten
+    from feinsum.make_einsum import fused_einsum
+
+    if kernel_name is None:
+        kernel_name = t_unit.default_entrypoint.name
+
+    insn_match = parse_match(insn_match)
+    kernel = t_unit[kernel_name]
+    insns = [insn
+             for insn in kernel.instructions
+             if insn_match(kernel, insn)]
+
+    if len({insn.within_inames for insn in insns}) != 1:
+        raise EinsumTunitMatchError("Instructions forming the subject have"
+                                    " more than 1 enclosing loop nest -- not"
+                                    " allowed.")
+
+    free_indices_set = {_get_indices_from_assignee(insn.assignees[0])
+                        for insn in insns}
+    if len(free_indices_set) != 1:
+        raise EinsumTunitMatchError("Instructions have differing free indices"
+                                    " -- not allowed.")
+    free_indices, = free_indices_set
+
+    for insn in insns:
+        if not isinstance(insn.expression, lp.Reduction):
+            raise ValueError(f"Instruction {insn} does not have a"
+                             " reduction RHS.")
+        if not isinstance(insn.expression.expr, p.Product):
+            raise ValueError(f"Instruction {insn} does not have"
+                             " reduction of a product")
+        if not all(isinstance(child, p.Subscript)
+                   for child in flatten(insn.expression.expr).children):
+            raise ValueError(f"Instruction {insn} does not have"
+                             " reduction of a product of subscripts as RHS")
+
+        if insn.expression.inames != insns[0].expression.inames:
+            raise ValueError("Instructions don't have the same reduction"
+                            " inames, not supported.")
+
+    redn_indices = insns[0].expression.inames
+
+    iname_to_access_descr: Dict[str, EinsumAxisAccess] = {}
+
+    for i, iname in enumerate(free_indices):
+        iname_to_access_descr[iname] = FreeAxis(i)
+    for i, iname in enumerate(redn_indices):
+        iname_to_access_descr[iname] = SummationAxis(i)
+
+    access_descrs_for_insns = {
+        tuple(
+            tuple(iname_to_access_descr[idx.name]
+                  for idx in child.index_tuple)
+            for child in flatten(insn.expression.expr).children)
+        for insn in insns}
+    if len(access_descrs_for_insns) != 1:
+        raise ValueError("access pattern across instructions not uniform")
+
+    access_descrs, = access_descrs_for_insns
+
+    use_matrix = tuple(
+        tuple(frozenset([child.aggregate.name])
+              for child in flatten(insn.expression.expr).children)
+        for insn in insns
+    )
+    all_values = {child.aggregate.name
+                  for insn in insns
+                  for child in flatten(insn.expression.expr).children}
+
+    value_to_dtype = pmap(
+        {val: kernel.arg_dict.get(val, kernel.temporary_variables.get(val)).dtype
+         for val in all_values}
+    )
+
+    arg_shape_of_all_insns = {
+        tuple(
+            tuple(dim
+                  if (isinstance(dim, int) and (dim < long_dim_length))
+                  else np.inf
+                  for dim in kernel.arg_dict[child.aggregate.name].shape)
+            for child in flatten(insn.expression.expr).children)
+        for insn in insns
+    }
+
+    if len(arg_shape_of_all_insns) != 1:
+        raise ValueError("Arguments from instructions have different"
+                         " shapes: not allowed in a fused einsum.")
+
+    arg_shapes, = arg_shape_of_all_insns
+
+    index_names = {}
+    # type-ignore reason: List is invariant
+    sorted_axes: List[EinsumAxisAccess] = ([FreeAxis(i)  # type: ignore[assignment]
+                                            for i in range(len(free_indices))]
+                                           + [SummationAxis(i)  # type: ignore[misc]
+                                              for i in range(len(redn_indices))])
+    for idx, ichr in zip(sorted_axes, range(97, 123)):
+        index_names[idx] = chr(ichr)
+
+    subscripts = (",".join("".join(index_names[axis]
+                                for axis in axes)
+                    for axes in access_descrs)
+            + "->"
+            + "".join(index_names[FreeAxis(i)]
+                      for i in range(len(free_indices))))
+
+    # type-ignore-reason: mypy doesn't think Tuple[Tuple[Any]] is ArrayLike.
+    return fused_einsum(subscripts,
+                        arg_shapes,
+                        use_matrix,  # type: ignore[arg-type]
+                        value_to_dtype=value_to_dtype)
 
 # }}}
 

@@ -309,7 +309,7 @@ def record(einsum: FusedEinsum,
 
 @dataclass(frozen=True, eq=True, repr=True)
 class QueryInfo:
-    loopy_transform: TransformT
+    transform: TransformT
     runtime_in_sec: float
     authors: str
     compiler_version: str
@@ -371,7 +371,7 @@ def query(einsum: FusedEinsum,
     facts = cursor.fetchall()
     query_result = tuple(
         QueryInfo(
-            loopy_transform=_get_clbl_from_string(
+            transform=_get_clbl_from_string(
                 _postprocess_string_from_sql(fact[0])),
             runtime_in_sec=fact[1],
             authors=fact[2],
