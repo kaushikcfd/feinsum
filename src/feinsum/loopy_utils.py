@@ -441,8 +441,8 @@ def infer_einsum(t_unit: lp.TranslationUnit,
                  long_dim_length: int = 1000,
                  ) -> FusedEinsum:
     """
-    Returns the inferred :class:`FusedEinsum` for the instructions spanning
-    *insn_match*.
+    Returns the inferred :class:`~feinsum.einsum.FusedEinsum` for the
+    instructions spanning *insn_match*.
 
     :param insn_match: A match expression as understood as
         :func:`loopy.match.parse_match`.
