@@ -322,9 +322,14 @@ def query(einsum: FusedEinsum,
           cl_ctx: "cl.Context",
           *,
           database: str = DEFAULT_TRANSFORM_ARCHIVE,
+          err_if_no_results: bool = False,
           ) -> Tuple[QueryInfo, ...]:
     """
     Returns facts of previous recorded runs of *einsum* on *cl_ctx*.
+
+    :param err_if_no_results: If *True*, raises a :class:`RuntimeError` if no
+        recorded runs corresponding to *einsum* are available in *database*.
+        Defaults to *False*.
     """
     # TODO: This should  somehow solve the normalized FusedEinsum problem.
     from feinsum.normalization import normalize_einsum
@@ -381,6 +386,16 @@ def query(einsum: FusedEinsum,
             remarks=_postprocess_string_from_sql(fact[7]))
         for fact in facts)
     conn.close()
+
+    if not query_result and err_if_no_results:
+        str_idx_to_size = ", ".join(f"{einsum.index_names[idx]}: {lngth}"
+                                    for idx, lngth in (einsum
+                                                       .index_to_dim_length()
+                                                       .items())
+                                    if not isinstance(lngth, SizeParam))
+        stringified_einsum = f"{einsum.get_subscripts()} [{str_idx_to_size}]"
+        raise RuntimeError("No facts found for the einsum:"
+                           f" `{stringified_einsum}`.")
 
     return query_result
 
