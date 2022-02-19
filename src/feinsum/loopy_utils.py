@@ -230,7 +230,9 @@ def _check_if_t_unit_and_ref_einsum_have_the_same_axis_dim(ref_idx: EinsumAxisAc
 
 def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
                            insn_match: Any = None,
-                           long_dim_length: int = 5_000) -> PMapT[str, str]:
+                           long_dim_length: int = 5_000,
+                           inames_only: bool = False,
+                           ) -> PMapT[str, str]:
     """
     Returns a mapping from the variable names in *ref_einsum* to the variables
     in *t_unit*. The unification is done by matching the instructions tagged
@@ -296,11 +298,16 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
                 long_dim_length=long_dim_length)
             subst_map[ref_einsum.index_names[FreeAxis(i)]] = physical_idx
 
-    for insn, use_row in szip(insns, ref_einsum.use_matrix):
-        if not isinstance(insn.expression, lp.Reduction):
-            raise EinsumTunitMatchError(f"Instruction {insn} does not have a"
-                                        " reduction RHS.")
+    if inames_only:
+        if len([ax
+                for ax in ref_einsum.index_to_dim_length().items()
+                if isinstance(ax, SummationAxis)]) == 0:
+            return pmap(subst_map)
+        else:
+            raise NotImplementedError("inames_only matching for"
+                                      " einsums with contraction.")
 
+    for insn, use_row in szip(insns, ref_einsum.use_matrix):
         match_pattern = 1
         for access_descrs, values in szip(ref_einsum.access_descriptors,
                                          use_row):
@@ -319,10 +326,19 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
                     raise AssertionError()
             match_pattern *= p.DotWildcard(value)[tuple(wc_indices)]
 
-        matches = list(m.match(insn.expression.expr, match_pattern))
+        if len([ax
+                for ax in ref_einsum.index_to_dim_length()
+                if isinstance(ax, SummationAxis)]) == 0:
+            matches = list(m.match(insn.expression, match_pattern))
+        else:
+            if not isinstance(insn.expression, lp.Reduction):
+                raise EinsumTunitMatchError(f"Instruction {insn} does not have a"
+                                            " reduction RHS.")
+            matches = list(m.match(insn.expression.expr, match_pattern))
+
         if len(matches) == 0:
             raise EinsumTunitMatchError(f"Expression matching for '{insn}' failed.")
-        elif len(matches) > 1:
+        elif len(matches) > 1 and len(set(ref_einsum.access_descriptors)) != 1:
             raise NotImplementedError("Obtained more than 1 matches"
                                       " -- not yet supported.")
         else:
