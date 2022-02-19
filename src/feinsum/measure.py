@@ -149,6 +149,7 @@ def timeit(einsum: FusedEinsum,
 def _get_giga_ops_from_einsum(expr: FusedEinsum) -> PMapT[np.dtype[Any],
                                                           prim.Expression]:
     from feinsum.codegen.loopy import generate_loopy_with_opt_einsum_schedule
+    from loopy.symbolic import qpolynomial_to_expr
 
     t_unit = generate_loopy_with_opt_einsum_schedule(expr,
                                                      use_blas=False,
@@ -174,12 +175,13 @@ def _get_giga_ops_from_einsum(expr: FusedEinsum) -> PMapT[np.dtype[Any],
         else:
             ops = op_map.filter_by(dtype=[dtype], kernel_name=kernel.name)
 
-        (_, qpoly), = ops.sum().pwqpolynomial.get_pieces()
-
-        from loopy.symbolic import qpolynomial_to_expr
-
         new_op_map.setdefault(dtype, 0)
-        new_op_map[dtype] = (new_op_map[dtype] + qpolynomial_to_expr(qpoly) * 1e-9)
+        pwqpoly = ops.sum().pwqpolynomial
+
+        if pwqpoly.n_piece() > 0:
+            (_, qpoly), = pwqpoly.get_pieces()
+            new_op_map[dtype] = (new_op_map[dtype]
+                                 + qpolynomial_to_expr(qpoly) * 1e-9)
 
     return pmap(new_op_map)
 
