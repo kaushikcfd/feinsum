@@ -96,8 +96,13 @@ class TemplateReplacer:
 def extract_subexpr_of_associative_op_as_subst(
         kernel: lp.LoopKernel,
         rule_lhs: Union[p.Call, p.Variable, str],
-        rule_rhs: Union[p.Expression, str]) -> lp.LoopKernel:
+        rule_rhs: Union[p.Expression, str],
+        insn_match: Any = None,
+) -> lp.LoopKernel:
     from loopy.symbolic import parse, get_dependencies
+    from loopy.match import parse_match
+
+    insn_match = parse_match(insn_match)
     vng = kernel.get_var_name_generator()
     to_matchpy_expr = ToMatchpyExpressionMapper()
     from_matchpy_expr = FromMatchpyExpressionMapper()
@@ -161,7 +166,10 @@ def extract_subexpr_of_associative_op_as_subst(
         insn.with_transformed_expressions(
             lambda expr: m.replace_all(expr, [replacement_rule],
                                        to_matchpy_expr, from_matchpy_expr))
-        for insn in kernel.instructions]
+        if insn_match(kernel, insn)
+        else insn
+        for insn in kernel.instructions
+    ]
 
     if new_insns == kernel.instructions:
         raise RuntimeError(f"Did not find a match for `{rule_lhs} := {rule_rhs}`"
@@ -270,12 +278,12 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
                                     " more than 1 enclosing loop nest -- not"
                                     " allowed.")
 
-    if len(insns) != ref_einsum.noutputs:
+    if (not inames_only) and (len(insns) != ref_einsum.noutputs):
         raise EinsumTunitMatchError("Number of outputs in ref_einsum, t_unit"
                                     " do not match.")
 
     free_indices_set = {_get_indices_from_assignee(insn.assignees[0])
-                        for insn in insns}
+                        for insn in insns} - {()}
     if len(free_indices_set) != 1:
         raise EinsumTunitMatchError("Instructions have differing free indices"
                                     " -- not allowed.")
@@ -366,7 +374,8 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
 
 def extract_einsum_terms_as_subst(t_unit: lp.TranslationUnit,
                                   rule_lhs: Union[str, p.Expression],
-                                  rule_rhs: Union[str, p.Expression]
+                                  rule_rhs: Union[str, p.Expression],
+                                  insn_match: Any = None,
                                   ) -> lp.TranslationUnit:
     from loopy.symbolic import parse
     knl = t_unit.default_entrypoint
@@ -379,7 +388,8 @@ def extract_einsum_terms_as_subst(t_unit: lp.TranslationUnit,
 
     return t_unit.with_kernel(extract_subexpr_of_associative_op_as_subst(knl,
                                                                          rule_lhs,
-                                                                         rule_rhs
+                                                                         rule_rhs,
+                                                                         insn_match
                                                                          ))
 # }}}
 
@@ -495,10 +505,6 @@ def match_einsum(t_unit: lp.TranslationUnit,
         if not isinstance(insn.expression.expr, p.Product):
             raise ValueError(f"Instruction {insn} does not have"
                              " reduction of a product")
-        if not all(isinstance(child, p.Subscript)
-                   for child in flatten(insn.expression.expr).children):
-            raise ValueError(f"Instruction {insn} does not have"
-                             " reduction of a product of subscripts as RHS")
 
         if insn.expression.inames != insns[0].expression.inames:
             raise ValueError("Instructions don't have the same reduction"
@@ -543,7 +549,7 @@ def match_einsum(t_unit: lp.TranslationUnit,
             tuple(dim
                   if (isinstance(dim, int) and (dim < long_dim_length))
                   else np.inf
-                  for dim in kernel.arg_dict[child.aggregate.name].shape)
+                  for dim in kernel.get_var_descriptor(child.aggregate.name).shape)
             for child in flatten(insn.expression.expr).children)
         for insn in insns
     }
