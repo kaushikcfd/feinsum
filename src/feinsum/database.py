@@ -393,7 +393,8 @@ def query(einsum: FusedEinsum,
                                                        .index_to_dim_length()
                                                        .items())
                                     if not isinstance(lngth, SizeParam))
-        stringified_einsum = f"{einsum.get_subscripts()} [{str_idx_to_size}]"
+        stringified_einsum = (f"{einsum.get_subscripts()} [{str_idx_to_size}]"
+                              f" [#outputs={einsum.noutputs}]")
         raise RuntimeError("No facts found for the einsum:"
                            f" `{stringified_einsum}`.")
 
