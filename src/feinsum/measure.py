@@ -46,6 +46,16 @@ def generate_out_arrays(queue: cl.CommandQueue,
     return pmap(out_buffers)
 
 
+def _generate_random_np_array(rng: "np.random._generator.Generator",
+                              dtype: np.dtype[Any], shape: ShapeT) -> np.ndarray:
+    if dtype.kind == "c":
+        real_dtype = np.empty(0, dtype).real.dtype
+        return (rng.random(size=shape, dtype=real_dtype)
+                + 1j * rng.random(size=shape, dtype=real_dtype))
+    else:
+        return rng.random(size=shape, dtype=dtype)
+
+
 def generate_input_arrays(queue: cl.CommandQueue,
                           einsum: FusedEinsum,
                           long_dim_length: int,
@@ -71,9 +81,9 @@ def generate_input_arrays(queue: cl.CommandQueue,
     rng = default_rng(np_seed)
 
     return pmap({name: cla.to_device(queue,
-                                     rng.random(size=val_to_shape[name],
-                                                dtype=dtype)
-                                     )
+                                     _generate_random_np_array(rng,
+                                                               dtype,
+                                                               val_to_shape[name]))
                  for name, dtype in einsum.value_to_dtype.items()
                  })
 
@@ -166,17 +176,20 @@ def _get_giga_ops_from_einsum(expr: FusedEinsum) -> PMapT[np.dtype[Any],
     for dtype in {op.dtype.numpy_dtype for op in op_map.keys()}:
         if dtype.kind == "c":
             c_ops = {op_type: op_map.filter_by(dtype=[dtype],
-                                               name="add",
+                                               name=op_type,
                                                kernel_name=kernel.name)
                      for op_type in ["add", "mul", "div"]}
 
-            ops = (2 * c_ops["add"] + 6 * c_ops["mul"] + (6 + 3 + 2) * c_ops["div"])
+            pwqpoly = (2 * c_ops["add"].sum()
+                       + 6 * c_ops["mul"].sum()
+                       + (6 + 3 + 2) * c_ops["div"].sum()).pwqpolynomial
             dtype = np.empty(0, dtype=dtype).real.dtype
         else:
-            ops = op_map.filter_by(dtype=[dtype], kernel_name=kernel.name)
+            pwqpoly = op_map.filter_by(dtype=[dtype],
+                                       kernel_name=kernel.name
+                                       ).sum().pwqpolynomial
 
         new_op_map.setdefault(dtype, 0)
-        pwqpoly = ops.sum().pwqpolynomial
 
         if pwqpoly.n_piece() > 0:
             (_, qpoly), = pwqpoly.get_pieces()
