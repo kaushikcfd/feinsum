@@ -28,6 +28,10 @@ N_MIN_TIMING_ROUNDS = 500
 N_MIN_SIM_SECS = 2
 
 
+def get_real_dtype(dtype: np.dtype[Any]) -> np.dtype[Any]:
+    return np.empty(0, dtype=dtype).real.dtype
+
+
 def generate_out_arrays(queue: cl.CommandQueue,
                         t_unit: "lp.TranslationUnit"
                         ) -> PMapT[str, cla.Array]:
@@ -50,7 +54,7 @@ def _generate_random_np_array(rng: "np.random._generator.Generator",
                               dtype: np.dtype[Any], shape: ShapeT
                               ) -> npt.NDArray[Any]:
     if dtype.kind == "c":
-        real_dtype = np.empty(0, dtype).real.dtype
+        real_dtype = get_real_dtype(dtype)
         return (rng.random(size=shape, dtype=real_dtype)
                 + 1j * rng.random(size=shape, dtype=real_dtype))
     else:
@@ -89,6 +93,67 @@ def generate_input_arrays(queue: cl.CommandQueue,
                  })
 
 
+def validate_fused_einsum_transform(einsum: FusedEinsum,
+                                    cl_ctx: cl.Context,
+                                    transform: Callable[[lp.TranslationUnit],
+                                                         lp.TranslationUnit],
+                                    schedule: Optional[ContractionSchedule] = None,
+                                    ) -> None:
+    """
+    If the :class:`loopy.LoopKernel` generated from *einsum* does not replicate
+    the results after being transformed with *transform*, then a
+    :class:`RuntimeError` is raised.
+    """
+
+    from feinsum.codegen.loopy import generate_loopy
+
+    cq = cl.CommandQueue(cl_ctx)
+
+    ref_t_unit = generate_loopy(einsum, schedule=schedule)
+    ref_t_unit = lp.set_options(ref_t_unit, no_numpy=True, return_dict=True)
+    long_dim_length = 30
+
+    param_dict = generate_input_arrays(cq, einsum, long_dim_length)
+    out_dict = generate_out_arrays(
+        cq,
+        lp.fix_parameters(ref_t_unit, **{name: long_dim_length
+                                         for name in (ref_t_unit
+                                                      .default_entrypoint
+                                                      .all_params())}))
+
+    t_unit = transform(ref_t_unit)
+    arg_dict = param_dict.update(out_dict)
+
+    _, ref_outs = t_unit(cq, **arg_dict)
+    _, transform_outs = t_unit(cq, **arg_dict)
+
+    if frozenset(ref_outs.keys()) != frozenset(transform_outs.keys()):
+        raise RuntimeError("Output names mismatch")
+
+    for name, ref_out in sorted(ref_outs.items()):
+        ref_out_np = ref_out.get()
+        transform_out_np = transform_outs[name].get()
+        dtype = ref_out_np.dtype
+        if dtype != transform_out_np.dtype:
+            raise RuntimeError(f"dtype mismatch for output '{name}'")
+
+        real_dtype = get_real_dtype(dtype)
+
+        if real_dtype == np.float32:
+            atol = 1e-6
+            rtol = 1e-6
+        elif real_dtype == np.float64:
+            atol = 1e-14
+            rtol = 1e-14
+        else:
+            raise NotImplementedError(real_dtype)
+
+        np.testing.assert_allclose(ref_out_np, transform_out_np,
+                                   atol=atol, rtol=rtol)
+
+    logger.info("Statistically verified the soundness of the transformation")
+
+
 def timeit(einsum: FusedEinsum,
            *,
            transform: Callable[[lp.TranslationUnit],
@@ -106,6 +171,9 @@ def timeit(einsum: FusedEinsum,
     """
     from time import time
     from feinsum.codegen.loopy import generate_loopy
+
+    # Validate the transformation before fusing it
+    validate_fused_einsum_transform(einsum, cl_ctx, transform, schedule)
 
     cq = cl.CommandQueue(cl_ctx)
 
@@ -184,7 +252,7 @@ def _get_giga_ops_from_einsum(expr: FusedEinsum) -> PMapT[np.dtype[Any],
             pwqpoly = (2 * c_ops["add"].sum()
                        + 6 * c_ops["mul"].sum()
                        + (6 + 3 + 2) * c_ops["div"].sum()).pwqpolynomial
-            dtype = np.empty(0, dtype=dtype).real.dtype
+            dtype = get_real_dtype(dtype)
         else:
             pwqpoly = op_map.filter_by(dtype=[dtype],
                                        kernel_name=kernel.name
