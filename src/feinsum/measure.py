@@ -47,7 +47,8 @@ def generate_out_arrays(queue: cl.CommandQueue,
 
 
 def _generate_random_np_array(rng: "np.random._generator.Generator",
-                              dtype: np.dtype[Any], shape: ShapeT) -> np.ndarray:
+                              dtype: np.dtype[Any], shape: ShapeT
+                              ) -> npt.NDArray[Any]:
     if dtype.kind == "c":
         real_dtype = np.empty(0, dtype).real.dtype
         return (rng.random(size=shape, dtype=real_dtype)
