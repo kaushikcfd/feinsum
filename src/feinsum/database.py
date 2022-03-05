@@ -234,7 +234,7 @@ def record(einsum: FusedEinsum,
         # device table not available
         logger.info(f"Table for {device_name} not in DB, creating one.")
         cursor.execute(f"CREATE TABLE {device_name} ("
-                       " ID int PRIMARY KEY"
+                       " ID int PRIMARY KEY,"
                        " subscripts TEXT,"
                        " index_to_length TEXT,"
                        " use_matrix TEXT,"
@@ -291,7 +291,7 @@ def record(einsum: FusedEinsum,
     cursor.execute(f"INSERT INTO {device_name}"
                    " (subscripts, index_to_length, use_matrix,"
                    "  value_to_dtype, loopy_transform, runtime_in_sec,"
-                   "  authors, compiler_version, cl_kernel, giga_op_info"
+                   "  authors, compiler_version, cl_kernel, giga_op_info,"
                    "  timestamp, remarks)"
                    " VALUES ("
                    f"'{subscripts}',"         # subscripts
