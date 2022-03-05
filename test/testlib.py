@@ -176,7 +176,8 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
 
     t_unit = lp.buffer_array(t_unit, out, buffer_inames=[x],
                              init_expression="0",
-                             default_tag=None, temporary_is_local=False)
+                             default_tag=None,
+                             temporary_scope=lp.AddressSpace.PRIVATE)
     t_unit = lp.privatize_temporaries_with_inames(t_unit, i_outer,
                                                   only_var_names={f"{out}_buf"})
 

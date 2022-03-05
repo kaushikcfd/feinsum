@@ -211,7 +211,8 @@ def variant_3(t_unit):
 
     t_unit = lp.buffer_array(t_unit, "_fe_out", buffer_inames=["x"],
                              init_expression="0",
-                             default_tag=None, temporary_is_local=False)
+                             default_tag=None,
+                             temporary_scope=lp.AddressSpace.PRIVATE)
     t_unit = lp.privatize_temporaries_with_inames(t_unit, "i_outer",
                                                   only_var_names={"_fe_out_buf"})
 
