@@ -10,6 +10,7 @@ import logging
 import sqlite3
 import numpy as np
 import loopy as lp
+import numpy.typing as npt
 
 from dataclasses import dataclass
 from typing import (TYPE_CHECKING, Optional, Union, Callable,
@@ -114,37 +115,19 @@ def _get_log_str_for_run(einsum: FusedEinsum,
                          device: "cl.Device",
                          long_dim_length: int) -> str:
 
-    try:
-        from tabulate import tabulate
-    except ImportError:
-        raise ImportError("`tabulate` is need for pretty printing."
-                          " Install via `pip install tabulate`.")
-
     from feinsum.measure import (_get_giga_ops_from_einsum,
-                                 _get_footprint_gbytes)
-    from feinsum.data.device_info import (DEV_TO_PEAK_GFLOPS,
-                                          DEV_TO_PEAK_BW)
+                                 _strify_measured_vs_roofline,
+                                 get_roofline_flop_rate)
     from pymbolic.mapper.evaluator import evaluate_to_float
-
-    perf_table = [["Dtype", "Measured GOps/s", "Roofline GOps/s"]]
 
     eval_context = {dim.name: long_dim_length
                     for dim in einsum.index_to_dim_length().values()
                     if isinstance(dim, SizeParam)}
-    dtype_to_ops = {k: evaluate_to_float(v, eval_context)
-                    for k, v in _get_giga_ops_from_einsum(einsum).items()}
-    ngbs = _get_footprint_gbytes(einsum, long_dim_length=long_dim_length)
-
-    for dtype, ops in sorted(dtype_to_ops.items(),
-                             key=lambda x: x[0].itemsize):
-        roofline_flops = (ops
-                          / max(ops/DEV_TO_PEAK_GFLOPS[device.name][dtype.name],
-                                ngbs/DEV_TO_PEAK_BW[device.name]))
-        perf_table.append([dtype.name,
-                           f"{(ops/runtime):.1f}",
-                           f"{roofline_flops:.1f}"])
-
-    return tabulate(perf_table, tablefmt="fancy_grid")
+    measured_rate = {k: evaluate_to_float(v, eval_context)/runtime
+                     for k, v in _get_giga_ops_from_einsum(einsum).items()}
+    roofline_rate = get_roofline_flop_rate(einsum, device.name,
+                                           long_dim_length)
+    return _strify_measured_vs_roofline(measured_rate, roofline_rate)
 
 
 def _get_cl_device_name_for_db(cl_device: "cl.Device") -> str:

@@ -13,7 +13,7 @@ import pymbolic.primitives as prim
 import loopy as lp
 import pyopencl.array as cla
 
-from typing import Callable, Dict, Any, Optional
+from typing import Callable, Dict, Any, Optional, Mapping
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from feinsum.einsum import (FusedEinsum, INT_CLASSES, ShapeT, SizeParam,
@@ -289,13 +289,12 @@ def measure_giga_op_rate(expr: FusedEinsum,
                          transform: Callable[[lp.TranslationUnit],
                                              lp.TranslationUnit],
                          cl_ctx: cl.Context,
-                         dtype: npt.DTypeLike = "float64",
                          long_dim_length: int = 100000,
                          schedule: Optional[ContractionSchedule] = None
                          ) -> PMapT[np.dtype[Any], float]:
     """
-    Returns the arithmetic operations rate (in Giga Ops per second) for
-    arithmetic operations involving *dtype*.
+    Returns the arithmetic operations rate (in Giga Ops per second) by
+    arithmetic operation's result dtypes.
     """
     runtime = timeit(expr,
                      transform=transform,
@@ -311,6 +310,52 @@ def measure_giga_op_rate(expr: FusedEinsum,
                  for k, v in _get_giga_ops_from_einsum(expr).items()})
 
 
+def get_roofline_flop_rate(expr: FusedEinsum, dev_name: str,
+                           long_dim_length: int = 100_000
+                           ) -> PMapT[np.dtype[Any], float]:
+
+    from feinsum.data.device_info import (DEV_TO_PEAK_GFLOPS,
+                                          DEV_TO_PEAK_BW)
+    from pymbolic.mapper.evaluator import evaluate_to_float
+
+    dtype_to_gflops_expr = _get_giga_ops_from_einsum(expr)
+    ngbs = _get_footprint_gbytes(expr, long_dim_length)
+
+    dtype_to_gflops = {dtype: evaluate_to_float(giga_ops_aff,
+                                                {dim.name: long_dim_length
+                                                 for dim in (expr
+                                                             .index_to_dim_length()
+                                                             .values())
+                                                 if isinstance(dim, SizeParam)})
+                       for dtype, giga_ops_aff in dtype_to_gflops_expr.items()}
+    roofline_time_due_to_flops = max(ngflops/DEV_TO_PEAK_GFLOPS[dev_name][dtype.name]
+                                     for dtype, ngflops in dtype_to_gflops.items())
+    roofline_time_due_to_global_bw = ngbs/DEV_TO_PEAK_BW[dev_name]
+    roofline_time = max(roofline_time_due_to_flops, roofline_time_due_to_global_bw)
+
+    return pmap({dtype: gflops/roofline_time
+                 for dtype, gflops in dtype_to_gflops.items()})
+
+
+def _strify_measured_vs_roofline(measured_flop_rate: Mapping[np.dtype[Any], float],
+                                 roofline_flop_rate: Mapping[np.dtype[Any], float]
+                                 ) -> str:
+    try:
+        from tabulate import tabulate
+    except ImportError:
+        raise ImportError("`tabulate` is need for pretty printing."
+                          " Install via `pip install tabulate`.")
+    assert measured_flop_rate.keys() == roofline_flop_rate.keys()
+    perf_table = [["Dtype", "Measured GOps/s", "Roofline GOps/s"]]
+    for dtype in sorted(measured_flop_rate.keys(),
+                        key=lambda x: x.itemsize):
+        perf_table.append([dtype.name,
+                           f"{(measured_flop_rate[dtype]):.1f}",
+                           f"{(roofline_flop_rate[dtype]):.1f}"])
+
+    return tabulate(perf_table, tablefmt="fancy_grid")
+
+
 def stringify_comparison_vs_roofline(expr: FusedEinsum,
                                      *,
                                      schedule: Optional[ContractionSchedule] = None,
@@ -324,42 +369,14 @@ def stringify_comparison_vs_roofline(expr: FusedEinsum,
     limited by either the device's global memory bandwidth or the device's
     floating point units being saturated to their maximum throughput.
     """
-    try:
-        from tabulate import tabulate
-    except ImportError:
-        raise ImportError("tabulate is need for pretty printing."
-                          " Install via `pip install tabulate`.")
-
-    from feinsum.data.device_info import (DEV_TO_PEAK_GFLOPS,
-                                          DEV_TO_PEAK_BW)
-    from pymbolic.mapper.evaluator import evaluate_to_float
 
     dev, = cl_ctx.devices
 
-    giga_op_map = _get_giga_ops_from_einsum(expr)
+    roofline_flop_rate = get_roofline_flop_rate(expr, dev.name)
 
-    if len(giga_op_map) > 1:
-        raise ValueError("Cannot evaluate the FlOp-rate"
-                         " for an einsum inolving multiple dtypes.")
-    (dtype, giga_ops_expr), = giga_op_map.items()
-
-    ngflops = evaluate_to_float(giga_ops_expr,
-                                {dim.name: long_dim_length
-                                 for dim in expr.index_to_dim_length().values()
-                                 if isinstance(dim, SizeParam)})
-
-    ngbs = _get_footprint_gbytes(expr, long_dim_length)
-    roofline_flops = (ngflops
-                      / max(ngflops/DEV_TO_PEAK_GFLOPS[dev.name][dtype.name],
-                            ngbs/DEV_TO_PEAK_BW[dev.name]))
-
-    measured_flops = measure_giga_op_rate(expr,
-                                          transform=transform,
-                                          schedule=schedule,
-                                          cl_ctx=cl_ctx,
-                                          dtype=dtype,
-                                          long_dim_length=long_dim_length)
-
-    table = [["Current Transform", "Roofline"],
-             [f"{measured_flops[dtype]:.1f}", f"{roofline_flops:.1f}"]]
-    return tabulate(table, tablefmt="fancy_grid")
+    measured_flop_rate = measure_giga_op_rate(expr,
+                                              transform=transform,
+                                              schedule=schedule,
+                                              cl_ctx=cl_ctx,
+                                              long_dim_length=long_dim_length)
+    return _strify_measured_vs_roofline(measured_flop_rate, roofline_flop_rate)
