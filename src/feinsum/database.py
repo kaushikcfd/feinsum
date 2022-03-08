@@ -17,6 +17,7 @@ from typing import (TYPE_CHECKING, Optional, Union, Callable,
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from feinsum.einsum import FusedEinsum, INT_CLASSES, SizeParam
+from feinsum.cl_utils import ContextT
 
 logger = logging.getLogger(__name__)
 
@@ -322,9 +323,12 @@ class QueryInfo:
     giga_op_info: PMapT[np.dtype[Any], float]
     remarks: str
 
+    def giga_op_rate(self, dtype: npt.DTypeLike) -> float:
+        return self.giga_op_info[np.dtype(dtype)]/self.runtime_in_sec
+
 
 def query(einsum: FusedEinsum,
-          cl_ctx: "cl.Context",
+          cl_ctx: ContextT,
           *,
           database: str = DEFAULT_TRANSFORM_ARCHIVE,
           err_if_no_results: bool = False,

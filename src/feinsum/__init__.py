@@ -15,6 +15,7 @@ from feinsum.loopy_utils import (match_t_unit_to_einsum,
                                  hoist_reduction_invariant_terms,
                                  match_einsum)
 from feinsum.normalization import normalize_einsum
+from feinsum.cl_utils import make_fake_cl_context
 
 
 __all__ = (
@@ -35,4 +36,6 @@ __all__ = (
     "extract_einsum_terms_as_subst", "match_einsum",
 
     "normalize_einsum",
+
+    "make_fake_cl_context",
 )
