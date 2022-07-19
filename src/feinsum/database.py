@@ -305,6 +305,7 @@ class QueryInfo:
     cl_kernel: str
     giga_op_info: PMapT[np.dtype[Any], float]
     remarks: str
+    transform_code: str
 
     def giga_op_rate(self, dtype: npt.DTypeLike) -> float:
         return self.giga_op_info[np.dtype(dtype)]/self.runtime_in_sec
@@ -375,7 +376,9 @@ def query(einsum: FusedEinsum,
             compiler_version=fact[3],
             cl_kernel=_postprocess_string_from_sql(fact[4]),
             giga_op_info=_postprocess_op_info_from_sql(fact[5]),
-            remarks=_postprocess_string_from_sql(fact[7]))
+            remarks=_postprocess_string_from_sql(fact[7]),
+            transform_code=_postprocess_string_from_sql(fact[0])
+        )
         for fact in facts)
     conn.close()
 
