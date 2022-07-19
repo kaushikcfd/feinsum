@@ -13,11 +13,11 @@ import pymbolic.primitives as prim
 import loopy as lp
 import pyopencl.array as cla
 
-from typing import Callable, Dict, Any, Optional, Mapping
+from typing import Callable, Dict, Any, Optional, Mapping, Tuple
 from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
-from feinsum.einsum import (FusedEinsum, INT_CLASSES, ShapeT, SizeParam,
-                            ContractionSchedule)
+from feinsum.einsum import (FusedEinsum, INT_CLASSES, SizeParam,
+                            ContractionSchedule, IntegralT)
 from more_itertools import zip_equal as zip
 import logging
 logger = logging.getLogger(__name__)
@@ -51,12 +51,16 @@ def generate_out_arrays(queue: cl.CommandQueue,
 
 
 def _generate_random_np_array(rng: "np.random._generator.Generator",
-                              dtype: np.dtype[Any], shape: ShapeT
+                              dtype: np.dtype[Any],
+                              shape: Tuple[IntegralT, ...]
                               ) -> npt.NDArray[Any]:
     if dtype.kind == "c":
         real_dtype = get_real_dtype(dtype)
-        return (rng.random(size=shape, dtype=real_dtype)
-                + 1j * rng.random(size=shape, dtype=real_dtype))
+        # type-ignored because numpy addition types not quite precise
+        return (rng.random(size=shape,  # type: ignore[no-any-return]
+                           dtype=real_dtype)
+                + dtype.type(1j) * rng.random(size=shape,
+                                              dtype=real_dtype))
     else:
         return rng.random(size=shape, dtype=dtype)
 
@@ -70,17 +74,19 @@ def generate_input_arrays(queue: cl.CommandQueue,
 
     # {{{ compute val_to_shape
 
-    val_to_shape: Dict[str, ShapeT] = {}
+    val_to_shape: Dict[str, Tuple[IntegralT, ...]] = {}
 
     for use_row in einsum.use_matrix:
         for values, op_shape in zip(use_row, einsum.arg_shapes):
-            op_shape = tuple(dim if isinstance(dim, INT_CLASSES) else long_dim_length
-                             for dim in op_shape)
+            # concrete_op_shape: shape after getting rid of SizeParams
+            concrete_op_shape: Tuple[IntegralT, ...] = tuple(
+                dim if isinstance(dim, INT_CLASSES) else long_dim_length
+                for dim in op_shape)
             for val in values:
                 if val in val_to_shape:
-                    assert val_to_shape[val] == op_shape
+                    assert val_to_shape[val] == concrete_op_shape
                 else:
-                    val_to_shape[val] = op_shape
+                    val_to_shape[val] = concrete_op_shape
     # }}}
 
     rng = default_rng(np_seed)
@@ -270,7 +276,6 @@ def _get_giga_ops_from_einsum(expr: FusedEinsum) -> PMapT[np.dtype[Any],
 
 def _get_footprint_gbytes(expr: FusedEinsum, long_dim_length: int) -> float:
     from feinsum.codegen.loopy import generate_loopy
-    from pytools import product
 
     t_unit = generate_loopy(expr)
     t_unit = lp.fix_parameters(t_unit, **{name: long_dim_length
@@ -280,8 +285,10 @@ def _get_footprint_gbytes(expr: FusedEinsum, long_dim_length: int) -> float:
     t_unit = lp.infer_unknown_types(t_unit)
     kernel = t_unit.default_entrypoint
 
-    return sum(product(arg.shape) * arg.dtype.itemsize
-               for arg in kernel.args) * 1e-9
+    # TODO: mypy is right arg.shape can be 'Any' expression
+    return sum(  # type: ignore[no-any-return]
+        np.product(arg.shape) * arg.dtype.itemsize
+        for arg in kernel.args) * 1e-9
 
 
 def measure_giga_op_rate(expr: FusedEinsum,
