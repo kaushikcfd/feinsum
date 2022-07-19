@@ -63,13 +63,13 @@ def main(cl_ctx):
 
     fast_grad_einsum = max(
         f.query(grad_einsum, cl_ctx),
-        key=lambda q: q.giga_op_info[np.dtype("float64")]/q.runtime_in_sec)
+        key=lambda q: q.giga_op_rate(np.float64))
     fast_div_einsum = max(
         f.query(div_einsum, cl_ctx),
-        key=lambda q: q.giga_op_info[np.dtype("float64")]/q.runtime_in_sec)
+        key=lambda q: q.giga_op_rate(np.float64))
     fast_lift_einsum = max(
         f.query(lift_einsum, cl_ctx),
-        key=lambda q: q.giga_op_info[np.dtype("float64")]/q.runtime_in_sec)
+        key=lambda q: q.giga_op_rate(np.float64))
 
     t_unit = fast_grad_einsum.transform(t_unit, insn_match=Tagged("grad"))
     t_unit = fast_div_einsum.transform(t_unit, insn_match=Tagged("div"))
