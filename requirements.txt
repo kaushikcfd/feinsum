@@ -8,3 +8,4 @@ opt_einsum
 tabulate
 types-tabulate
 types-pytz
+opentuner
