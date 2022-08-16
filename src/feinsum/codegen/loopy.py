@@ -11,7 +11,7 @@ import pymbolic.primitives as p
 import numpy as np
 
 from typing import Union, Tuple, Optional, Any, Dict
-from pytools import UniqueNameGenerator
+from pytools import UniqueNameGenerator, memoize_on_first_arg
 from feinsum.einsum import (FusedEinsum, FreeAxis, SummationAxis,
                             EinsumAxisAccess, IntegralT, INT_CLASSES,
                             ContractionSchedule, EinsumOperand,
@@ -105,6 +105,7 @@ def _generate_trivial_einsum(einsum: FusedEinsum,
     return domain, statements
 
 
+@memoize_on_first_arg
 def generate_loopy(einsum: FusedEinsum,
                    schedule: Optional[ContractionSchedule] = None
                    ) -> "lp.TranslationUnit":

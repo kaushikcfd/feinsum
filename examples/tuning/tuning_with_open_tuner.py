@@ -1,4 +1,5 @@
 import feinsum as fnsm
+from pytools import memoize_on_first_arg
 import pyopencl as cl
 import numpy as np
 import loopy as lp
@@ -20,6 +21,7 @@ DB_FILENAME = "dg_grad_p4_stage1_tuning.db"
 DB_TABLENAME = "NVIDIA_TITAN_V"
 
 
+@memoize_on_first_arg
 def transform(t_unit, n_e_per_wg, nwork_items_per_e, i_tilelen, j_tilelen,
               prftch_u_to_local,
               insn_match=None, kernel_name=None):
@@ -64,7 +66,7 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e, i_tilelen, j_tilelen,
                             )
     t_unit = lp.split_iname(t_unit, j, j_tilelen,
                             inner_iname=j_inner, outer_iname=j_tile,
-                            outer_tag="unr"
+                            inner_tag="unr", outer_tag="unr"
                             )
     t_unit = lp.add_prefetch(t_unit, D, [i_inner, j_inner],
                              fetch_outer_inames=frozenset([e_outer,
@@ -105,7 +107,7 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e, i_tilelen, j_tilelen,
                                  fetch_outer_inames=frozenset([e_inner, e_outer]),
                                  temporary_address_space=lp.AddressSpace.PRIVATE,
                                  temporary_name=u_fetch,
-                                 default_tag=None,
+                                 default_tag="unr",
                                  )
         # TODO: Yet another headache to ensure that the fetch instruction uses all
         # the hw axes.
@@ -289,7 +291,6 @@ class TileSizesTuner(MeasurementInterface):
             expr,
             transform=specialized_transform,
             cl_ctx=cl_ctx,
-            long_dim_length=200_000
         ))
         runtime = fnsm.timeit(expr,
                               cl_ctx=cl_ctx,
@@ -310,5 +311,26 @@ if __name__ == "__main__":
     elif cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
         logger.info(f"Device {cl_ctx.devices[0]} not known to database.")
     else:
-        argparser = opentuner.default_argparser()
-        TileSizesTuner.main(argparser.parse_args())
+        if 1:
+            argparser = opentuner.default_argparser()
+            TileSizesTuner.main(argparser.parse_args())
+        else:
+            # enable for debugging
+            specialized_transform = partial(transform,
+                                            n_e_per_wg=25,
+                                            nwork_items_per_e=18,
+                                            i_tilelen=math.ceil(105/6),
+                                            j_tilelen=math.ceil(35/1),
+                                            prftch_u_to_local=0,
+                                            )
+
+            expr = fnsm.einsum("ij,ej->ei",
+                               fnsm.array((105, 35), "float64"),
+                               fnsm.array((np.inf, 35), "float64"),
+                               arg_names=["D", "u"])
+            print(fnsm.stringify_comparison_vs_roofline(
+                expr,
+                transform=specialized_transform,
+                cl_ctx=cl_ctx,
+                long_dim_length=100_000
+            ))
