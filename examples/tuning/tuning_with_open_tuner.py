@@ -229,7 +229,7 @@ class TileSizesTuner(MeasurementInterface):
         manipulator.add_parameter(
             IntegerParameter("j_tiles", 1, 10))
         manipulator.add_parameter(
-            IntegerParameter("prftch_u_to_local", 0, 1))
+            IntegerParameter("prftch_u_to_local", 0, 0))
         manipulator.add_parameter(
             IntegerParameter("nwork_items_per_e", 1, 105))
         manipulator.add_parameter(
@@ -253,6 +253,7 @@ class TileSizesTuner(MeasurementInterface):
              "n_e_per_wg": config[2], "nwork_items_per_e": config[3],
              "prftch_u_to_local": config[4]}
             for config in configs
+            if config[4] == 0
         ]
 
     def run(self, desired_result, input, limit):

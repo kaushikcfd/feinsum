@@ -51,7 +51,7 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
     i = subst_map["i"]
     j = subst_map["j"]
-    # J = subst_map["J"]
+    J = subst_map["J"]
     e = subst_map["e"]
     D = subst_map["D"]
     u = subst_map["u"]
@@ -66,9 +66,7 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     i_prcmpt_subst = vng(f"{i}_prcmpt")
     iwork_stage1 = vng(f"{i_prcmpt_subst}_cross_{r_prcmpt_subst}")
     iwork_stage2 = vng(f"{i}_cross_{x}")
-    iprftch_D, jprftch_D, rprftch_D = (vng("iprftchD"),
-                                       vng("jprftchD"),
-                                       vng("rprftchD"))
+    iprftch_D, jprftch_D = vng("iprftchD"), vng("jprftchD")
     iwork_stage1_inner, iwork_stage1_tile = (vng(f"{iwork_stage1}_inner"),
                                              vng(f"{iwork_stage1}_tile"))
     iwork_stage1_inner_inner, iwork_stage1_inner_outer = (
@@ -76,6 +74,10 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
         vng(f"{iwork_stage1_inner}_outer"))
 
     prcmpt_j_redn = ing(f"prcmpt_{j}_redn")
+    D_reshape = vng(f"{D}_rshp")
+    D_fetch = vng(f"{D_reshape}_fetch")
+    J_fetch = vng(f"{J}_fetch")
+    iwork_stage2_inner = vng(f"{iwork_stage2}_inner")
     # prftch_J = ing(f"prftch_{J}")
 
     # }}}
@@ -111,6 +113,16 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     # {{{ join inames to make the work per element clearer
 
     t_unit = lp.join_inames(t_unit, [r_prcmpt_subst, i_prcmpt_subst], iwork_stage1)
+    t_unit = lp.extract_subst(t_unit, D_reshape,
+                              "D[arg0 // 35, arg0 % 35, arg1]",
+                              ["arg0", "arg1"])
+    t_unit = lp.add_prefetch(t_unit, J,
+                             sweep_inames=[x, r],
+                             fetch_outer_inames=frozenset({e_outer, e_inner}),
+                             temporary_address_space=lp.AddressSpace.PRIVATE,
+                             temporary_name=J_fetch,
+                             default_tag="unr",
+                             within=within)
     t_unit = lp.join_inames(t_unit, [x, i], iwork_stage2)
 
     # }}}
@@ -120,22 +132,28 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     # {{{ tile and prefetch D
 
     t_unit = lp.split_iname(t_unit, j, math.ceil(Ndof/j_tiles),
-                            inner_iname=j_inner, outer_iname=j_tile)
-    t_unit = lp.split_iname(t_unit, iwork_stage1, math.ceil(Ndim*Ndof/j_tiles),
+                            inner_iname=j_inner, outer_iname=j_tile,
+                            inner_tag="unr", outer_tag="unr",
+                            )
+    t_unit = lp.split_iname(t_unit, iwork_stage1, math.ceil(Ndim*Ndof/i_tiles),
                             inner_iname=iwork_stage1_inner,
                             outer_iname=iwork_stage1_tile)
 
     # FIXME: Need to reindex 'D' (generates incorrect length)
-    t_unit = lp.add_prefetch(t_unit, D, [iwork_stage1_inner, j_inner],
-                             fetch_outer_inames=frozenset([e_outer,
-                                                           iwork_stage1_tile,
-                                                           j_tile]),
-                             dim_arg_names=[rprftch_D, iprftch_D, jprftch_D],
-                             temporary_address_space=lp.AddressSpace.LOCAL,
-                             default_tag=None,
-                             within=within)
+    t_unit = lp.precompute(t_unit, D_reshape, [iwork_stage1_inner, j_inner],
+                           precompute_outer_inames=frozenset([e_outer,
+                                                              iwork_stage1_tile,
+                                                              j_tile]),
+                           precompute_inames=[iprftch_D, jprftch_D],
+                           temporary_address_space=lp.AddressSpace.LOCAL,
+                           temporary_name=D_fetch,
+                           default_tag=None,
+                           within=within)
+
     t_unit = lp.split_iname(t_unit, iprftch_D, n_e_per_wg, inner_tag="l.1")
-    t_unit = lp.split_iname(t_unit, jprftch_D, nwork_items_per_e, inner_tag="l.0")
+    t_unit = lp.split_iname(t_unit, jprftch_D, nwork_items_per_e,
+                            inner_tag="l.0", outer_tag="unr"
+                            )
 
     # }}}
 
@@ -173,7 +191,7 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
                                                                e_outer]),
                                  temporary_address_space=lp.AddressSpace.PRIVATE,
                                  temporary_name=u_fetch,
-                                 default_tag=None,
+                                 default_tag="unr",
                                  within=within
                                  )
         # TODO: Yet another headache to ensure that the fetch instruction uses all
@@ -210,16 +228,13 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     # {{{ stage 2
 
     t_unit = lp.tag_inames(t_unit, {e_inner: "l.1"})
-    t_unit = lp.split_iname(t_unit, iwork_stage2, nwork_items_per_e, inner_tag="l.0")
+    t_unit = lp.split_iname(t_unit, iwork_stage2, nwork_items_per_e,
+                            inner_iname=iwork_stage2_inner, inner_tag="l.0",
+                            outer_tag="unr")
+    t_unit = lp.add_inames_to_insn(t_unit, iwork_stage2_inner,
+                                   f"writes:{J_fetch}")
 
     # }}}
-
-    # TODO:
-    # - [ ] Prefetch 'J'
-    # - [ ] Unroll the tile-index loops
-    # - [ ] Reindex 'D_fetch'
-
-    print(lp.generate_code_v2(t_unit).device_code())
 
     return t_unit
 
@@ -319,7 +334,7 @@ class TileSizesTuner(MeasurementInterface):
         manipulator.add_parameter(
             IntegerParameter("nwork_items_per_e", 1, 105))
         manipulator.add_parameter(
-            IntegerParameter("n_e_per_wg", 1, 32))
+            IntegerParameter("n_e_per_wg", 2, 32))
         return manipulator
 
     def seed_configurations(self):
@@ -344,8 +359,6 @@ class TileSizesTuner(MeasurementInterface):
     def run(self, desired_result, input, limit):
 
         cfg = desired_result.configuration.data
-        if cfg["n_e_per_wg"] * cfg["nwork_items_per_e"] > 500:
-            return Result(time=np.inf)
 
         logger.info(cfg)
 
@@ -361,11 +374,21 @@ class TileSizesTuner(MeasurementInterface):
 
         # }}}
 
+        if cfg["n_e_per_wg"] * cfg["nwork_items_per_e"] > 600:
+            logger.info("Block dimension limit exceeded => ignored configuration.")
+            return Result(time=np.inf)
+
+        if ((math.ceil((Ndof*Ndim)/cfg["i_tiles"]) * math.ceil(Ndof/cfg["j_tiles"]))
+                + int(cfg["prftch_u_to_local"]) * Ndof * cfg["n_e_per_wg"]
+                + Ndim * Ndof * cfg["n_e_per_wg"])*8e-3 > 47:
+            logger.info("Shared memory limit exceeded => ignored configuration.")
+            return Result(time=np.inf)
+
         specialized_transform = partial(transform,
                                         n_e_per_wg=cfg["n_e_per_wg"],
                                         nwork_items_per_e=cfg["nwork_items_per_e"],
-                                        i_tilelen=math.ceil(105/cfg["i_tiles"]),
-                                        j_tilelen=math.ceil(35/cfg["j_tiles"]),
+                                        i_tiles=cfg["i_tiles"],
+                                        j_tiles=cfg["j_tiles"],
                                         prftch_u_to_local=cfg["prftch_u_to_local"],
                                         )
 
@@ -378,7 +401,6 @@ class TileSizesTuner(MeasurementInterface):
             expr,
             transform=specialized_transform,
             cl_ctx=cl_ctx,
-            long_dim_length=200_000
         ))
         runtime = fnsm.timeit(expr,
                               cl_ctx=cl_ctx,
