@@ -61,23 +61,17 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     u_fetch = vng(u+"_prftch")
     j_inner = vng(f"{j}_inner")
     j_tile = f"{j}_tile"
+    i_tile, i_inner = f"{i}_tile", f"{i}_inner"
     r_prcmpt_subst = vng(f"{r}_prcmpt")
-    e_prcmpt_subst = vng(f"{e_inner}_prcmpt")
     i_prcmpt_subst = vng(f"{i}_prcmpt")
-    iwork_stage1 = vng(f"{i_prcmpt_subst}_cross_{r_prcmpt_subst}")
-    iwork_stage2 = vng(f"{i}_cross_{x}")
-    iprftch_D, jprftch_D = vng("iprftchD"), vng("jprftchD")
-    iwork_stage1_inner, iwork_stage1_tile = (vng(f"{iwork_stage1}_inner"),
-                                             vng(f"{iwork_stage1}_tile"))
-    iwork_stage1_inner_inner, iwork_stage1_inner_outer = (
-        vng(f"{iwork_stage1_inner}_inner"),
-        vng(f"{iwork_stage1_inner}_outer"))
+    rprftch_D, iprftch_D, jprftch_D = (vng("rprftchD"),
+                                       vng("iprftchD"),
+                                       vng("jprftchD"))
 
     prcmpt_j_redn = ing(f"prcmpt_{j}_redn")
-    D_reshape = vng(f"{D}_rshp")
-    D_fetch = vng(f"{D_reshape}_fetch")
+    D_fetch = vng(f"{D}_fetch")
     J_fetch = vng(f"{J}_fetch")
-    iwork_stage2_inner = vng(f"{iwork_stage2}_inner")
+    i_inner_inner, i_inner_outer = vng(f"{i_inner}_inner"), vng(f"{i_inner}_outer")
     # prftch_J = ing(f"prftch_{J}")
 
     # }}}
@@ -88,92 +82,26 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     t_unit = fnsm.hoist_reduction_invariant_terms(t_unit, j)
     t_unit = fnsm.extract_einsum_terms_as_subst(
         t_unit,
-        f"subst({e}, {r}, {i})",
+        f"subst({e}, {i}, {r})",
         f"sum({j}, {D}[{r}, {i}, {j}]*{u}[{e}, {j}])",
         insn_match=insn_match
     )
+
+    t_unit = lp.split_iname(t_unit, i, math.ceil(Ndof/i_tiles),
+                            outer_iname=i_tile, inner_iname=i_inner)
 
     # }}}
 
     t_unit = lp.split_iname(t_unit, e, n_e_per_wg,
                             inner_iname=e_inner, outer_iname=e_outer,
-                            outer_tag="g.0")
-
-    # FIXME: There are certain cases in which we can avoid this to go to LOCAL.
-    t_unit = lp.precompute(t_unit, "subst",
-                           sweep_inames=[e_inner, r, i],
-                           precompute_inames=[e_prcmpt_subst,
-                                              r_prcmpt_subst,
-                                              i_prcmpt_subst],
-                           precompute_outer_inames=frozenset({e_outer}),
-                           default_tag=None,
-                           compute_insn_id=prcmpt_j_redn,
-                           temporary_address_space=lp.AddressSpace.LOCAL)
-
-    # {{{ join inames to make the work per element clearer
-
-    t_unit = lp.join_inames(t_unit, [r_prcmpt_subst, i_prcmpt_subst], iwork_stage1)
-    t_unit = lp.extract_subst(t_unit, D_reshape,
-                              "D[arg0 // 35, arg0 % 35, arg1]",
-                              ["arg0", "arg1"])
-    t_unit = lp.add_prefetch(t_unit, J,
-                             sweep_inames=[x, r],
-                             fetch_outer_inames=frozenset({e_outer, e_inner}),
-                             temporary_address_space=lp.AddressSpace.PRIVATE,
-                             temporary_name=J_fetch,
-                             default_tag="unr",
-                             within=within)
-    t_unit = lp.join_inames(t_unit, [x, i], iwork_stage2)
-
-    # }}}
-
-    # {{{ stage 1
-
-    # {{{ tile and prefetch D
-
-    t_unit = lp.split_iname(t_unit, j, math.ceil(Ndof/j_tiles),
-                            inner_iname=j_inner, outer_iname=j_tile,
-                            inner_tag="unr", outer_tag="unr",
-                            )
-    t_unit = lp.split_iname(t_unit, iwork_stage1, math.ceil(Ndim*Ndof/i_tiles),
-                            inner_iname=iwork_stage1_inner,
-                            outer_iname=iwork_stage1_tile)
-
-    # FIXME: Need to reindex 'D' (generates incorrect length)
-    t_unit = lp.precompute(t_unit, D_reshape, [iwork_stage1_inner, j_inner],
-                           precompute_outer_inames=frozenset([e_outer,
-                                                              iwork_stage1_tile,
-                                                              j_tile]),
-                           precompute_inames=[iprftch_D, jprftch_D],
-                           temporary_address_space=lp.AddressSpace.LOCAL,
-                           temporary_name=D_fetch,
-                           default_tag=None,
-                           within=within)
-
-    t_unit = lp.split_iname(t_unit, iprftch_D, n_e_per_wg, inner_tag="l.1")
-    t_unit = lp.split_iname(t_unit, jprftch_D, nwork_items_per_e,
-                            inner_tag="l.0", outer_tag="unr"
-                            )
-
-    # }}}
-
-    # {{{ distribute work
-
-    t_unit = lp.split_iname(t_unit,
-                            iwork_stage1_inner,
-                            nwork_items_per_e,
-                            inner_tag="l.0",
-                            inner_iname=iwork_stage1_inner_inner,
-                            outer_iname=iwork_stage1_inner_outer)
-
-    # }}}
+                            inner_tag="l.1", outer_tag="g.0")
 
     # {{{ prefetch 'u'
 
     if prftch_u_to_local:
         eprftch_u, jprftch_u = vng("eprftch_u"), vng("jprftch_u")
         t_unit = lp.add_prefetch(t_unit, u,
-                                 sweep_inames=[e_prcmpt_subst, j_tile, j_inner],
+                                 sweep_inames=[e_inner, j],
                                  fetch_outer_inames=frozenset([e_outer]),
                                  temporary_address_space=lp.AddressSpace.LOCAL,
                                  temporary_name=u_fetch,
@@ -186,55 +114,97 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
                                 inner_tag="l.0")
     else:
         t_unit = lp.add_prefetch(t_unit, u,
-                                 sweep_inames=[j_tile, j_inner],
-                                 fetch_outer_inames=frozenset([e_prcmpt_subst,
+                                 sweep_inames=[j],
+                                 fetch_outer_inames=frozenset([e_inner,
                                                                e_outer]),
                                  temporary_address_space=lp.AddressSpace.PRIVATE,
                                  temporary_name=u_fetch,
                                  default_tag="unr",
                                  within=within
                                  )
-        # TODO: Yet another headache to ensure that the fetch instruction uses all
-        # the hw axes.
-        t_unit = lp.add_inames_to_insn(t_unit,
-                                       iwork_stage1_inner_inner,
-                                       f"writes:{u_fetch}")
 
-    t_unit = lp.tag_inames(t_unit, {e_prcmpt_subst: "l.1"})
+    # }}}
+
+    t_unit = lp.add_prefetch(t_unit, J,
+                             sweep_inames=[x, r],
+                             fetch_outer_inames=frozenset({e_outer, e_inner,
+                                                           i_inner_inner}),
+                             temporary_address_space=lp.AddressSpace.PRIVATE,
+                             temporary_name=J_fetch,
+                             default_tag="unr",
+                             within=within)
+
+    # {{{ tile and prefetch D
+
+    t_unit = lp.split_iname(t_unit, j, math.ceil(Ndof/j_tiles),
+                            inner_iname=j_inner, outer_iname=j_tile,
+                            inner_tag="unr", outer_tag="unr")
+    t_unit = lp.add_prefetch(t_unit, D, [i_inner, r, j_inner],
+                             fetch_outer_inames=frozenset([e_outer,
+                                                           i_tile,
+                                                           j_tile]),
+                             dim_arg_names=[rprftch_D, iprftch_D, jprftch_D],
+                             temporary_address_space=lp.AddressSpace.LOCAL,
+                             temporary_name=D_fetch,
+                             default_tag=None)
+    t_unit = lp.split_iname(t_unit, iprftch_D, n_e_per_wg, inner_tag="l.1")
+    t_unit = lp.split_iname(t_unit, jprftch_D, nwork_items_per_e, inner_tag="l.0")
+
+    # }}}
+
+    # {{{ precompute 'subst'
+
+    t_unit = lp.split_iname(t_unit, i_inner, nwork_items_per_e,
+                            inner_iname=i_inner_inner,
+                            outer_iname=i_inner_outer,
+                            inner_tag="l.0", outer_tag="unr",
+                            )
+
+    # FIXME: There are certain cases in which we can avoid this to go to LOCAL.
+    t_unit = lp.precompute(t_unit, "subst",
+                           sweep_inames=[r, i_inner_outer],
+                           precompute_inames=[i_prcmpt_subst,
+                                              r_prcmpt_subst],
+                           storage_axes=[i, r],
+                           precompute_outer_inames=frozenset({e_inner,
+                                                              e_outer,
+                                                              i_tile,
+                                                              i_inner_inner}),
+                           default_tag="unr",
+                           compute_insn_id=prcmpt_j_redn,
+                           temporary_address_space=lp.AddressSpace.PRIVATE)
 
     # }}}
 
     # {{{ TODO: remove once github.com/inducer/loopy/issues/666 is resolved.
 
     t_unit = lp.realize_reduction(t_unit, insn_id_filter=prcmpt_j_redn)
+    inames_to_duplicate = (frozenset({i_prcmpt_subst,
+                                      r_prcmpt_subst})
+                           & t_unit[kernel_name].all_inames())
 
     acc_name = f"acc_{j_tile}_{j_inner}"
     t_unit = lp.privatize_temporaries_with_inames(t_unit,
-                                                  iwork_stage1_inner_outer,
+                                                  inames_to_duplicate,
                                                   only_var_names={acc_name})
+
     t_unit = lp.duplicate_inames(
         t_unit,
-        iwork_stage1_inner_outer,
+        inames_to_duplicate,
         within=f"writes:{acc_name} and not reads:{acc_name}")
     t_unit = lp.duplicate_inames(
         t_unit,
-        iwork_stage1_inner_outer,
+        inames_to_duplicate,
         within=f"reads:{acc_name} and not writes:{acc_name}")
 
     # }}}
 
-    # }}}
-
-    # {{{ stage 2
-
-    t_unit = lp.tag_inames(t_unit, {e_inner: "l.1"})
-    t_unit = lp.split_iname(t_unit, iwork_stage2, nwork_items_per_e,
-                            inner_iname=iwork_stage2_inner, inner_tag="l.0",
-                            outer_tag="unr")
-    t_unit = lp.add_inames_to_insn(t_unit, iwork_stage2_inner,
-                                   f"writes:{J_fetch}")
-
-    # }}}
+    if not prftch_u_to_local:
+        # TODO: Yet another headache to ensure that the fetch instruction uses all
+        # the hw axes.
+        t_unit = lp.add_inames_to_insn(t_unit,
+                                       i_inner_inner,
+                                       f"writes:{u_fetch}")
 
     return t_unit
 
@@ -421,7 +391,7 @@ if __name__ == "__main__":
     elif cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
         logger.info(f"Device {cl_ctx.devices[0]} not known to database.")
     else:
-        if 1:
+        if 0:
             argparser = opentuner.default_argparser()
             TileSizesTuner.main(argparser.parse_args())
         else:
@@ -435,7 +405,7 @@ if __name__ == "__main__":
             specialized_transform = partial(transform,
                                             n_e_per_wg=8,
                                             nwork_items_per_e=8,
-                                            i_tiles=2, j_tiles=2,
+                                            i_tiles=6, j_tiles=4,
                                             prftch_u_to_local=False,
                                             )
 
