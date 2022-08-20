@@ -12,6 +12,7 @@ from opentuner import MeasurementInterface
 from opentuner import Result
 from functools import partial, cached_property
 import logging
+from functools import cache
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ DB_FILENAME = "wave_grad_3d_p4.db"
 DB_TABLENAME = "NVIDIA_TITAN_V"
 
 
+@cache
 def transform(t_unit, n_e_per_wg, nwork_items_per_e,
               prftch_u_to_local, i_tiles, j_tiles,
               insn_match=None, kernel_name=None):

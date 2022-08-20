@@ -184,7 +184,7 @@ def timeit(einsum: FusedEinsum,
     cq = cl.CommandQueue(cl_ctx)
 
     t_unit = generate_loopy(einsum, schedule=schedule)
-    t_unit = lp.set_options(t_unit, "no_numpy")
+    t_unit = lp.set_options(t_unit, no_numpy=True, return_dict=True)
 
     param_dict = generate_input_arrays(cq, einsum, long_dim_length)
     out_dict = generate_out_arrays(
