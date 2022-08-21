@@ -64,6 +64,7 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     j_inner = vng(f"{j}_inner")
     j_tile = f"{j}_tile"
     i_tile, i_inner = f"{i}_tile", f"{i}_inner"
+    e_prcmpt_subst = vng(f"{e}_prcmpt")
     r_prcmpt_subst = vng(f"{r}_prcmpt")
     i_prcmpt_subst = vng(f"{i}_prcmpt")
     rprftch_D, iprftch_D, jprftch_D = (vng("rprftchD"),
@@ -162,17 +163,17 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
                             inner_tag="l.0", outer_tag="unr",
                             )
 
-    # FIXME: There are certain cases in which we can avoid this to go to LOCAL.
     t_unit = lp.precompute(t_unit, "subst",
                            sweep_inames=[r, i_inner_outer],
-                           precompute_inames=[i_prcmpt_subst,
+                           precompute_inames=[e_prcmpt_subst,
+                                              i_prcmpt_subst,
                                               r_prcmpt_subst],
-                           storage_axes=[i, r],
+                           # storage_axes=[0, 1],
                            precompute_outer_inames=frozenset({e_inner,
                                                               e_outer,
                                                               i_tile,
                                                               i_inner_inner}),
-                           default_tag="unr",
+                           # default_tag="unr",
                            compute_insn_id=prcmpt_j_redn,
                            temporary_address_space=lp.AddressSpace.PRIVATE)
 
@@ -200,6 +201,8 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
         within=f"reads:{acc_name} and not writes:{acc_name}")
 
     # }}}
+
+    # t_unit = lp.tag_inames(t_unit, {r: "unr"})
 
     if not prftch_u_to_local:
         # TODO: Yet another headache to ensure that the fetch instruction uses all
@@ -304,7 +307,7 @@ class TileSizesTuner(MeasurementInterface):
         manipulator.add_parameter(
             BooleanParameter("prftch_u_to_local"))
         manipulator.add_parameter(
-            IntegerParameter("nwork_items_per_e", 1, 105))
+            IntegerParameter("nwork_items_per_e", 1, Ndof))
         manipulator.add_parameter(
             IntegerParameter("n_e_per_wg", 2, 32))
         return manipulator
