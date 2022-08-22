@@ -7,7 +7,6 @@ import opentuner
 import sqlite3
 from opentuner import ConfigurationManipulator
 from opentuner import IntegerParameter
-from opentuner.search.manipulator import BooleanParameter
 from opentuner import MeasurementInterface
 from opentuner import Result
 from functools import partial, cached_property
@@ -173,7 +172,7 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
                                                               e_outer,
                                                               i_tile,
                                                               i_inner_inner}),
-                           # default_tag="unr",
+                           default_tag="unr",
                            compute_insn_id=prcmpt_j_redn,
                            temporary_address_space=lp.AddressSpace.PRIVATE)
 
@@ -202,7 +201,7 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
 
     # }}}
 
-    # t_unit = lp.tag_inames(t_unit, {r: "unr"})
+    t_unit = lp.tag_inames(t_unit, {r: "unr"})
 
     if not prftch_u_to_local:
         # TODO: Yet another headache to ensure that the fetch instruction uses all
@@ -305,7 +304,7 @@ class TileSizesTuner(MeasurementInterface):
         manipulator.add_parameter(
             IntegerParameter("j_tiles", 1, 10))
         manipulator.add_parameter(
-            BooleanParameter("prftch_u_to_local"))
+            IntegerParameter("prftch_u_to_local", 1, 1))
         manipulator.add_parameter(
             IntegerParameter("nwork_items_per_e", 1, Ndof))
         manipulator.add_parameter(
@@ -327,8 +326,9 @@ class TileSizesTuner(MeasurementInterface):
         return [
             {"i_tiles": config[0], "j_tiles": config[1],
              "n_e_per_wg": config[2], "nwork_items_per_e": config[3],
-             "prftch_u_to_local": config[4]}
+             "prftch_u_to_local": bool(config[4])}
             for config in configs
+            if config[4]
         ]
 
     def run(self, desired_result, input, limit):
@@ -364,7 +364,8 @@ class TileSizesTuner(MeasurementInterface):
                                         nwork_items_per_e=cfg["nwork_items_per_e"],
                                         i_tiles=cfg["i_tiles"],
                                         j_tiles=cfg["j_tiles"],
-                                        prftch_u_to_local=cfg["prftch_u_to_local"],
+                                        prftch_u_to_local=bool(
+                                            cfg["prftch_u_to_local"]),
                                         )
 
         expr = fnsm.einsum("xre,rij,ej->xei",
@@ -396,7 +397,7 @@ if __name__ == "__main__":
     elif cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
         logger.info(f"Device {cl_ctx.devices[0]} not known to database.")
     else:
-        if 0:
+        if 1:
             argparser = opentuner.default_argparser()
             TileSizesTuner.main(argparser.parse_args())
         else:
@@ -408,10 +409,10 @@ if __name__ == "__main__":
                                arg_names=["J", "D", "u"])
 
             specialized_transform = partial(transform,
-                                            n_e_per_wg=8,
-                                            nwork_items_per_e=8,
-                                            i_tiles=6, j_tiles=4,
-                                            prftch_u_to_local=False,
+                                            n_e_per_wg=27,
+                                            nwork_items_per_e=9,
+                                            i_tiles=4, j_tiles=4,
+                                            prftch_u_to_local=True,
                                             )
 
             print(fnsm.stringify_comparison_vs_roofline(
