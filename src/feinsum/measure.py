@@ -226,8 +226,6 @@ def timeit(einsum: FusedEinsum,
         total_sim_time += (clock_end - clock_start)
         total_rounds += 10
 
-    # TODO: verify the results in out_dict, with ref_solution
-
     return total_sim_time / total_rounds
 
 
