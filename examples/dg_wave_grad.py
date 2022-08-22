@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_grad_einsum(ndofs, ndim):
-    return f.einsum("xer,rij,ej->xei",
-                    f.array((ndim, np.inf, ndim,),
+    return f.einsum("xre,rij,ej->xei",
+                    f.array((ndim, ndim, np.inf),
                             "float64"),
                     f.array((ndim, ndofs, ndofs),
                             "float64"),
@@ -254,6 +254,43 @@ def variant_3(t_unit):
     return t_unit
 
 
+def paranumal_transform(t_unit):
+
+    t_unit = lp.split_reduction_inward(t_unit, "j")
+    t_unit = f.hoist_reduction_invariant_terms(t_unit, "j")
+    t_unit = f.extract_einsum_terms_as_subst(t_unit,
+                                             "subst(r, e, i)",
+                                             "sum(j, R[r, i, j]*u[e, j])")
+
+    NblockV = 4
+
+    t_unit = lp.split_iname(t_unit, "e", NblockV,
+                            inner_tag="l.1", outer_tag="g.0")
+    t_unit = lp.tag_inames(t_unit, {"i": "l.0"})
+    t_unit = lp.add_prefetch(t_unit, "u", sweep_inames=["e_inner", "j"],
+                             dim_arg_names=["eprftch_u", "jprftch_u"],
+                             temporary_address_space=lp.AddressSpace.LOCAL,
+                             default_tag=None)
+    t_unit = lp.tag_inames(t_unit, {"eprftch_u": "l.1", "jprftch_u": "l.0"})
+    t_unit = lp.precompute(t_unit, "subst", sweep_inames=["r"],
+                           precompute_outer_inames=frozenset({"e_outer",
+                                                              "e_inner",
+                                                              "i"}),
+                           temporary_address_space=lp.AddressSpace.PRIVATE,
+                           default_tag="unr")
+
+    t_unit = lp.add_prefetch(t_unit, "J", sweep_inames=["x", "r"],
+                             fetch_outer_inames=frozenset({"e_outer",
+                                                           "e_inner",
+                                                           "i",
+                                                           }),
+                             temporary_address_space=lp.AddressSpace.PRIVATE,
+                             default_tag="unr")
+    t_unit = lp.tag_inames(t_unit, {"r": "unr", "j": "unr", "x": "unr"})
+
+    return t_unit
+
+
 def main():
     from feinsum.data.device_info import DEV_TO_PEAK_GFLOPS
     cl_ctx = cl.create_some_context()
@@ -268,8 +305,7 @@ def main():
     expr = get_grad_einsum(ndofs=35, ndim=3)
     print(f.stringify_comparison_vs_roofline(expr,
                                              cl_ctx=cl_ctx,
-                                             transform=variant_3,
-                                             long_dim_length=50_000,
+                                             transform=paranumal_transform,
                                              ))
 
 
