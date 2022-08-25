@@ -280,9 +280,9 @@ class TileSizesTuner(MeasurementInterface):
         """
         manipulator = ConfigurationManipulator()
         manipulator.add_parameter(
-            IntegerParameter("i_tiles", 1, 20))
+            IntegerParameter("i_tiles", 1, math.ceil(Ndof/2)))
         manipulator.add_parameter(
-            IntegerParameter("j_tiles", 1, 10))
+            IntegerParameter("j_tiles", 1, math.ceil(Ndof/2)))
         manipulator.add_parameter(
             IntegerParameter("nwork_items_per_e", 1, Ndof))
         manipulator.add_parameter(
