@@ -409,12 +409,12 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
                     i_stmt_tile_to_j_prcmpt_stage1[i_stmt_tile],
                     i_stmt_tile_to_f_prcmpt_stage1[i_stmt_tile]],
                 default_tag=None)
-            t_unit = lp.tag_inames(
-                t_unit,
-                {i_stmt_tile_to_e_prcmpt_stage1[i_stmt_tile]: "l.1"})
-            t_unit = lp.split_iname(
-                t_unit, i_stmt_tile_to_j_prcmpt_stage1[i_stmt_tile],
-                nwork_items_per_e, inner_tag="l.0")
+        t_unit = lp.tag_inames(
+            t_unit,
+            {i_stmt_tile_to_e_prcmpt_stage1[i_stmt_tile]: "l.1"})
+        t_unit = lp.split_iname(
+            t_unit, i_stmt_tile_to_j_prcmpt_stage1[i_stmt_tile],
+            nwork_items_per_e, inner_tag="l.0")
 
         t_unit = lp.split_iname(t_unit, i_inner_name, nwork_items_per_e,
                                 inner_iname=i_inner_inner_name,
