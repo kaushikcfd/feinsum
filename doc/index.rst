@@ -19,6 +19,7 @@ in a single loop nest.
     metrics
     database
     extra_loopy
+    utils
 
     🚀 Github <https://github.com/inducer/pytato>
     💾 Download Releases <https://pypi.org/project/pytato>
