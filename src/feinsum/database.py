@@ -331,9 +331,12 @@ def query(einsum: FusedEinsum,
     cursor = conn.cursor()
 
     if len(cl_ctx.devices) > 1:
-        raise NotImplementedError("CL contexts with multiple devices not supported")
-
-    cl_device, = cl_ctx.devices
+        # Check if all of the devices in the context are the same
+        device_strings = [str(device).split(" at ")[0] for device in cl_ctx.devices]
+        if not all([el == device_strings[0] for el in device_strings]):
+            raise NotImplementedError("CL contexts with multiple device types not supported")
+            
+    cl_device = cl_ctx.devices[0]
     device_name = _get_cl_device_name_for_db(cl_device)
     subscripts = einsum.get_subscripts()
     index_to_length = _get_index_to_length_for_db(einsum)
