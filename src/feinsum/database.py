@@ -329,13 +329,10 @@ def query(einsum: FusedEinsum,
     einsum = normalize_einsum(einsum)
     conn = sqlite3.connect(database)
     cursor = conn.cursor()
-
-    if len(cl_ctx.devices) > 1:
-        # Check if all of the devices in the context are the same
-        device_strings = [str(device).split(" at ")[0] for device in cl_ctx.devices]
-        if not all([el == device_strings[0] for el in device_strings]):
-            raise NotImplementedError("CL contexts with multiple device types not supported")
-            
+    
+    if len({dev.name for dev in cl_ctx.devices}) > 1:
+        raise NotImplementedError("CL contexts with multiple types of devices not supported")
+        
     cl_device = cl_ctx.devices[0]
     device_name = _get_cl_device_name_for_db(cl_device)
     subscripts = einsum.get_subscripts()
