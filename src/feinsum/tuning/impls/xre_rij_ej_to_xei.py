@@ -12,15 +12,15 @@ logger = logging.getLogger(__name__)
     "ndim", lambda e: e.arg_shapes[0][1])
 @fnsm.tuning.einsum_arg(
     "ndof", lambda e: e.shape[1])
-@fnsm.tuning.transform_arg(
+@fnsm.tuning.transform_param(
     "n_e_per_wg", lambda e: IntParameter(2, 32))
-@fnsm.tuning.transform_arg(
+@fnsm.tuning.transform_param(
     "nwork_items_per_e", lambda e: IntParameter(1, e.shape[1]+1))
-@fnsm.tuning.transform_arg(
+@fnsm.tuning.transform_param(
     "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2)))
-@fnsm.tuning.transform_arg(
+@fnsm.tuning.transform_param(
     "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2)))
-@fnsm.tuning.transform_arg(
+@fnsm.tuning.transform_param(
     "prftch_u_to_local", lambda e: BoolParameter())
 def transform(t_unit,
               ndim, ndof,
@@ -210,3 +210,37 @@ def transform(t_unit,
                                        f"writes:{u_fetch}")
 
     return t_unit
+
+
+if __name__ == "__main__":
+    import pyopencl as cl
+    from functools import partial
+
+    Ndim = 3
+    Ndof = 35
+
+    cl_ctx = cl.create_some_context()
+
+    expr = fnsm.einsum("xre,rij,ej->xei",
+                       fnsm.array((Ndim, Ndim, np.inf), "float64"),
+                       fnsm.array((Ndim, Ndof, Ndof), "float64"),
+                       fnsm.array((np.inf, Ndof), "float64"),
+                       arg_names=["J", "D", "u"])
+
+    if 1:
+        fnsm. autotune(expr, __file__, cl_ctx)
+    else:
+        # Enable while debugging ->
+        # evaluate a point in the parameter space.
+        bound_transform = partial(transform,
+                                  ndim=Ndim, ndof=Ndof,
+                                  n_e_per_wg=27,
+                                  nwork_items_per_e=9,
+                                  i_tiles=4, j_tiles=4,
+                                  prftch_u_to_local=True)
+
+        print(fnsm.stringify_comparison_with_roofline(expr,
+                                                      bound_transform,
+                                                      cl_ctx))
+
+# vim: fdm=marker
