@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 @fnsm.tuning.transform_param(
     "n_e_per_wg", lambda e: IntParameter(2, 32))
 @fnsm.tuning.transform_param(
-    "nwork_items_per_e", lambda e: IntParameter(1, e.shape[1]+1))
+    "nwork_items_per_e", lambda e: IntParameter(1, e.shape[2]+1))
 @fnsm.tuning.transform_param(
-    "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2)))
+    "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2)))
 @fnsm.tuning.transform_param(
-    "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2)))
+    "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2)))
 @fnsm.tuning.transform_param(
     "prftch_u_to_local", lambda e: BoolParameter())
 def transform(t_unit,

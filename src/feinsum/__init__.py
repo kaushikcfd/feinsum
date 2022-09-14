@@ -17,6 +17,7 @@ from feinsum.loopy_utils import (match_t_unit_to_einsum,
                                  match_einsum)
 from feinsum.normalization import normalize_einsum
 from feinsum.cl_utils import make_fake_cl_context
+from feinsum.tuning import autotune
 
 
 __all__ = (
@@ -40,4 +41,6 @@ __all__ = (
     "normalize_einsum",
 
     "make_fake_cl_context",
+
+    "autotune",
 )

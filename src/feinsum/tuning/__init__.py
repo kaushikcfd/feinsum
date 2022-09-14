@@ -14,7 +14,7 @@ import pyopencl as cl
 import loopy as lp
 import opentuner
 
-from typing import Callable, Any, Tuple, Mapping, Union
+from typing import Callable, Any, Tuple, Mapping, Union, TypeVar
 from dataclasses import dataclass
 from functools import cached_property, cache
 from feinsum.einsum import FusedEinsum
@@ -27,6 +27,7 @@ DB_FILENAME = os.path.join(os.path.dirname(__file__),
                            os.path.pardir,
                            "data",
                            "transform_archive_v2.db")
+FT = TypeVar("FT")
 
 
 # {{{ supported tuning parameters
@@ -53,53 +54,10 @@ class BoolParameter(TuningParameter):
 # }}}
 
 
-# {{{
+# {{{ einsum_arg/transform_arg
 
 @dataclass(frozen=True, repr=True)
-class EinsumDerivativeArg:
-    var_name: str
-    func: Callable[[FusedEinsum], Any]
-
-
-@dataclass(frozen=True, repr=True)
-class TransformParam:
-    var_name: str
-    func: Callable[[FusedEinsum], TuningParameter]
-
-
-@dataclass(frozen=True, repr=True)
-class ParametrizedTransform:
-    transform: Callable
-    einsum_derivative_args: Tuple[EinsumDerivativeArg, ...]
-    transform_params: Tuple[TransformParam, ...]
-
-    def __call__(self, *args, **kwargs) -> lp.TranslationUnit:
-        return self.transform(*args, **kwargs)
-
-
-def transform_param(fn,
-                    arg_name: str,
-                    param_getter: Callable[[FusedEinsum], TuningParameter]):
-    """
-    Decorate to a template transformation to inform
-    :func:`autotune` about the parameter space.
-
-    :param arg_name: Name of the argument in the template
-        transformation to be parametrized.
-    :param param_getter: A callable that expects an einsum and returns the
-        parameter space for that einsum.
-    """
-    transform_param = TransformParam(arg_name, param_getter)
-    if isinstance(fn, ParametrizedTransform):
-        return ParametrizedTransform(
-            fn.transform,
-            fn.einsum_derivative_args,
-            (transform_param,) + fn.transform_params)
-    else:
-        return ParametrizedTransform(fn, (), (transform_param,))
-
-
-def einsum_arg(fn, arg_name, param_getter):
+class einsum_arg:  # noqa: N801
     """
     Decorate to a template transformation to inform
     :func:`autotune` about a static argument to the transformation
@@ -110,14 +68,51 @@ def einsum_arg(fn, arg_name, param_getter):
     :param param_getter: A callable that expects an einsum and returns the
         value of the static argument.
     """
-    einsum_arg = EinsumDerivativeArg(arg_name, param_getter)
-    if isinstance(fn, ParametrizedTransform):
-        return ParametrizedTransform(
-            fn.transform,
-            (einsum_arg,) + fn.einsum_derivative_args,
-            fn.transform_params)
-    else:
-        return ParametrizedTransform(fn, (einsum_arg,), ())
+    var_name: str
+    func: Callable[[FusedEinsum], Any]
+
+    def __call__(self, fn: FT) -> FT:
+        if isinstance(fn, ParametrizedTransform):
+            return ParametrizedTransform(
+                fn.transform,
+                (self,) + fn.einsum_derivative_args,
+                fn.transform_params)
+        else:
+            return ParametrizedTransform(fn, (self,), ())
+
+
+@dataclass(frozen=True, repr=True)
+class transform_param:  # noqa: N801
+    """
+    Decorate to a template transformation to inform
+    :func:`autotune` about the parameter space.
+
+    :param arg_name: Name of the argument in the template
+        transformation to be parametrized.
+    :param param_getter: A callable that expects an einsum and returns the
+        parameter space for that einsum.
+    """
+    var_name: str
+    func: Callable[[FusedEinsum], TuningParameter]
+
+    def __call__(self, fn: FT) -> FT:
+        if isinstance(fn, ParametrizedTransform):
+            return ParametrizedTransform(
+                fn.transform,
+                fn.einsum_derivative_args,
+                (self,) + fn.transform_params)
+        else:
+            return ParametrizedTransform(fn, (), (self,))
+
+
+@dataclass(frozen=True, repr=True)
+class ParametrizedTransform:
+    transform: Callable
+    einsum_derivative_args: Tuple[einsum_arg, ...]
+    transform_params: Tuple[transform_param, ...]
+
+    def __call__(self, *args, **kwargs) -> lp.TranslationUnit:
+        return self.transform(*args, **kwargs)
 
 # }}}
 
@@ -175,7 +170,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
     @cached_property
     def transform_space_id(self) -> str:
-        dirpath, filepath = os.path.sep(self.module_path)
+        dirpath, filepath = os.path.split(self.module_path)
 
         if dirpath == _get_impls_path():
             return filepath
@@ -209,8 +204,14 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
     @cached_property
     def transform_func(self) -> Union[Callable, ParametrizedTransform]:
-        import importlib
-        transform_module = importlib.import_module(self.module_path)
+        from importlib import util
+        _, filename = os.path.split(self.module_path)
+
+        assert filename.endswith(".py")
+
+        spec = util.spec_from_file_location(filename[:-3], self.module_path)
+        transform_module = util.module_from_spec(spec)
+        spec.loader.exec_module(transform_module)
         return transform_module.transform
 
     def manipulator(self) -> None:
@@ -224,13 +225,14 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
         if isinstance(self.transform_func, ParametrizedTransform):
             for param in self.transform_func.transform_params:
-                if isinstance(param, IntParameter):
+                tuning_param = param.func(self.einsum)
+                if isinstance(tuning_param, IntParameter):
                     manipulator.add_parameter(
-                        opentuner.IntegerParameter(param.name,
-                                                   param.low,
-                                                   param.high-1))
-                elif isinstance(param, BoolParameter):
-                    manipulator.add_parameter(BooleanParameter())
+                        opentuner.IntegerParameter(param.var_name,
+                                                   tuning_param.low,
+                                                   tuning_param.high-1))
+                elif isinstance(tuning_param, BoolParameter):
+                    manipulator.add_parameter(BooleanParameter(param.var_name))
                 else:
                     raise NotImplementedError(f"Parameter: {param}.")
         else:
