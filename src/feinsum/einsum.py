@@ -30,9 +30,9 @@ from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from typing import Union, Tuple, Any, FrozenSet, List
 from dataclasses import dataclass
-from functools import cached_property, cache
+from functools import cached_property
 from more_itertools import zip_equal as zip
-from pytools import UniqueNameGenerator
+from pytools import UniqueNameGenerator, memoize_method
 
 
 IntegralT = Union[int, np.int8, np.int16, np.int32, np.int64, np.uint8,
@@ -112,7 +112,7 @@ class FusedEinsum:
     def noutputs(self) -> int:
         return len(self.use_matrix)
 
-    @cache
+    @memoize_method
     def index_to_dim_length(self) -> PMapT[EinsumAxisAccess, ShapeComponentT]:
         index_to_dim = {}
         for arg_shape, arg_axes in zip(self.arg_shapes,
@@ -141,7 +141,7 @@ class FusedEinsum:
     def ndim(self) -> int:
         return len(self.shape)
 
-    @cache
+    @memoize_method
     def get_subscripts(self) -> str:
         """
         Returns the subscripts used in the building the *einsum* from it.

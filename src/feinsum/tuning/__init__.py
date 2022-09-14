@@ -183,9 +183,9 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
     @cached_property
     def sql_table_name(self) -> str:
-        from feinsum.database import _get_cl_device_name_for_db
+        from feinsum.sql_utils import dump_tablename
         dev, = self.cl_ctx.devices
-        return _get_cl_device_name_for_db(dev)
+        return dump_tablename(dev)
 
     @cached_property
     def transform_space_id(self) -> str:
@@ -234,10 +234,6 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         return transform_module.transform
 
     def manipulator(self) -> None:
-        """
-        Define the search space by creating a
-        ConfigurationManipulator
-        """
         from opentuner import ConfigurationManipulator
         from opentuner.search.manipulator import BooleanParameter
         manipulator = ConfigurationManipulator()
@@ -261,17 +257,15 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
     def seed_configurations(self) -> None:
         import json
-        from feinsum.database import (_get_index_to_length_for_db,
-                                      _preprocess_string_for_sql,
-                                      _get_use_matrix_for_db,
-                                      _get_value_to_dtype_for_db)
+        from feinsum.sql_utils import (dump_index_to_length,
+                                       dump_use_matrix,
+                                       dump_value_to_dtype)
 
         cursor = self.conn.cursor()
         subscripts = self.einsum.get_subscripts()
-        index_to_length = _get_index_to_length_for_db(self.einsum)
-        use_matrix = _preprocess_string_for_sql(
-            _get_use_matrix_for_db(self.einsum))
-        value_to_dtype = _get_value_to_dtype_for_db(self.einsum)
+        index_to_length = dump_index_to_length(self.einsum)
+        use_matrix = dump_use_matrix(self.einsum)
+        value_to_dtype = dump_value_to_dtype(self.einsum)
 
         cursor.execute(" SELECT"
                        "     transform_params"
@@ -293,17 +287,15 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
     def query_from_db(self, parameters) -> float:
         import json
-        from feinsum.database import (_get_index_to_length_for_db,
-                                      _preprocess_string_for_sql,
-                                      _get_use_matrix_for_db,
-                                      _get_value_to_dtype_for_db)
+        from feinsum.sql_utils import (dump_index_to_length,
+                                       dump_use_matrix,
+                                       dump_value_to_dtype)
 
         cursor = self.conn.cursor()
         subscripts = self.einsum.get_subscripts()
-        index_to_length = _get_index_to_length_for_db(self.einsum)
-        use_matrix = _preprocess_string_for_sql(
-            _get_use_matrix_for_db(self.einsum))
-        value_to_dtype = _get_value_to_dtype_for_db(self.einsum)
+        index_to_length = dump_index_to_length(self.einsum)
+        use_matrix = dump_use_matrix(self.einsum)
+        value_to_dtype = dump_value_to_dtype(self.einsum)
         transform_params_str = json.dumps(parameters)
 
         cursor.execute(" SELECT"
@@ -326,25 +318,21 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
     def record_into_db(self, runtime: float, parameters: Mapping[str, Any]) -> None:
         import json
-        from feinsum.database import (_get_index_to_length_for_db,
-                                      _preprocess_string_for_sql,
-                                      _get_use_matrix_for_db,
-                                      _get_value_to_dtype_for_db,
-                                      _get_cl_version_for_db,
-                                      _get_op_info_for_db
-                                      )
+        from feinsum.sql_utils import (dump_index_to_length,
+                                       dump_use_matrix,
+                                       dump_value_to_dtype,
+                                       dump_cl_version,
+                                       dump_op_info)
 
         cursor = self.conn.cursor()
         subscripts = self.einsum.get_subscripts()
-        index_to_length = _get_index_to_length_for_db(self.einsum)
-        use_matrix = _preprocess_string_for_sql(
-            _get_use_matrix_for_db(self.einsum))
-        value_to_dtype = _get_value_to_dtype_for_db(self.einsum)
+        index_to_length = dump_index_to_length(self.einsum)
+        use_matrix = dump_use_matrix(self.einsum)
+        value_to_dtype = dump_value_to_dtype(self.einsum)
         transform_params_str = json.dumps(parameters)
         cl_device, = self.cl_ctx.devices
-        compiler_version = _get_cl_version_for_db(cl_device)
-        op_info = _preprocess_string_for_sql(
-            _get_op_info_for_db(self.einsum, long_dim_length=self.long_dim_length))
+        compiler_version = dump_cl_version(cl_device)
+        op_info = dump_op_info(self.einsum, long_dim_length=self.long_dim_length)
 
         # {{{ compute timestamp in Chicago
 
@@ -403,7 +391,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
             ))
         except InvalidParameterError as err:
             logger.info(f"Ignored configuration due to '{err}'.")
-            return opentuner.Result(timer=np.inf)
+            return opentuner.Result(time=np.inf)
 
         runtime = timeit(self.einsum,
                          cl_ctx=self.cl_ctx,
