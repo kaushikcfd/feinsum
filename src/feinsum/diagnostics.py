@@ -1,5 +1,6 @@
 """
 .. autoclass:: EinsumTunitMatchError
+.. autoclass:: InvalidParameterError
 """
 
 __copyright__ = """Copyright (C) 2022 Kaushik Kulkarni"""
@@ -29,4 +30,12 @@ class EinsumTunitMatchError(ValueError):
     """
     Raised when :func:`match_t_unit_to_einsum` is not able to match the subject
     against the pattern.
+    """
+
+
+class InvalidParameterError(ValueError):
+    """
+    Raised by a tuner implementation when a parameter lies in the parameter
+    space but still illegal. Typically used to get over the limitation that
+    only a cartesian product of individual parameter's spaces are expressible.
     """

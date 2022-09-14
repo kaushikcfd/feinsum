@@ -10,6 +10,7 @@ from feinsum.codegen.loopy import (generate_loopy,
 from feinsum.measure import (timeit, measure_giga_op_rate,
                              stringify_comparison_vs_roofline,
                              get_roofline_flop_rate)
+from feinsum.diagnostics import InvalidParameterError
 from feinsum.database import record, query
 from feinsum.loopy_utils import (match_t_unit_to_einsum,
                                  extract_einsum_terms_as_subst,
@@ -32,6 +33,7 @@ __all__ = (
     "get_roofline_flop_rate",
 
     "get_opt_einsum_contraction_schedule", "get_trivial_contraction_schedule",
+    "InvalidParameterError",
 
     "record", "query",
 

@@ -9,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 @fnsm.tuning.einsum_arg(
-    "ndim", lambda e: e.arg_shapes[0][1])
+    "ndim", lambda e: e.shape[0])
 @fnsm.tuning.einsum_arg(
-    "ndof", lambda e: e.shape[1])
+    "ndof", lambda e: e.shape[2])
 @fnsm.tuning.transform_param(
     "n_e_per_wg", lambda e: IntParameter(2, 32))
 @fnsm.tuning.transform_param(
@@ -27,8 +27,16 @@ def transform(t_unit,
               n_e_per_wg, nwork_items_per_e,
               prftch_u_to_local, i_tiles, j_tiles,
               insn_match=None, kernel_name=None):
-    from loopy.match import parse_match
 
+    if n_e_per_wg * nwork_items_per_e > 600:
+        raise fnsm.InvalidParameterError("Block dimension limit exceeded")
+
+    if ((math.ceil((ndof*ndim)/i_tiles) * math.ceil(ndof/j_tiles))
+            + int(prftch_u_to_local) * ndof * n_e_per_wg
+            + ndim * ndof * n_e_per_wg)*8e-3 > 47:
+        raise fnsm.InvalidParameterError("Shared memory limit exceeded")
+
+    from loopy.match import parse_match
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
     within = parse_match(insn_match)
@@ -214,6 +222,7 @@ def transform(t_unit,
 
 if __name__ == "__main__":
     import pyopencl as cl
+    import os
     from functools import partial
 
     Ndim = 3
@@ -228,7 +237,7 @@ if __name__ == "__main__":
                        arg_names=["J", "D", "u"])
 
     if 1:
-        fnsm. autotune(expr, __file__, cl_ctx)
+        fnsm. autotune(expr, os.path.abspath(__file__), cl_ctx)
     else:
         # Enable while debugging ->
         # evaluate a point in the parameter space.

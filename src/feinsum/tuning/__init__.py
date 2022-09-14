@@ -25,8 +25,10 @@ logger = logging.getLogger(__name__)
 DB_FILENAME = os.path.join(os.path.dirname(__file__),
                            os.path.pardir,
                            os.path.pardir,
+                           os.path.pardir,
                            "data",
                            "transform_archive_v2.db")
+
 FT = TypeVar("FT")
 
 
@@ -78,7 +80,8 @@ class einsum_arg:  # noqa: N801
                 (self,) + fn.einsum_derivative_args,
                 fn.transform_params)
         else:
-            return ParametrizedTransform(fn, (self,), ())
+            from functools import cache
+            return ParametrizedTransform(cache(fn), (self,), ())
 
 
 @dataclass(frozen=True, repr=True)
@@ -102,7 +105,8 @@ class transform_param:  # noqa: N801
                 fn.einsum_derivative_args,
                 (self,) + fn.transform_params)
         else:
-            return ParametrizedTransform(fn, (), (self,))
+            from functools import cache
+            return ParametrizedTransform(cache(fn), (), (self,))
 
 
 @dataclass(frozen=True, repr=True)
@@ -140,7 +144,7 @@ def bind_args(transform: ParametrizedTransform,
     from functools import partial
 
     py_clbl = partial(transform.transform,
-                      **{arg.name: arg.func(einsum)
+                      **{arg.var_name: arg.func(einsum)
                          for arg in transform.einsum_derivative_args},
                       **transform_args)
     return py_clbl
@@ -154,13 +158,28 @@ class OpentunerTuner(opentuner.MeasurementInterface):
                  einsum: FusedEinsum,
                  cl_ctx: cl.Context,
                  module_path: str,
-                 ):
+                 long_dim_length: int = 100_000,
+                 *,
+                 # Args to super class ->
+                 project_name=None,
+                 program_name="unknown",
+                 program_version="unknown",
+                 manipulator=None,
+                 objective=None,
+                 input_manager=None):
         from feinsum.normalization import normalize_einsum
-        super().__init__(args=args)
+        super().__init__(args=args,
+                         project_name=project_name,
+                         program_name=program_name,
+                         program_version=program_version,
+                         manipulator=manipulator,
+                         objective=objective,
+                         input_manager=input_manager)
 
         self.einsum = normalize_einsum(einsum)
         self.cl_ctx = cl_ctx
         self.module_path = module_path
+        self.long_dim_length = long_dim_length
 
     @cached_property
     def sql_table_name(self) -> str:
@@ -238,6 +257,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         else:
             assert callable(self.transform_params)
 
+        return manipulator
+
     def seed_configurations(self) -> None:
         import json
         from feinsum.database import (_get_index_to_length_for_db,
@@ -257,13 +278,16 @@ class OpentunerTuner(opentuner.MeasurementInterface):
                        "  FROM "
                        f"    {self.sql_table_name}"
                        " WHERE ("
-                       f"    subscripts = '{subscripts}'"
-                       f"    AND index_to_length = '{index_to_length}'"
-                       f"    AND use_matrix = '{use_matrix}'"
-                       f"    AND value_to_dtype = '{value_to_dtype}'"
-                       ");")
+                       f"    subscripts = ?"
+                       f"    AND index_to_length = ?"
+                       f"    AND use_matrix = ?"
+                       f"    AND value_to_dtype = ?"
+                       ");",
+                       (subscripts, index_to_length,
+                        use_matrix, value_to_dtype))
+
         return [
-            json.loads(transform_params)
+            json.loads(transform_params[0])
             for transform_params in cursor.fetchall()
         ]
 
@@ -294,6 +318,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
                        f"    AND transform_params = '{transform_params_str}'"
                        ");")
         stored_results = cursor.fetchall()
+
         if not stored_results:
             raise ConfigurationNotInDBError
         else:
@@ -335,19 +360,19 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         cursor.execute(f"INSERT INTO {self.sql_table_name}"
                        " (subscripts, index_to_length, use_matrix,"
                        "  value_to_dtype, transform_id,"
-                       "  transform_params, compiler_version,"
-                       "  giga_op_info, timestamp)"
+                       "  transform_params, runtime_in_sec,"
+                       "  compiler_version, giga_op_info, timestamp)"
                        " VALUES (?,?,?,?,?,?,?,?,?,?)",
-                       subscripts, index_to_length, use_matrix,
+                       (subscripts, index_to_length, use_matrix,
                        value_to_dtype, self.transform_space_id,
-                       transform_params_str, compiler_version,
-                       op_info, timestamp)
+                       transform_params_str, runtime, compiler_version,
+                       op_info, timestamp))
 
         self.conn.commit()
 
     def run(self, desired_result, input, limit):
-        from feinsum.measurement import (timeit,
-                                         stringify_comparison_vs_roofline)
+        from feinsum.measure import (timeit,
+                                     stringify_comparison_vs_roofline)
         from feinsum.diagnostics import InvalidParameterError
 
         cfg = desired_result.configuration.data
@@ -371,7 +396,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
                                     **cfg)
 
         try:
-            logger.info(stringify_comparison_vs_roofline(
+            logger.info("\n"+stringify_comparison_vs_roofline(
                 self.einsum,
                 transform=bound_transform,
                 cl_ctx=self.cl_ctx,
@@ -382,7 +407,9 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
         runtime = timeit(self.einsum,
                          cl_ctx=self.cl_ctx,
-                         transform=bound_transform)
+                         transform=bound_transform,
+                         long_dim_length=self.long_dim_length
+                         )
         self.record_into_db(runtime, cfg)
 
         return opentuner.Result(time=runtime)
@@ -397,7 +424,7 @@ def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context) -> None:
     if not os.path.isabs(module_path):
         raise ValueError("autotune expects an absolute path for the module")
 
-    from collections import namedtuple
+    from argparse import Namespace  # :puke: but required by opentuner. Big brain.
 
     kwargs = {
         "machine_class": None, "parallel_compile": False,
@@ -411,8 +438,7 @@ def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context) -> None:
         "print_params": False
     }
 
-    args_t = namedtuple("MeasurementInterfaceArgs", sorted(kwargs.keys()))
-    OpentunerTuner.main(args=args_t(**kwargs),
+    OpentunerTuner.main(args=Namespace(**kwargs),
                         einsum=einsum, cl_ctx=cl_ctx, module_path=module_path)
 
 # vim: fdm=marker
