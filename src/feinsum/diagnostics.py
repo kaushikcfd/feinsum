@@ -1,6 +1,7 @@
 """
 .. autoclass:: EinsumTunitMatchError
 .. autoclass:: InvalidParameterError
+.. autoclass:: NoDevicePeaksInfoError
 """
 
 __copyright__ = """Copyright (C) 2022 Kaushik Kulkarni"""
@@ -38,4 +39,11 @@ class InvalidParameterError(ValueError):
     Raised by a tuner implementation when a parameter lies in the parameter
     space but still illegal. Typically used to get over the limitation that
     only a cartesian product of individual parameter's spaces are expressible.
+    """
+
+
+class NoDevicePeaksInfoError(LookupError):
+    """
+    Used internally by :mod:`feinsum` whenever peak specifications for
+    a device with no known information is queried.
     """

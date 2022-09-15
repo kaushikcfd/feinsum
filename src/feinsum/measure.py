@@ -13,12 +13,12 @@ import pymbolic.primitives as prim
 import loopy as lp
 import pyopencl.array as cla
 
-from typing import Callable, Dict, Any, Optional, Mapping, Tuple
-from pyrsistent.typing import PMap as PMapT
-from pyrsistent import pmap
+from typing import Callable, Dict, Any, Optional, Mapping, Tuple, Protocol
+from immutables import Map
 from feinsum.einsum import (FusedEinsum, INT_CLASSES, SizeParam,
                             ContractionSchedule, IntegralT)
 from more_itertools import zip_equal as zip
+from feinsum.diagnostics import NoDevicePeaksInfoError
 import logging
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def get_real_dtype(dtype: np.dtype[Any]) -> np.dtype[Any]:
 
 def generate_out_arrays(queue: cl.CommandQueue,
                         t_unit: "lp.TranslationUnit"
-                        ) -> PMapT[str, cla.Array]:
+                        ) -> Map[str, cla.Array]:
     t_unit = lp.preprocess_kernel(t_unit)
     knl = t_unit.default_entrypoint
 
@@ -51,7 +51,7 @@ def generate_out_arrays(queue: cl.CommandQueue,
                                               shape=arg.shape,
                                               dtype=arg.dtype)
 
-    return pmap(out_buffers)
+    return Map(out_buffers)
 
 
 def _generate_random_np_array(rng: "np.random._generator.Generator",
@@ -73,7 +73,7 @@ def generate_input_arrays(queue: cl.CommandQueue,
                           einsum: FusedEinsum,
                           long_dim_length: int,
                           np_seed: int = 0,
-                          ) -> PMapT[str, cla.Array]:
+                          ) -> Map[str, cla.Array]:
     from numpy.random import default_rng
 
     # {{{ compute val_to_shape
@@ -95,12 +95,12 @@ def generate_input_arrays(queue: cl.CommandQueue,
 
     rng = default_rng(np_seed)
 
-    return pmap({name: cla.to_device(queue,
-                                     _generate_random_np_array(rng,
-                                                               dtype,
-                                                               val_to_shape[name]))
-                 for name, dtype in einsum.value_to_dtype.items()
-                 })
+    return Map({name: cla.to_device(queue,
+                                    _generate_random_np_array(rng,
+                                                              dtype,
+                                                              val_to_shape[name]))
+                for name, dtype in einsum.value_to_dtype.items()
+                })
 
 
 def validate_fused_einsum_transform(einsum: FusedEinsum,
@@ -130,7 +130,7 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
                                                       .default_entrypoint
                                                       .all_params())}))
 
-    t_unit = transform(ref_t_unit, None, None)
+    t_unit = transform(ref_t_unit, insn_match=None, kernel_name=None)
     arg_dict = param_dict.update(out_dict)
 
     _, ref_outs = t_unit(cq, **arg_dict)
@@ -196,7 +196,7 @@ def timeit(einsum: FusedEinsum,
                                                   .default_entrypoint
                                                   .all_params())}))
 
-    t_unit = transform(t_unit, None, None)
+    t_unit = transform(t_unit, insn_match=None, kernel_name=None)
 
     arg_dict = param_dict.update(out_dict)
 
@@ -231,7 +231,7 @@ def timeit(einsum: FusedEinsum,
     return total_sim_time / total_rounds
 
 
-def _get_giga_ops_from_einsum(expr: FusedEinsum) -> PMapT[np.dtype[Any],
+def _get_giga_ops_from_einsum(expr: FusedEinsum) -> Map[np.dtype[Any],
                                                           prim.Expression]:
     from feinsum.codegen.loopy import generate_loopy_with_opt_einsum_schedule
     from loopy.symbolic import qpolynomial_to_expr
@@ -271,7 +271,7 @@ def _get_giga_ops_from_einsum(expr: FusedEinsum) -> PMapT[np.dtype[Any],
             new_op_map[dtype] = (new_op_map[dtype]
                                  + qpolynomial_to_expr(qpoly) * 1e-9)
 
-    return pmap(new_op_map)
+    return Map(new_op_map)
 
 
 def _get_footprint_gbytes(expr: FusedEinsum, long_dim_length: int) -> float:
@@ -297,7 +297,7 @@ def measure_giga_op_rate(expr: FusedEinsum,
                          cl_ctx: cl.Context,
                          long_dim_length: int = 100000,
                          schedule: Optional[ContractionSchedule] = None
-                         ) -> PMapT[np.dtype[Any], float]:
+                         ) -> Map[np.dtype[Any], float]:
     """
     Returns the arithmetic operations rate (in Giga Ops per second) by
     arithmetic operation's result dtypes.
@@ -312,13 +312,13 @@ def measure_giga_op_rate(expr: FusedEinsum,
     eval_context = {dim.name: long_dim_length
                     for dim in expr.index_to_dim_length().values()
                     if isinstance(dim, SizeParam)}
-    return pmap({k: evaluate_to_float(v, eval_context)/runtime
-                 for k, v in _get_giga_ops_from_einsum(expr).items()})
+    return Map({k: evaluate_to_float(v, eval_context)/runtime
+                for k, v in _get_giga_ops_from_einsum(expr).items()})
 
 
 def get_roofline_flop_rate(expr: FusedEinsum, dev_name: str,
                            long_dim_length: int = 100_000
-                           ) -> PMapT[np.dtype[Any], float]:
+                           ) -> Map[np.dtype[Any], float]:
 
     from feinsum.data.device_info import (DEV_TO_PEAK_GFLOPS,
                                           DEV_TO_PEAK_BW)
@@ -334,30 +334,44 @@ def get_roofline_flop_rate(expr: FusedEinsum, dev_name: str,
                                                              .values())
                                                  if isinstance(dim, SizeParam)})
                        for dtype, giga_ops_aff in dtype_to_gflops_expr.items()}
-    roofline_time_due_to_flops = max(ngflops/DEV_TO_PEAK_GFLOPS[dev_name][dtype.name]
-                                     for dtype, ngflops in dtype_to_gflops.items())
-    roofline_time_due_to_global_bw = ngbs/DEV_TO_PEAK_BW[dev_name]
+    try:
+        roofline_time_due_to_flops = max(
+            ngflops/DEV_TO_PEAK_GFLOPS[dev_name][dtype.name]
+            for dtype, ngflops in dtype_to_gflops.items())
+        roofline_time_due_to_global_bw = ngbs/DEV_TO_PEAK_BW[dev_name]
+    except KeyError:
+        raise NoDevicePeaksInfoError
     roofline_time = max(roofline_time_due_to_flops, roofline_time_due_to_global_bw)
 
-    return pmap({dtype: gflops/roofline_time
-                 for dtype, gflops in dtype_to_gflops.items()})
+    return Map({dtype: gflops/roofline_time
+                for dtype, gflops in dtype_to_gflops.items()})
 
 
-def _strify_measured_vs_roofline(measured_flop_rate: Mapping[np.dtype[Any], float],
-                                 roofline_flop_rate: Mapping[np.dtype[Any], float]
+class ToStr(Protocol):
+    def __str__(self) -> str:
+        ...
+
+
+def _strify_measured_vs_roofline(measured_flop_rate: Mapping[np.dtype[Any], ToStr],
+                                 roofline_flop_rate: Mapping[np.dtype[Any], ToStr]
                                  ) -> str:
     try:
         from tabulate import tabulate
     except ImportError:
         raise ImportError("`tabulate` is need for pretty printing."
                           " Install via `pip install tabulate`.")
-    assert measured_flop_rate.keys() == roofline_flop_rate.keys()
+    assert set(measured_flop_rate.keys()) == set(roofline_flop_rate.keys())
     perf_table = [["Dtype", "Measured GOps/s", "Roofline GOps/s"]]
     for dtype in sorted(measured_flop_rate.keys(),
                         key=lambda x: x.itemsize):
-        perf_table.append([dtype.name,
-                           f"{(measured_flop_rate[dtype]):.1f}",
-                           f"{(roofline_flop_rate[dtype]):.1f}"])
+        measured_flops = (f"{measured_flop_rate[dtype]:.1f}"
+                          if isinstance(measured_flop_rate[dtype], float)
+                          else measured_flop_rate[dtype])
+        roofline_flops = (f"{(roofline_flop_rate[dtype]):.1f}"
+                          if isinstance(roofline_flop_rate[dtype], float)
+                          else roofline_flop_rate[dtype])
+
+        perf_table.append([dtype.name, measured_flops, roofline_flops])
 
     return tabulate(perf_table, tablefmt="fancy_grid")
 
@@ -367,21 +381,33 @@ def stringify_comparison_vs_roofline(expr: FusedEinsum,
                                      schedule: Optional[ContractionSchedule] = None,
                                      transform: TransformT,
                                      cl_ctx: cl.Context,
-                                     long_dim_length: int = 100000) -> str:
+                                     long_dim_length: int = 100000,
+                                     ignore_unknown_device: bool = False,
+                                     ) -> str:
     """
     Returns the prettified comparison of *expr* transformed with *transform*
     wrt roofline. The roofline model assumes that kernel's performance is
     limited by either the device's global memory bandwidth or the device's
     floating point units being saturated to their maximum throughput.
+
+    :param ignore_unknown_device: If *False* raises an error if a roofline
+        model is unknown for the device in *cl_ctx*. If *True*, no error is
+        raised and the roofline performance is marked as "N/A" in the output.
     """
 
     dev, = cl_ctx.devices
-
-    roofline_flop_rate = get_roofline_flop_rate(expr, dev.name)
 
     measured_flop_rate = measure_giga_op_rate(expr,
                                               transform=transform,
                                               schedule=schedule,
                                               cl_ctx=cl_ctx,
                                               long_dim_length=long_dim_length)
-    return _strify_measured_vs_roofline(measured_flop_rate, roofline_flop_rate)
+
+    try:
+        roofline_flop_rate = get_roofline_flop_rate(expr, dev.name)
+    except NoDevicePeaksInfoError:
+        return _strify_measured_vs_roofline(
+            measured_flop_rate,
+            {k: "N/A" for k in measured_flop_rate.keys()})
+    else:
+        return _strify_measured_vs_roofline(measured_flop_rate, roofline_flop_rate)

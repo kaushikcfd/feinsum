@@ -9,7 +9,7 @@ logging.basicConfig(level="INFO")
 
 @f.tuning.transform_param("block_size_div_32",
                           lambda ensm: IntParameter(1, 5))
-def transform(t_unit, block_size_div_32, insn_match=None):
+def transform(t_unit, block_size_div_32, insn_match=None, kernel_name=None):
     ref_einsum = f.fused_einsum("ij,j->i",
                                 [(np.inf, 4), (4, )],
                                 dtypes="float64",
