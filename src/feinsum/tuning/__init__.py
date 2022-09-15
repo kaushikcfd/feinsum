@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from functools import cached_property, cache
 from feinsum.einsum import (FusedEinsum, IntegralT, ShapeComponentT,
                             INT_CLASSES)
-from feinsum.sql_utils import DEFAULT_DB, TransformT
+from feinsum.sql_utils import DEFAULT_DB
+from feinsum.typing import TransformT
 import logging
 logger = logging.getLogger(__name__)
 

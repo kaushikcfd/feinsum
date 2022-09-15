@@ -13,18 +13,15 @@ import pymbolic.primitives as prim
 import loopy as lp
 import pyopencl.array as cla
 
-from typing import Callable, Dict, Any, Optional, Mapping, Tuple, Protocol
+from typing import Dict, Any, Optional, Mapping, Tuple
 from immutables import Map
 from feinsum.einsum import (FusedEinsum, INT_CLASSES, SizeParam,
                             ContractionSchedule, IntegralT)
+from feinsum.typing import ToStr, TransformT
 from more_itertools import zip_equal as zip
 from feinsum.diagnostics import NoDevicePeaksInfoError
 import logging
 logger = logging.getLogger(__name__)
-
-# transform: (t_unit, insn_match, kernel_name)
-TransformT = Callable[["lp.TranslationUnit", Optional[Any], Optional[str]],
-                      "lp.TranslationUnit"]
 
 
 N_WARMUP_ROUNDS = 20
@@ -347,11 +344,6 @@ def get_roofline_flop_rate(expr: FusedEinsum, dev_name: str,
                 for dtype, gflops in dtype_to_gflops.items()})
 
 
-class ToStr(Protocol):
-    def __str__(self) -> str:
-        ...
-
-
 def _strify_measured_vs_roofline(measured_flop_rate: Mapping[np.dtype[Any], ToStr],
                                  roofline_flop_rate: Mapping[np.dtype[Any], ToStr]
                                  ) -> str:
@@ -366,10 +358,10 @@ def _strify_measured_vs_roofline(measured_flop_rate: Mapping[np.dtype[Any], ToSt
                         key=lambda x: x.itemsize):
         measured_flops = (f"{measured_flop_rate[dtype]:.1f}"
                           if isinstance(measured_flop_rate[dtype], float)
-                          else measured_flop_rate[dtype])
+                          else str(measured_flop_rate[dtype]))
         roofline_flops = (f"{(roofline_flop_rate[dtype]):.1f}"
                           if isinstance(roofline_flop_rate[dtype], float)
-                          else roofline_flop_rate[dtype])
+                          else str(roofline_flop_rate[dtype]))
 
         perf_table.append([dtype.name, measured_flops, roofline_flops])
 
