@@ -41,7 +41,7 @@ class TuningParameter(abc.ABC):
 @dataclass(frozen=True, repr=True)
 class IntParameter(TuningParameter):
     """
-    A parameter that takes values in the range ``[low, high)``.
+    A parameter that takes values in the range ``[low, high]``.
     """
     low: int
     high: int
@@ -245,7 +245,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
                     manipulator.add_parameter(
                         opentuner.IntegerParameter(param.var_name,
                                                    tuning_param.low,
-                                                   tuning_param.high-1))
+                                                   tuning_param.high))
                 elif isinstance(tuning_param, BoolParameter):
                     manipulator.add_parameter(BooleanParameter(param.var_name))
                 else:
