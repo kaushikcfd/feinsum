@@ -198,7 +198,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
     @cached_property
     def conn(self) -> sqlite3.Connection:
-        db = sqlite3.connect(DB_FILENAME)
+        from feinsum.sql_utils import DEFAULT_DB
+        db = sqlite3.connect(DEFAULT_DB)
         cursor = db.cursor()
         cursor.execute(" SELECT name FROM sqlite_master"
                        f" WHERE (type='table' AND name='{self.sql_table_name}');")

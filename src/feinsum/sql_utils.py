@@ -35,7 +35,7 @@ TransformT = Callable[["lp.TranslationUnit", Optional[Any], Optional[str]],
 
 DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           os.path.pardir, os.path.pardir,
-                          "data", "transform_archive_v2.db")
+                          "data", "transform_archive_v2.sqlite")
 
 
 def dump_value_to_dtype(einsum: FusedEinsum) -> str:
