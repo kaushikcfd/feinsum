@@ -158,7 +158,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
                  einsum: FusedEinsum,
                  cl_ctx: cl.Context,
                  module_path: str,
-                 long_dim_length: int = 100_000,
+                 long_dim_length: int,
                  *,
                  # Args to super class ->
                  project_name=None,
@@ -260,12 +260,15 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         import json
         from feinsum.sql_utils import (dump_index_to_length,
                                        dump_use_matrix,
-                                       dump_value_to_dtype)
+                                       dump_value_to_dtype,
+                                       dump_op_info,
+                                       )
 
         cursor = self.conn.cursor()
         subscripts = self.einsum.get_subscripts()
         index_to_length = dump_index_to_length(self.einsum)
         use_matrix = dump_use_matrix(self.einsum)
+        op_info = dump_op_info(self.einsum, self.long_dim_length)
         value_to_dtype = dump_value_to_dtype(self.einsum)
 
         cursor.execute(" SELECT"
@@ -278,9 +281,10 @@ class OpentunerTuner(opentuner.MeasurementInterface):
                        "    AND index_to_length = ?"
                        "    AND use_matrix = ?"
                        "    AND value_to_dtype = ?"
+                       "    AND giga_op_info = ?"
                        ");",
                        (self.transform_space_id, subscripts, index_to_length,
-                        use_matrix, value_to_dtype))
+                        use_matrix, value_to_dtype, op_info))
 
         return [
             json.loads(transform_params[0])
@@ -291,6 +295,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         import json
         from feinsum.sql_utils import (dump_index_to_length,
                                        dump_use_matrix,
+                                       dump_op_info,
                                        dump_value_to_dtype)
 
         cursor = self.conn.cursor()
@@ -299,18 +304,22 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         use_matrix = dump_use_matrix(self.einsum)
         value_to_dtype = dump_value_to_dtype(self.einsum)
         transform_params_str = json.dumps(parameters, sort_keys=True)
+        op_info = dump_op_info(self.einsum, self.long_dim_length)
 
         cursor.execute(" SELECT"
                         "     runtime_in_sec"
                        "  FROM "
                        f"    {self.sql_table_name}"
                        " WHERE ("
-                       f"    subscripts = '{subscripts}'"
-                       f"    AND index_to_length = '{index_to_length}'"
-                       f"    AND use_matrix = '{use_matrix}'"
-                       f"    AND value_to_dtype = '{value_to_dtype}'"
-                       f"    AND transform_params = '{transform_params_str}'"
-                       ");")
+                       f"    subscripts = ?"
+                       f"    AND index_to_length = ?"
+                       f"    AND use_matrix = ?"
+                       f"    AND value_to_dtype = ?"
+                       f"    AND transform_params = ?"
+                       f"    AND giga_op_info = ?"
+                       ");",
+                       (subscripts, index_to_length, use_matrix,
+                        value_to_dtype, transform_params_str, op_info,))
         stored_results = cursor.fetchall()
 
         if not stored_results:
@@ -390,6 +399,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
                 self.einsum,
                 transform=bound_transform,
                 cl_ctx=self.cl_ctx,
+                long_dim_length=self.long_dim_length,
             ))
         except InvalidParameterError as err:
             logger.info(f"Ignored configuration due to '{err}'.")
@@ -407,7 +417,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 # }}}
 
 
-def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context) -> None:
+def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context,
+             long_dim_length: int = 100_000) -> None:
     """
     TODO
     """
@@ -429,6 +440,7 @@ def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context) -> None:
     }
 
     OpentunerTuner.main(args=Namespace(**kwargs),
-                        einsum=einsum, cl_ctx=cl_ctx, module_path=module_path)
+                        einsum=einsum, cl_ctx=cl_ctx, module_path=module_path,
+                        long_dim_length=long_dim_length)
 
 # vim: fdm=marker

@@ -33,7 +33,7 @@ def variant_0(t_unit):
                                  within="id:insn_1",
                                  new_inames=["e_2", "i_2", "j_2", "s_2"])
 
-    for iel, idof in [("e_0", "i_0"), ("e_1", "i_1"), ("e_2", "i_2")]:
+    for iel, _ in [("e_0", "i_0"), ("e_1", "i_1"), ("e_2", "i_2")]:
         t_unit = lp.split_iname(t_unit, iel, 32,
                                 outer_tag="g.0", inner_tag="l.0")
 
