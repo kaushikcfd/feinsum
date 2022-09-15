@@ -1,4 +1,4 @@
 Interacting with transformation databases
 =========================================
 
-.. automodule:: feinsum.database
+.. automodule:: feinsum.sql_utils
