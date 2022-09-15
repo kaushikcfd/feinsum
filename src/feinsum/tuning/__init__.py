@@ -272,12 +272,13 @@ class OpentunerTuner(opentuner.MeasurementInterface):
                        "  FROM "
                        f"    {self.sql_table_name}"
                        " WHERE ("
-                       f"    subscripts = ?"
-                       f"    AND index_to_length = ?"
-                       f"    AND use_matrix = ?"
-                       f"    AND value_to_dtype = ?"
+                       "    transform_id = ?"
+                       "    AND subscripts = ?"
+                       "    AND index_to_length = ?"
+                       "    AND use_matrix = ?"
+                       "    AND value_to_dtype = ?"
                        ");",
-                       (subscripts, index_to_length,
+                       (self.transform_space_id, subscripts, index_to_length,
                         use_matrix, value_to_dtype))
 
         return [
@@ -296,7 +297,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         index_to_length = dump_index_to_length(self.einsum)
         use_matrix = dump_use_matrix(self.einsum)
         value_to_dtype = dump_value_to_dtype(self.einsum)
-        transform_params_str = json.dumps(parameters)
+        transform_params_str = json.dumps(parameters, sort_keys=True)
 
         cursor.execute(" SELECT"
                         "     runtime_in_sec"
@@ -329,7 +330,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         index_to_length = dump_index_to_length(self.einsum)
         use_matrix = dump_use_matrix(self.einsum)
         value_to_dtype = dump_value_to_dtype(self.einsum)
-        transform_params_str = json.dumps(parameters)
+        transform_params_str = json.dumps(parameters, sort_keys=True)
         cl_device, = self.cl_ctx.devices
         compiler_version = dump_cl_version(cl_device)
         op_info = dump_op_info(self.einsum, long_dim_length=self.long_dim_length)

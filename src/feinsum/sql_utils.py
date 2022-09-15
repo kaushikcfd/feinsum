@@ -33,20 +33,24 @@ TransformT = Callable[["lp.TranslationUnit", Optional[Any], Optional[str]],
                       "lp.TranslationUnit"]
 
 
-DEFAULT_DB = os.path.join(os.path.dirname(__file__),
+DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           os.path.pardir, os.path.pardir,
                           "data", "transform_archive_v2.db")
 
 
 def dump_value_to_dtype(einsum: FusedEinsum) -> str:
     return json.dumps({val: dtype.name
-                       for val, dtype in einsum.value_to_dtype.items()})
+                       for val, dtype in einsum.value_to_dtype.items()},
+                      sort_keys=True
+                      )
 
 
 def dump_index_to_length(einsum: FusedEinsum) -> str:
     return json.dumps({einsum.index_names[k]: v
                        for k, v in einsum.index_to_dim_length().items()
-                       if isinstance(v, INT_CLASSES)})
+                       if isinstance(v, INT_CLASSES)},
+                      sort_keys=True
+                      )
 
 
 def dump_use_matrix(einsum: FusedEinsum) -> str:
@@ -71,7 +75,9 @@ def dump_op_info(einsum: FusedEinsum, long_dim_length: int) -> str:
     dtype_to_ops = {k: evaluate_to_float(v, eval_context)
                     for k, v in _get_giga_ops_from_einsum(einsum).items()}
     return json.dumps({k.name: v
-                       for k, v in dtype_to_ops.items()})
+                       for k, v in dtype_to_ops.items()},
+                      sort_keys=True
+                      )
 
 
 def load_op_info(op_info: str) -> Map[np.dtype[Any], float]:
@@ -153,24 +159,25 @@ def query(einsum: FusedEinsum,
                    "     compiler_version,"
                    "     giga_op_info"
                    "  FROM "
-                   "    ?"
+                   f"    {tablename}"
                    " WHERE ("
                    "    subscripts = ?"
                    "    AND index_to_length = ?"
                    "    AND use_matrix = ?"
                    "    AND value_to_dtype = ?"
                    ");",
-                   (tablename, subscripts, index_to_length,
+                   (subscripts, index_to_length,
                     use_matrix, value_to_dtype))
 
     facts = cursor.fetchall()
+
     query_result = tuple(
         QueryInfo(
             transform_id=fact[0],
             transform_params=fact[1],
             runtime_in_sec=fact[2],
             compiler_version=fact[3],
-            giga_op_info=fact[4])
+            giga_op_info=load_op_info(fact[4]))
         for fact in facts)
     conn.close()
 
