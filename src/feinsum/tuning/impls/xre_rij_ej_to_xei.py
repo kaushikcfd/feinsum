@@ -1,5 +1,7 @@
-import feinsum as fnsm
 from feinsum.tuning import IntParameter, BoolParameter
+from typing import Optional, Any
+
+import feinsum as fnsm
 import numpy as np
 import loopy as lp
 import math
@@ -15,18 +17,19 @@ logger = logging.getLogger(__name__)
 @fnsm.tuning.transform_param(
     "n_e_per_wg", lambda e: IntParameter(2, 32))
 @fnsm.tuning.transform_param(
-    "nwork_items_per_e", lambda e: IntParameter(1, e.shape[2]+1))
+    "nwork_items_per_e", lambda e: IntParameter(1, e.shape[2]))
 @fnsm.tuning.transform_param(
     "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2)))
 @fnsm.tuning.transform_param(
     "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2)))
 @fnsm.tuning.transform_param(
     "prftch_u_to_local", lambda e: BoolParameter())
-def transform(t_unit,
-              ndim, ndof,
-              n_e_per_wg, nwork_items_per_e,
-              prftch_u_to_local, i_tiles, j_tiles,
-              insn_match=None, kernel_name=None):
+def transform(t_unit: lp.TranslationUnit,
+              ndim: int, ndof: int,
+              n_e_per_wg: int, nwork_items_per_e: int,
+              prftch_u_to_local: bool, i_tiles: int, j_tiles: int,
+              insn_match: Optional[Any] = None,
+              kernel_name: Optional[str] = None) -> lp.TranslationUnit:
 
     if n_e_per_wg * nwork_items_per_e > 600:
         raise fnsm.InvalidParameterError("Block dimension limit exceeded")

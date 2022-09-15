@@ -14,40 +14,42 @@ import pyopencl as cl
 import loopy as lp
 import opentuner
 
-from typing import Callable, Any, Tuple, Mapping, Union, TypeVar
+from typing import Callable, Any, Tuple, Mapping, Optional, Sequence
 from dataclasses import dataclass
 from functools import cached_property, cache
-from feinsum.einsum import FusedEinsum
+from feinsum.einsum import (FusedEinsum, IntegralT, ShapeComponentT,
+                            INT_CLASSES)
+from feinsum.sql_utils import DEFAULT_DB, TransformT
 import logging
 logger = logging.getLogger(__name__)
 
 
-DB_FILENAME = os.path.join(os.path.dirname(__file__),
-                           os.path.pardir,
-                           os.path.pardir,
-                           os.path.pardir,
-                           "data",
-                           "transform_archive_v2.db")
-
-FT = TypeVar("FT")
-
-
 # {{{ supported tuning parameters
 
-class TuningParameter(abc.ABC):
+class TuningParameter(abc.ABC):  # noqa: B024
     pass
 
 
-@dataclass(frozen=True, repr=True)
+@dataclass(frozen=True, init=False)
 class IntParameter(TuningParameter):
     """
     A parameter that takes values in the range ``[low, high]``.
     """
-    low: int
-    high: int
+    low: IntegralT
+    high: IntegralT
+
+    def __init__(self, low: ShapeComponentT, high: ShapeComponentT):
+        if not isinstance(low, INT_CLASSES):
+            raise ValueError("low must be an integer")
+
+        if not isinstance(high, INT_CLASSES):
+            raise ValueError("high must be an integer")
+
+        object.__setattr__(self, "low", low)
+        object.__setattr__(self, "high", high)
 
 
-@dataclass(frozen=True, repr=True)
+@dataclass(frozen=True)
 class BoolParameter(TuningParameter):
     """
     A parameter that can be either *True* or *False*.
@@ -73,7 +75,7 @@ class einsum_arg:  # noqa: N801
     var_name: str
     func: Callable[[FusedEinsum], Any]
 
-    def __call__(self, fn: FT) -> FT:
+    def __call__(self, fn: Callable[..., Any]) -> "ParametrizedTransform":
         if isinstance(fn, ParametrizedTransform):
             return ParametrizedTransform(
                 fn.transform,
@@ -98,7 +100,8 @@ class transform_param:  # noqa: N801
     var_name: str
     func: Callable[[FusedEinsum], TuningParameter]
 
-    def __call__(self, fn: FT) -> FT:
+    def __call__(self,
+                 fn: Callable[..., lp.TranslationUnit]) -> "ParametrizedTransform":
         if isinstance(fn, ParametrizedTransform):
             return ParametrizedTransform(
                 fn.transform,
@@ -111,11 +114,11 @@ class transform_param:  # noqa: N801
 
 @dataclass(frozen=True, repr=True)
 class ParametrizedTransform:
-    transform: Callable
+    transform: Callable[..., lp.TranslationUnit]
     einsum_derivative_args: Tuple[einsum_arg, ...]
     transform_params: Tuple[transform_param, ...]
 
-    def __call__(self, *args, **kwargs) -> lp.TranslationUnit:
+    def __call__(self, *args: Any, **kwargs: Any) -> lp.TranslationUnit:
         return self.transform(*args, **kwargs)
 
 # }}}
@@ -124,8 +127,12 @@ class ParametrizedTransform:
 @cache
 def _get_impls_path() -> str:
     import importlib.util
+    feinsum_spec = importlib.util.find_spec("feinsum")
+    assert feinsum_spec is not None
+    assert feinsum_spec.origin is not None
+
     return os.path.abspath(
-        os.path.join(importlib.util.find_spec("feinsum").origin,
+        os.path.join(feinsum_spec.origin,
                      os.path.pardir, "tuning", "impls"))
 
 
@@ -135,8 +142,7 @@ class ConfigurationNotInDBError(LookupError):
 
 def bind_args(transform: ParametrizedTransform,
               einsum: FusedEinsum,
-              **transform_args: Any) -> Callable[[lp.TranslationUnit],
-                                                 lp.TranslationUnit]:
+              **transform_args: Any) -> TransformT:
     """
     Binds *transform_args* to *transform* and returns a python callable
     to the corresponding instance in the transform space.
@@ -152,21 +158,23 @@ def bind_args(transform: ParametrizedTransform,
 
 # {{{ Opentuner entrypoint
 
-class OpentunerTuner(opentuner.MeasurementInterface):
+# type-ignored as we are sub-classing Any type.
+class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
     def __init__(self,
                  args: Any,
                  einsum: FusedEinsum,
                  cl_ctx: cl.Context,
                  module_path: str,
                  long_dim_length: int,
+                 db_path: str,
                  *,
                  # Args to super class ->
-                 project_name=None,
-                 program_name="unknown",
-                 program_version="unknown",
-                 manipulator=None,
-                 objective=None,
-                 input_manager=None):
+                 project_name: Optional[str] = None,
+                 program_name: str = "unknown",
+                 program_version: str = "unknown",
+                 manipulator: Optional[Any] = None,
+                 objective: Optional[Any] = None,
+                 input_manager: Optional[Any] = None) -> None:
         from feinsum.normalization import normalize_einsum
         super().__init__(args=args,
                          project_name=project_name,
@@ -180,6 +188,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         self.cl_ctx = cl_ctx
         self.module_path = module_path
         self.long_dim_length = long_dim_length
+        self.db_path = db_path
 
     @cached_property
     def sql_table_name(self) -> str:
@@ -198,8 +207,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
     @cached_property
     def conn(self) -> sqlite3.Connection:
-        from feinsum.sql_utils import DEFAULT_DB
-        db = sqlite3.connect(DEFAULT_DB)
+        db = sqlite3.connect(self.db_path)
         cursor = db.cursor()
         cursor.execute(" SELECT name FROM sqlite_master"
                        f" WHERE (type='table' AND name='{self.sql_table_name}');")
@@ -223,40 +231,46 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         return db
 
     @cached_property
-    def transform_func(self) -> Union[Callable, ParametrizedTransform]:
+    def transform_func(self) -> ParametrizedTransform:
         from importlib import util
         _, filename = os.path.split(self.module_path)
 
         assert filename.endswith(".py")
 
         spec = util.spec_from_file_location(filename[:-3], self.module_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Could not import 'transform' function"
+                               f" from {self.module_path}.")
         transform_module = util.module_from_spec(spec)
         spec.loader.exec_module(transform_module)
-        return transform_module.transform
+        transform_obj = transform_module.transform
 
-    def manipulator(self) -> None:
+        if isinstance(transform_obj, ParametrizedTransform):
+            return transform_obj
+        else:
+            assert callable(transform_obj)
+            return ParametrizedTransform(transform_obj, (), ())
+
+    def manipulator(self) -> "opentuner.ConfigurationManipulator":
         from opentuner import ConfigurationManipulator
         from opentuner.search.manipulator import BooleanParameter
         manipulator = ConfigurationManipulator()
 
-        if isinstance(self.transform_func, ParametrizedTransform):
-            for param in self.transform_func.transform_params:
-                tuning_param = param.func(self.einsum)
-                if isinstance(tuning_param, IntParameter):
-                    manipulator.add_parameter(
-                        opentuner.IntegerParameter(param.var_name,
-                                                   tuning_param.low,
-                                                   tuning_param.high))
-                elif isinstance(tuning_param, BoolParameter):
-                    manipulator.add_parameter(BooleanParameter(param.var_name))
-                else:
-                    raise NotImplementedError(f"Parameter: {param}.")
-        else:
-            assert callable(self.transform_params)
+        for param in self.transform_func.transform_params:
+            tuning_param = param.func(self.einsum)
+            if isinstance(tuning_param, IntParameter):
+                manipulator.add_parameter(
+                    opentuner.IntegerParameter(param.var_name,
+                                               tuning_param.low,
+                                               tuning_param.high))
+            elif isinstance(tuning_param, BoolParameter):
+                manipulator.add_parameter(BooleanParameter(param.var_name))
+            else:
+                raise NotImplementedError(f"Parameter: {param}.")
 
         return manipulator
 
-    def seed_configurations(self) -> None:
+    def seed_configurations(self) -> Sequence[Mapping[str, Any]]:
         import json
         from feinsum.sql_utils import (dump_index_to_length,
                                        dump_use_matrix,
@@ -291,7 +305,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):
             for transform_params in cursor.fetchall()
         ]
 
-    def query_from_db(self, parameters) -> float:
+    def query_from_db(self, parameters: Mapping[str, Any]) -> float:
         import json
         from feinsum.sql_utils import (dump_index_to_length,
                                        dump_use_matrix,
@@ -325,7 +339,10 @@ class OpentunerTuner(opentuner.MeasurementInterface):
         if not stored_results:
             raise ConfigurationNotInDBError
         else:
-            return min(stored_result[0] for stored_result in stored_results)
+            # mypy is probably right as the type parsed from the sql is not
+            # obvious to be a float.
+            return min(stored_result[0]  # type: ignore[no-any-return]
+                       for stored_result in stored_results)
 
     def record_into_db(self, runtime: float, parameters: Mapping[str, Any]) -> None:
         import json
@@ -369,7 +386,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
         self.conn.commit()
 
-    def run(self, desired_result, input, limit):
+    def run(self, desired_result: "opentuner.DesiredResult",
+            input: Any, limit: Any) -> "opentuner.Result":
         from feinsum.measure import (timeit,
                                      stringify_comparison_vs_roofline)
         from feinsum.diagnostics import InvalidParameterError
@@ -418,16 +436,22 @@ class OpentunerTuner(opentuner.MeasurementInterface):
 
 
 def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context,
+             *,
+             db_path: Optional[str] = None,
              long_dim_length: int = 100_000) -> None:
     """
-    TODO
+    For a transform space specified in *module_path*, searches the parameter
+    space and records the timing results for each run in *db_path*.
     """
     if not os.path.isabs(module_path):
         raise ValueError("autotune expects an absolute path for the module")
 
+    if db_path is None:
+        db_path = DEFAULT_DB
+
     from argparse import Namespace  # :puke: but required by opentuner. Big brain.
 
-    kwargs = {
+    kwargs: Mapping[str, Any] = {
         "machine_class": None, "parallel_compile": False,
         "test_limit": None, "stop_after": None, "parallelism": 4,
         "pipelining": 0, "bail_threshold": 100, "no_dups": False,
@@ -441,6 +465,7 @@ def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context,
 
     OpentunerTuner.main(args=Namespace(**kwargs),
                         einsum=einsum, cl_ctx=cl_ctx, module_path=module_path,
+                        db_path=db_path,
                         long_dim_length=long_dim_length)
 
 # vim: fdm=marker

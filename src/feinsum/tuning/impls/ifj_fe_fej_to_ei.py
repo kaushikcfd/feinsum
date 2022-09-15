@@ -1,5 +1,7 @@
-import feinsum as fnsm
 from feinsum.tuning import IntParameter
+from typing import Optional, Any
+
+import feinsum as fnsm
 import numpy as np
 import loopy as lp
 import math
@@ -8,11 +10,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def transform_with_single_j_tile_i_tile(t_unit,
-                                        nface, nvoldof, nfacedof, nfields,
-                                        n_e_per_wg, nwork_items_per_e,
-                                        n_stmt_tile,
-                                        insn_match=None, kernel_name=None):
+def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
+                                        nface: lp.TranslationUnit, nvoldof: int,
+                                        nfacedof: int, nfields: int,
+                                        n_e_per_wg: int, nwork_items_per_e: int,
+                                        n_stmt_tile: int,
+                                        insn_match: Optional[Any] = None,
+                                        kernel_name: Optional[str] = None
+                                        ) -> lp.TranslationUnit:
     import loopy.match as lp_match
     from more_itertools import distribute
 
@@ -211,11 +216,12 @@ def transform_with_single_j_tile_i_tile(t_unit,
     "n_i_tile", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2)))
 @fnsm.tuning.transform_param(
     "n_j_tile", lambda e: IntParameter(1, math.ceil(e.arg_shapes[2][2] / 2)))
-def transform(t_unit,
-              nface, nvoldof, nfacedof, nfields,
-              n_e_per_wg, nwork_items_per_e,
-              n_stmt_tile, n_i_tile, n_j_tile, insn_match=None,
-              kernel_name=None):
+def transform(t_unit: lp.TranslationUnit,
+              nface: int, nvoldof: int, nfacedof: int, nfields: int,
+              n_e_per_wg: int, nwork_items_per_e: int,
+              n_stmt_tile: int, n_i_tile: int, n_j_tile: int,
+              insn_match: Optional[Any] = None,
+              kernel_name: Optional[str] = None) -> lp.TranslationUnit:
     import loopy.match as lp_match
     from more_itertools import distribute
 

@@ -22,6 +22,10 @@ from more_itertools import zip_equal as zip
 import logging
 logger = logging.getLogger(__name__)
 
+# transform: (t_unit, insn_match, kernel_name)
+TransformT = Callable[["lp.TranslationUnit", Optional[Any], Optional[str]],
+                      "lp.TranslationUnit"]
+
 
 N_WARMUP_ROUNDS = 20
 N_MIN_TIMING_ROUNDS = 500
@@ -101,8 +105,7 @@ def generate_input_arrays(queue: cl.CommandQueue,
 
 def validate_fused_einsum_transform(einsum: FusedEinsum,
                                     cl_ctx: cl.Context,
-                                    transform: Callable[[lp.TranslationUnit],
-                                                         lp.TranslationUnit],
+                                    transform: TransformT,
                                     schedule: Optional[ContractionSchedule] = None,
                                     ) -> None:
     """
@@ -127,7 +130,7 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
                                                       .default_entrypoint
                                                       .all_params())}))
 
-    t_unit = transform(ref_t_unit)
+    t_unit = transform(ref_t_unit, None, None)
     arg_dict = param_dict.update(out_dict)
 
     _, ref_outs = t_unit(cq, **arg_dict)
@@ -162,8 +165,7 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
 
 def timeit(einsum: FusedEinsum,
            *,
-           transform: Callable[[lp.TranslationUnit],
-                               lp.TranslationUnit],
+           transform: TransformT,
            cl_ctx: cl.Context,
            long_dim_length: int = 100000,
            schedule: Optional[ContractionSchedule] = None
@@ -194,7 +196,7 @@ def timeit(einsum: FusedEinsum,
                                                   .default_entrypoint
                                                   .all_params())}))
 
-    t_unit = transform(t_unit)
+    t_unit = transform(t_unit, None, None)
 
     arg_dict = param_dict.update(out_dict)
 
@@ -291,8 +293,7 @@ def _get_footprint_gbytes(expr: FusedEinsum, long_dim_length: int) -> float:
 
 def measure_giga_op_rate(expr: FusedEinsum,
                          *,
-                         transform: Callable[[lp.TranslationUnit],
-                                             lp.TranslationUnit],
+                         transform: TransformT,
                          cl_ctx: cl.Context,
                          long_dim_length: int = 100000,
                          schedule: Optional[ContractionSchedule] = None
@@ -364,8 +365,7 @@ def _strify_measured_vs_roofline(measured_flop_rate: Mapping[np.dtype[Any], floa
 def stringify_comparison_vs_roofline(expr: FusedEinsum,
                                      *,
                                      schedule: Optional[ContractionSchedule] = None,
-                                     transform: Callable[[lp.TranslationUnit],
-                                                         lp.TranslationUnit],
+                                     transform: TransformT,
                                      cl_ctx: cl.Context,
                                      long_dim_length: int = 100000) -> str:
     """

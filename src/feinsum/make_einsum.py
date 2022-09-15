@@ -266,7 +266,7 @@ def _parse_subscripts(subscripts: str,
 
 def fused_einsum(subscripts: str,
                  operand_shapes: Sequence[Any],
-                 use_matrix: npt.ArrayLike,
+                 use_matrix: Any,
                  dtypes: Optional[npt.DTypeLike] = None,
                  value_to_dtype: Optional[Mapping[str, npt.DTypeLike]] = None,
                  ) -> FusedEinsum:
@@ -401,7 +401,7 @@ def einsum(subscripts: str,
 
     return fused_einsum(subscripts,
                         tuple(op.shape for op in operands),
-                        use_matrix=use_matrix,  # type: ignore[arg-type]
+                        use_matrix=use_matrix,
                         value_to_dtype=value_to_dtype)
 
 # vim: foldmethod=marker

@@ -54,19 +54,26 @@ class VeryLongAxis:
     # "VeryLong."
 
 
-@dataclass(frozen=True, eq=True, repr=True)
+@dataclass(frozen=True)
 class SizeParam:
     name: str
 
+    def __truediv__(self, other: ShapeComponentT) -> IntegralT:
+        # only present to help writing easier param-getters in the tuner
+        # implementations.
+        return NotImplemented
 
-@dataclass(frozen=True, repr=True, eq=True)
+    __rtruediv__ = __truediv__
+
+
+@dataclass(frozen=True)
 class EinsumAxisAccess(abc.ABC):
     """
     Base class for axis access types in an einsum expression.
     """
 
 
-@dataclass(frozen=True, repr=True, eq=True)
+@dataclass(frozen=True)
 class FreeAxis(EinsumAxisAccess):
     """
     Records the axis of an einsum argument over which contraction is not performed.
@@ -78,7 +85,7 @@ class FreeAxis(EinsumAxisAccess):
     output_index: int
 
 
-@dataclass(frozen=True, repr=True, eq=True)
+@dataclass(frozen=True)
 class SummationAxis(EinsumAxisAccess):
     """
     Records an index in an einsum expression over which reduction is performed.
@@ -92,7 +99,7 @@ class SummationAxis(EinsumAxisAccess):
     index: int
 
 
-@dataclass(frozen=True, eq=True, repr=True)
+@dataclass(frozen=True)
 class FusedEinsum:
     """
     A fused einsum expression.
@@ -166,7 +173,7 @@ class Argument(abc.ABC):
     """
 
 
-@dataclass(frozen=True, eq=True, repr=True)
+@dataclass(frozen=True)
 class IntermediateResult(Argument):
     """
     An :class:`Argument` representing an intermediate result available during
