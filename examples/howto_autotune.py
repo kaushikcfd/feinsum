@@ -36,5 +36,6 @@ if __name__ == "__main__":
                               [{"b"}, {"c"}],
                           ])
     f.autotune(expr, os.path.abspath(__file__), cl_ctx,
-               long_dim_length=500_000
+               long_dim_length=500_000,
+               stop_after=5,
                )

@@ -439,10 +439,15 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context,
              *,
              db_path: Optional[str] = None,
-             long_dim_length: int = 100_000) -> None:
+             long_dim_length: int = 100_000,
+             stop_after: Optional[int] = None,
+             ) -> None:
     """
     For a transform space specified in *module_path*, searches the parameter
     space and records the timing results for each run in *db_path*.
+
+    :param stop_after: After these many trials the routine exits. Pass *None*
+        to go on indefinitely.
     """
     if not os.path.isabs(module_path):
         raise ValueError("autotune expects an absolute path for the module")
@@ -454,8 +459,8 @@ def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context,
 
     kwargs: Mapping[str, Any] = {
         "machine_class": None, "parallel_compile": False,
-        "test_limit": None, "stop_after": None, "parallelism": 4,
-        "pipelining": 0, "bail_threshold": 100, "no_dups": False,
+        "test_limit": None, "stop_after": stop_after, "parallelism": 4,
+        "pipelining": 0, "bail_threshold": 100, "no_dups": True,
         "seed_configuration": [], "results_log": None,
         "results_log_details": None, "quiet": False, "display_frequency": 10,
         "technique": None, "list_techniques": False,

@@ -3,6 +3,7 @@ import pyopencl as cl
 import loopy as lp
 import feinsum as f
 import logging
+import os
 
 from loopy.match import Tagged
 logging.basicConfig(level="INFO")
@@ -61,6 +62,26 @@ def main(cl_ctx):
     div_einsum = f.match_einsum(t_unit, insn_match=Tagged("div"))
     lift_einsum = f.match_einsum(t_unit, insn_match=Tagged("lift"))
 
+    # {{{ auto-tune
+
+    from feinsum.tuning.impls import (xre_rij_ej_to_xei,
+                                      xre_rij_xej_to_ei,
+                                      ifj_fe_fej_to_ei)
+    f.autotune(grad_einsum,
+               os.path.abspath(xre_rij_ej_to_xei.__file__),
+               cl_ctx,
+               stop_after=5)
+    f.autotune(div_einsum,
+               os.path.abspath(xre_rij_xej_to_ei.__file__),
+               cl_ctx,
+               stop_after=5)
+    f.autotune(lift_einsum,
+               os.path.abspath(ifj_fe_fej_to_ei.__file__),
+               cl_ctx,
+               stop_after=5)
+
+    # }}}
+
     fast_grad_einsum = max(
         f.query(grad_einsum, cl_ctx),
         key=lambda q: q.giga_op_rate(np.float64))
@@ -81,12 +102,5 @@ def main(cl_ctx):
 
 
 if __name__ == "__main__":
-    from feinsum.data.device_info import DEV_TO_PEAK_GFLOPS
     cl_ctx = cl.create_some_context()
-
-    if len(cl_ctx.devices) != 1:
-        logger.info("Multiple devices in the context")
-    elif cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
-        logger.info(f"Device {cl_ctx.devices[0]} not known to database.")
-    else:
-        main(cl_ctx)
+    main(cl_ctx)

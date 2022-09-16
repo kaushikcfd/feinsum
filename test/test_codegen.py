@@ -45,7 +45,7 @@ def test_wave_div_components(ctx_factory):
                                              [{"Jz"}, {"R"}, {"uz"}],
                                          ])
     f.timeit(wave_div_components,
-             transform=lambda x: x,
+             transform=lambda t_unit, insn_match, kernel_name: t_unit,
              cl_ctx=cl_ctx,
              long_dim_length=300,
              )
@@ -70,7 +70,7 @@ def test_wave_face_mass(ctx_factory):
                                     ])
 
     f.timeit(wave_face_mass,
-             transform=lambda x: x,
+             transform=lambda t_unit, insn_match, kernel_name: t_unit,
              cl_ctx=cl_ctx,
              long_dim_length=300)
 
@@ -90,7 +90,7 @@ def test_wave_grad(ctx_factory):
                             ])
 
     f.timeit(wave_grad,
-             transform=lambda x: x,
+             transform=lambda t_unit, insn_match, kernel_name: t_unit,
              cl_ctx=cl_ctx,
              long_dim_length=300)
 
