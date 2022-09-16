@@ -1,6 +1,6 @@
 """
-.. automethod:: has_similar_subscript
-.. automethod:: is_any_redn_dim_parametric
+.. autofunction:: has_similar_subscript
+.. autofunction:: is_any_redn_dim_parametric
 """
 
 

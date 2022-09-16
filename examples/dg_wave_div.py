@@ -33,14 +33,14 @@ def variant_0(t_unit):
                                  within="id:insn_1",
                                  new_inames=["e_2", "i_2", "j_2", "s_2"])
 
-    for iel, idof in [("e_0", "i_0"), ("e_1", "i_1"), ("e_2", "i_2")]:
+    for iel, _ in [("e_0", "i_0"), ("e_1", "i_1"), ("e_2", "i_2")]:
         t_unit = lp.split_iname(t_unit, iel, 32,
                                 outer_tag="g.0", inner_tag="l.0")
 
     return t_unit
 
 
-def variant_1(t_unit):
+def variant_1(t_unit, insn_match=None, kernel_name=None):
     """
     Simple work division strategy.
     """
@@ -78,21 +78,14 @@ def variant_3(t_unit):
 
 
 def main():
-    from feinsum.data.device_info import DEV_TO_PEAK_GFLOPS
     cl_ctx = cl.create_some_context()
-
-    if len(cl_ctx.devices) != 1:
-        logger.info("Multiple devices in the context")
-        return
-    if cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
-        logger.info("Device not known.")
-        return
 
     expr = get_div_einsum(ndofs=35, ndim=3)
     print(f.stringify_comparison_vs_roofline(expr,
                                              cl_ctx=cl_ctx,
                                              transform=variant_1,
-                                             long_dim_length=100_000,
+                                             long_dim_length=1000,
+                                             ignore_unknown_device=True  # For CI
                                              ))
 
 

@@ -30,9 +30,9 @@ from pyrsistent.typing import PMap as PMapT
 from pyrsistent import pmap
 from typing import Union, Tuple, Any, FrozenSet, List
 from dataclasses import dataclass
-from functools import cached_property, cache
+from functools import cached_property
 from more_itertools import zip_equal as zip
-from pytools import UniqueNameGenerator
+from pytools import UniqueNameGenerator, memoize_method
 
 
 IntegralT = Union[int, np.int8, np.int16, np.int32, np.int64, np.uint8,
@@ -54,19 +54,26 @@ class VeryLongAxis:
     # "VeryLong."
 
 
-@dataclass(frozen=True, eq=True, repr=True)
+@dataclass(frozen=True)
 class SizeParam:
     name: str
 
+    def __truediv__(self, other: ShapeComponentT) -> IntegralT:
+        # only present to help writing easier param-getters in the tuner
+        # implementations.
+        return NotImplemented
 
-@dataclass(frozen=True, repr=True, eq=True)
+    __rtruediv__ = __truediv__
+
+
+@dataclass(frozen=True)
 class EinsumAxisAccess(abc.ABC):
     """
     Base class for axis access types in an einsum expression.
     """
 
 
-@dataclass(frozen=True, repr=True, eq=True)
+@dataclass(frozen=True)
 class FreeAxis(EinsumAxisAccess):
     """
     Records the axis of an einsum argument over which contraction is not performed.
@@ -78,7 +85,7 @@ class FreeAxis(EinsumAxisAccess):
     output_index: int
 
 
-@dataclass(frozen=True, repr=True, eq=True)
+@dataclass(frozen=True)
 class SummationAxis(EinsumAxisAccess):
     """
     Records an index in an einsum expression over which reduction is performed.
@@ -92,7 +99,7 @@ class SummationAxis(EinsumAxisAccess):
     index: int
 
 
-@dataclass(frozen=True, eq=True, repr=True)
+@dataclass(frozen=True)
 class FusedEinsum:
     """
     A fused einsum expression.
@@ -112,7 +119,7 @@ class FusedEinsum:
     def noutputs(self) -> int:
         return len(self.use_matrix)
 
-    @cache
+    @memoize_method
     def index_to_dim_length(self) -> PMapT[EinsumAxisAccess, ShapeComponentT]:
         index_to_dim = {}
         for arg_shape, arg_axes in zip(self.arg_shapes,
@@ -141,7 +148,7 @@ class FusedEinsum:
     def ndim(self) -> int:
         return len(self.shape)
 
-    @cache
+    @memoize_method
     def get_subscripts(self) -> str:
         """
         Returns the subscripts used in the building the *einsum* from it.
@@ -166,7 +173,7 @@ class Argument(abc.ABC):
     """
 
 
-@dataclass(frozen=True, eq=True, repr=True)
+@dataclass(frozen=True)
 class IntermediateResult(Argument):
     """
     An :class:`Argument` representing an intermediate result available during

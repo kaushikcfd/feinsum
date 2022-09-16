@@ -208,7 +208,7 @@ def generate_loopy(einsum: FusedEinsum,
 
         subeinsum = fused_einsum(subscripts,
                                  [arg_to_shape[arg] for arg in args],
-                                 subeinsum_use_matrix,  # type: ignore[arg-type]
+                                 subeinsum_use_matrix,
                                  value_to_dtype=pmap(subeinsum_value_to_dtype))
         subeinsum = subeinsum.copy(
             index_names=pmap({idx: name if istep == 0 else f"{name}_{istep-1}"

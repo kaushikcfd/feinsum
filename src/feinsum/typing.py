@@ -1,10 +1,14 @@
 """
-.. autoclass:: EinsumTunitMatchError
-.. autoclass:: InvalidParameterError
-.. autoclass:: NoDevicePeaksInfoError
+.. autoclass:: TransformT
 """
 
-__copyright__ = """Copyright (C) 2022 Kaushik Kulkarni"""
+import loopy as lp
+from typing import Protocol, Optional, Any
+
+
+__copyright__ = """
+Copyright (C) 2022 Kaushik Kulkarni
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -27,23 +31,14 @@ THE SOFTWARE.
 """
 
 
-class EinsumTunitMatchError(ValueError):
-    """
-    Raised when :func:`match_t_unit_to_einsum` is not able to match the subject
-    against the pattern.
-    """
+# transform: (t_unit, insn_match, kernel_name)
+class TransformT(Protocol):
+    def __call__(self, t_unit: lp.TranslationUnit,
+                 insn_match: Optional[Any] = None,
+                 kernel_name: Optional[str] = None) -> lp.TranslationUnit:
+        ...
 
 
-class InvalidParameterError(ValueError):
-    """
-    Raised by a tuner implementation when a parameter lies in the parameter
-    space but still illegal. Typically used to get over the limitation that
-    only a cartesian product of individual parameter's spaces are expressible.
-    """
-
-
-class NoDevicePeaksInfoError(LookupError):
-    """
-    Used internally by :mod:`feinsum` whenever peak specifications for
-    a device with no known information is queried.
-    """
+class ToStr(Protocol):
+    def __str__(self) -> str:
+        ...

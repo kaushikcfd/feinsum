@@ -1,35 +1,23 @@
+from feinsum.tuning import IntParameter
+from typing import Optional, Any
+
 import feinsum as fnsm
-import pyopencl as cl
 import numpy as np
 import loopy as lp
 import math
-import opentuner
-import sqlite3
-from opentuner import ConfigurationManipulator
-from opentuner import IntegerParameter
-from opentuner import MeasurementInterface
-from opentuner import Result
-from functools import partial, cached_property
 import logging
-from functools import cache
-
 
 logger = logging.getLogger(__name__)
 
-cl_ctx = cl.create_some_context()
 
-Nface = 4
-Nfields = 4
-Nvoldof = 35
-Nfacedof = 15
-
-DB_FILENAME = "wave_facemass_3d_p4.db"
-DB_TABLENAME = "NVIDIA_TITAN_V"
-
-
-def transform_with_single_j_tile_i_tile(t_unit, n_e_per_wg, nwork_items_per_e,
-                                        n_stmt_tile,
-                                        insn_match=None, kernel_name=None):
+def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
+                                        nface: lp.TranslationUnit, nvoldof: int,
+                                        nfacedof: int, nfields: int,
+                                        n_e_per_wg: int, nwork_items_per_e: int,
+                                        n_stmt_tile: int,
+                                        insn_match: Optional[Any] = None,
+                                        kernel_name: Optional[str] = None
+                                        ) -> lp.TranslationUnit:
     import loopy.match as lp_match
     from more_itertools import distribute
 
@@ -38,15 +26,15 @@ def transform_with_single_j_tile_i_tile(t_unit, n_e_per_wg, nwork_items_per_e,
     within = lp_match.parse_match(insn_match)
 
     ref_einsum = fnsm.fused_einsum("ifj,fe,fej->ei",
-                                   [(Nvoldof, Nface, Nfacedof),
-                                    (Nface, np.inf),
-                                    (Nface, np.inf, Nfacedof)],
+                                   [(nvoldof, nface, nfacedof),
+                                    (nface, np.inf),
+                                    (nface, np.inf, nfacedof)],
                                    dtypes="float64",
                                    use_matrix=[
                                        [{"L"}, {"J"}, {f"v{i}"}]
-                                       for i in range(Nfields)
+                                       for i in range(nfields)
                                    ])
-    len_stmt_tile = math.ceil(Nfields/n_stmt_tile)
+    len_stmt_tile = math.ceil(nfields/n_stmt_tile)
 
     # {{{ get corresponding variables in t_unit
 
@@ -59,9 +47,9 @@ def transform_with_single_j_tile_i_tile(t_unit, n_e_per_wg, nwork_items_per_e,
     f = subst_map["f"]
     L = subst_map["L"]
     e_outer, e_inner = vng(f"{e}_outer"), vng(f"{e}_inner")
-    fields = [subst_map[f"v{i}"] for i in range(Nfields)]
+    fields = [subst_map[f"v{i}"] for i in range(nfields)]
     outputs = [subst_map["_fe_out"]] + [subst_map[f"_fe_out_{i}"]
-                                        for i in range(Nfields-1)]
+                                        for i in range(nfields-1)]
     subst_names = {field: vng("subst_hoist") for field in fields}
     i_s = [vng(i) for _ in range(n_stmt_tile)]
     f_s = [vng(f) for _ in range(n_stmt_tile)]
@@ -210,16 +198,37 @@ def transform_with_single_j_tile_i_tile(t_unit, n_e_per_wg, nwork_items_per_e,
     return t_unit
 
 
-@cache
-def transform(t_unit, n_e_per_wg, nwork_items_per_e,
-              n_stmt_tile,
-              n_i_tile, n_j_tile,
-              insn_match=None, kernel_name=None):
+@fnsm.tuning.einsum_arg(
+    "nface", lambda e: e.arg_shapes[2][0])
+@fnsm.tuning.einsum_arg(
+    "nvoldof", lambda e: e.shape[1])
+@fnsm.tuning.einsum_arg(
+    "nfacedof", lambda e: e.arg_shapes[2][2])
+@fnsm.tuning.einsum_arg(
+    "nfields", lambda e: e.noutputs)
+@fnsm.tuning.transform_param(
+    "n_e_per_wg", lambda e: IntParameter(2, 32))
+@fnsm.tuning.transform_param(
+    "nwork_items_per_e", lambda e: IntParameter(1, e.arg_shapes[2][2]))
+@fnsm.tuning.transform_param(
+    "n_stmt_tile", lambda e: IntParameter(1, math.ceil(e.noutputs)))
+@fnsm.tuning.transform_param(
+    "n_i_tile", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2)))
+@fnsm.tuning.transform_param(
+    "n_j_tile", lambda e: IntParameter(1, math.ceil(e.arg_shapes[2][2] / 2)))
+def transform(t_unit: lp.TranslationUnit,
+              nface: int, nvoldof: int, nfacedof: int, nfields: int,
+              n_e_per_wg: int, nwork_items_per_e: int,
+              n_stmt_tile: int, n_i_tile: int, n_j_tile: int,
+              insn_match: Optional[Any] = None,
+              kernel_name: Optional[str] = None) -> lp.TranslationUnit:
     import loopy.match as lp_match
     from more_itertools import distribute
 
     if n_j_tile == 1 and n_i_tile == 1:
-        return transform_with_single_j_tile_i_tile(t_unit, n_e_per_wg,
+        return transform_with_single_j_tile_i_tile(t_unit,
+                                                   nface, nvoldof, nfacedof, nfields,
+                                                   n_e_per_wg,
                                                    nwork_items_per_e,
                                                    n_stmt_tile,
                                                    insn_match=insn_match,
@@ -230,17 +239,17 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     within = lp_match.parse_match(insn_match)
 
     ref_einsum = fnsm.fused_einsum("ifj,fe,fej->ei",
-                                   [(Nvoldof, Nface, Nfacedof),
-                                    (Nface, np.inf),
-                                    (Nface, np.inf, Nfacedof)],
+                                   [(nvoldof, nface, nfacedof),
+                                    (nface, np.inf),
+                                    (nface, np.inf, nfacedof)],
                                    dtypes="float64",
                                    use_matrix=[
                                        [{"L"}, {"J"}, {f"v{i}"}]
-                                       for i in range(Nfields)
+                                       for i in range(nfields)
                                    ])
-    len_stmt_tile = math.ceil(Nfields/n_stmt_tile)
-    len_j_tile = math.ceil(Nfacedof/n_j_tile)
-    len_i_tile = math.ceil(Nvoldof/n_i_tile)
+    len_stmt_tile = math.ceil(nfields/n_stmt_tile)
+    len_j_tile = math.ceil(nfacedof/n_j_tile)
+    len_i_tile = math.ceil(nvoldof/n_i_tile)
 
     # {{{ get corresponding variables in t_unit
 
@@ -252,9 +261,9 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     e = subst_map["e"]
     f = subst_map["f"]
     L = subst_map["L"]
-    fields = [subst_map[f"v{i}"] for i in range(Nfields)]
+    fields = [subst_map[f"v{i}"] for i in range(nfields)]
     outputs = [subst_map["_fe_out"]] + [subst_map[f"_fe_out_{i}"]
-                                        for i in range(Nfields-1)]
+                                        for i in range(nfields-1)]
     J_fetch = vng(f"{J}_fetch")
     subst_names = {field: vng("subst_hoist") for field in fields}
     e_s = [vng(e) for _ in range(n_stmt_tile)]
@@ -473,10 +482,8 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
         )
 
     for i_stmt_tile in range(1, n_stmt_tile):
-        predecessor = lp_match.And((within,
-                                    lp_match.Iname(j_tile_names[i_stmt_tile-1])))
-        successor = lp_match.And((within,
-                                  lp_match.Iname(j_tile_names[i_stmt_tile])))
+        predecessor = lp_match.Iname(j_tile_names[i_stmt_tile-1])
+        successor = lp_match.Iname(j_tile_names[i_stmt_tile])
         t_unit = lp.add_dependency(t_unit, successor, predecessor)
 
     t_unit = lp.add_inames_to_insn(t_unit,
@@ -488,224 +495,41 @@ def transform(t_unit, n_e_per_wg, nwork_items_per_e,
     return t_unit
 
 
-class ConfigurationNotInDBError(LookupError):
-    pass
-
-
-def record_into_db(conn, n_i_tile, n_j_tile, n_stmt_tile, n_e_per_wg,
-                   nwork_items_per_e, runtime):
-    cursor = conn.cursor()
-
-    # {{{ compute timestamp in Chicago
-
-    import pytz
-    from datetime import datetime
-
-    timestamp = (datetime
-                .now(pytz.timezone("America/Chicago")) .strftime("%Y_%m_%d_%H%M%S"))
-
-    # }}}
-
-    cursor.execute(f"INSERT INTO {DB_TABLENAME}"
-                   " (n_i_tile, n_j_tile, n_stmt_tile,"
-                   "  n_e_per_wg, nwork_items_per_e,"
-                   "  runtime_in_sec, timestamp)"
-                   " VALUES ("
-                   f"'{n_i_tile}',"
-                   f" '{n_j_tile}',"
-                   f" '{n_stmt_tile}',"
-                   f" '{n_e_per_wg}',"
-                   f" '{nwork_items_per_e}',"
-                   f" {runtime},"
-                   f" '{timestamp}'"
-                   ")")
-    conn.commit()
-
-
-def query_from_db(conn, n_i_tile, n_j_tile, n_stmt_tile, n_e_per_wg,
-                  nwork_items_per_e):
-    cursor = conn.cursor()
-    cursor.execute(" SELECT"
-                   "     runtime_in_sec"
-                   "  FROM "
-                   f"    {DB_TABLENAME}"
-                   f" WHERE ("
-                   f"    n_i_tile = {n_i_tile}"
-                   f"    AND n_j_tile = {n_j_tile}"
-                   f"    AND n_stmt_tile = {n_stmt_tile}"
-                   f"    AND n_e_per_wg = {n_e_per_wg}"
-                   f"    AND nwork_items_per_e = {nwork_items_per_e}"
-                   ");")
-    prev_results = cursor.fetchall()
-    if not prev_results:
-        raise ConfigurationNotInDBError
-    else:
-        return min(prev_result[0] for prev_result in prev_results)
-
-
-class TileSizesTuner(MeasurementInterface):
-
-    @cached_property
-    def conn(self):
-        db = sqlite3.connect(DB_FILENAME)
-        cursor = db.cursor()
-        cursor.execute(" SELECT name FROM sqlite_master"
-                       f" WHERE (type='table' AND name='{DB_TABLENAME}');")
-
-        if not cursor.fetchall():
-            # device table not available
-            logger.info(f"Table {DB_TABLENAME} not in DB, creating one.")
-            cursor.execute(f"CREATE TABLE {DB_TABLENAME} ("
-                           " ID INTEGER PRIMARY KEY AUTOINCREMENT,"
-                           "n_i_tile INT,"
-                           "n_j_tile INT,"
-                           "n_stmt_tile INT,"
-                           "n_e_per_wg INT,"
-                           "nwork_items_per_e INT,"
-                           " runtime_in_sec REAL,"
-                           " timestamp TEXT"
-                           ")")
-        return db
-
-    def manipulator(self):
-        """
-        Define the search space by creating a
-        ConfigurationManipulator
-        """
-        manipulator = ConfigurationManipulator()
-        manipulator.add_parameter(
-            IntegerParameter("n_i_tile", 1, math.ceil(Nvoldof/2)))
-        manipulator.add_parameter(
-            IntegerParameter("n_j_tile", 1, math.ceil(Nfacedof/2)))
-        manipulator.add_parameter(
-            IntegerParameter("n_stmt_tile", 1, Nfields))
-        manipulator.add_parameter(
-            IntegerParameter("nwork_items_per_e", 1, Nfacedof))
-        manipulator.add_parameter(
-            IntegerParameter("n_e_per_wg", 2, 32))
-        return manipulator
-
-    def seed_configurations(self):
-        cursor = self.conn.cursor()
-        cursor.execute(" SELECT"
-                       "     n_i_tile,"
-                       "     n_j_tile,"
-                       "     n_stmt_tile,"
-                       "     n_e_per_wg,"
-                       "     nwork_items_per_e"
-                       "  FROM "
-                       f"    {DB_TABLENAME}"
-                       ";")
-        configs = cursor.fetchall()
-        return [
-            {"n_i_tile": config[0], "n_j_tile": config[1],
-             "n_stmt_tile": config[2],
-             "n_e_per_wg": config[3], "nwork_items_per_e": config[4]}
-            for config in configs
-        ]
-
-    def run(self, desired_result, input, limit):
-
-        cfg = desired_result.configuration.data
-
-        logger.info(cfg)
-
-        # {{{ query from DB
-
-        try:
-            result = query_from_db(self.conn, **cfg)
-        except ConfigurationNotInDBError:
-            pass
-        else:
-            logger.info("DB Hit")
-            return Result(time=result)
-
-        # }}}
-
-        if cfg["n_e_per_wg"] * cfg["nwork_items_per_e"] > 600:
-            logger.info("Block dimension limit exceeded => ignored configuration.")
-            return Result(time=np.inf)
-
-        nkbs_in_local_mem = (
-            (Nface
-             * math.ceil(Nvoldof/cfg["n_i_tile"])
-             * math.ceil(Nfacedof/cfg["n_j_tile"]))
-            + (Nface
-               * math.ceil(Nfields/cfg["n_stmt_tile"])
-               * cfg["n_e_per_wg"]
-               * math.ceil(Nfacedof/cfg["n_j_tile"])))*8e-3
-
-        if nkbs_in_local_mem > 47:
-            logger.info("Shared memory limit exceeded => ignored configuration.")
-            return Result(time=np.inf)
-
-        specialized_transform = partial(transform,
-                                        n_e_per_wg=cfg["n_e_per_wg"],
-                                        n_stmt_tile=cfg["n_stmt_tile"],
-                                        nwork_items_per_e=cfg["nwork_items_per_e"],
-                                        n_i_tile=cfg["n_i_tile"],
-                                        n_j_tile=cfg["n_j_tile"],
-                                        )
-        expr = fnsm.fused_einsum("ifj,fe,fej->ei",
-                                 [(Nvoldof, Nface, Nfacedof),
-                                  (Nface, np.inf),
-                                  (Nface, np.inf, Nfacedof)],
-                                 dtypes="float64",
-                                 use_matrix=[
-                                     [{"L"}, {"J"}, {f"v{i}"}]
-                                     for i in range(Nfields)
-                                 ])
-
-        print(fnsm.stringify_comparison_vs_roofline(
-            expr,
-            transform=specialized_transform,
-            cl_ctx=cl_ctx,
-        ))
-        runtime = fnsm.timeit(expr,
-                              cl_ctx=cl_ctx,
-                              transform=specialized_transform)
-        record_into_db(self.conn, cfg["n_i_tile"], cfg["n_j_tile"],
-                       cfg["n_stmt_tile"],
-                       cfg["n_e_per_wg"],
-                       cfg["nwork_items_per_e"],
-                       runtime)
-
-        return Result(time=runtime)
-
-
 if __name__ == "__main__":
-    from feinsum.data.device_info import DEV_TO_PEAK_GFLOPS
+    import pyopencl as cl
+    import os
+    from functools import partial
 
-    if len(cl_ctx.devices) != 1:
-        logger.info("Multiple devices in the context")
-    elif cl_ctx.devices[0].name not in DEV_TO_PEAK_GFLOPS:
-        logger.info(f"Device {cl_ctx.devices[0]} not known to database.")
+    Nfields = 4
+    Nface = 4
+    Nfacedof = 15
+    Nvoldof = 35
+
+    cl_ctx = cl.create_some_context()
+    expr = fnsm.fused_einsum("ifj,fe,fej->ei",
+                             [(Nvoldof, Nface, Nfacedof),
+                              (Nface, np.inf),
+                              (Nface, np.inf, Nfacedof)],
+                             dtypes="float64",
+                             use_matrix=[
+                                 [{"L"}, {"J"}, {f"v{i}"}]
+                                 for i in range(Nfields)
+                             ])
+
+    if 1:
+        fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx)
     else:
-        if 1:
-            argparser = opentuner.default_argparser()
-            TileSizesTuner.main(argparser.parse_args())
-        else:
-            # Enable for debugging
-            expr = fnsm.fused_einsum("ifj,fe,fej->ei",
-                                     [(Nvoldof, Nface, Nfacedof),
-                                      (Nface, np.inf),
-                                      (Nface, np.inf, Nfacedof)],
-                                     dtypes="float64",
-                                     use_matrix=[
-                                         [{"L"}, {"J"}, {f"v{i}"}]
-                                         for i in range(Nfields)
-                                     ])
+        # Enable while debugging ->
+        # evaluate a point in the parameter space.
+        bound_transform = partial(transform,
+                                  n_e_per_wg=16,
+                                  nwork_items_per_e=12,
+                                  n_stmt_tile=2,
+                                  n_i_tile=1, n_j_tile=1,
+                                  )
 
-            specialized_transform = partial(transform,
-                                            n_e_per_wg=16,
-                                            nwork_items_per_e=12,
-                                            n_stmt_tile=2,
-                                            n_i_tile=1, n_j_tile=1,
-                                            )
+        print(fnsm.stringify_comparison_with_roofline(expr,
+                                                      bound_transform,
+                                                      cl_ctx))
 
-            print(fnsm.stringify_comparison_vs_roofline(
-                expr,
-                transform=specialized_transform,
-                cl_ctx=cl_ctx,
-                long_dim_length=100_000
-            ))
+# vim: fdm=marker

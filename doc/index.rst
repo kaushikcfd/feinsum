@@ -17,7 +17,7 @@ in a single loop nest.
     building
     codegen
     metrics
-    database
+    sql_utils
     extra_loopy
     utils
 

@@ -238,7 +238,7 @@ def _check_if_t_unit_and_ref_einsum_have_the_same_axis_dim(ref_idx: EinsumAxisAc
 
 def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
                            insn_match: Any = None,
-                           long_dim_length: int = 5_000,
+                           long_dim_length: int = 500,
                            inames_only: bool = False,
                            ) -> PMapT[str, str]:
     """
@@ -576,10 +576,9 @@ def match_einsum(t_unit: lp.TranslationUnit,
             + "".join(index_names[FreeAxis(i)]
                       for i in range(len(free_indices))))
 
-    # type-ignore-reason: mypy doesn't think Tuple[Tuple[Any]] is ArrayLike.
     return fused_einsum(subscripts,
                         arg_shapes,
-                        use_matrix,  # type: ignore[arg-type]
+                        use_matrix,
                         value_to_dtype=value_to_dtype)
 
 # }}}
