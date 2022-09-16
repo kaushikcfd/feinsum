@@ -391,6 +391,7 @@ def report_div_performance(cl_ctx):
     print(fnsm.stringify_comparison_vs_roofline(expr,
                                                 cl_ctx=cl_ctx,
                                                 transform=transform_div,
+                                                long_dim_length=1000,
                                                 ignore_unknown_device=True
                                                 ))
 
@@ -411,6 +412,7 @@ def report_grad_performance(cl_ctx):
             expr,
             cl_ctx=cl_ctx,
             transform=transform_grad,
+            long_dim_length=1000,
             ignore_unknown_device=True
         ))
 
@@ -434,6 +436,7 @@ def report_face_mass_performance(cl_ctx):
     print(fnsm.stringify_comparison_vs_roofline(expr,
                                                 cl_ctx=cl_ctx,
                                                 transform=transform_face_mass,
+                                                long_dim_length=1000,
                                                 ignore_unknown_device=True
                                                 ))
 

@@ -162,7 +162,7 @@ def main():
         expr,
         cl_ctx=cl_ctx,
         transform=variant_2,
-        long_dim_length=100_000,
+        long_dim_length=1000,
         ignore_unknown_device=True,  # For CI
     ))
 

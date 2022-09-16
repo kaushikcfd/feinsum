@@ -298,6 +298,7 @@ def main():
     print(f.stringify_comparison_vs_roofline(expr,
                                              cl_ctx=cl_ctx,
                                              transform=paranumal_transform,
+                                             long_dim_length=1000,
                                              ignore_unknown_device=True,  # For CI
                                              ))
 

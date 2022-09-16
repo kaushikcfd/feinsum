@@ -84,6 +84,7 @@ def main():
     print(f.stringify_comparison_vs_roofline(expr,
                                              cl_ctx=cl_ctx,
                                              transform=variant_1,
+                                             long_dim_length=1000,
                                              ignore_unknown_device=True  # For CI
                                              ))
 

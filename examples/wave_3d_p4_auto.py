@@ -13,11 +13,11 @@ logger = logging.getLogger(__name__)
 def main(cl_ctx):
     t_unit = lp.make_kernel(
         ["{[iel_0, idof_0, jdof_0, r_0, x_0]:"
-         " 0<=iel_0<10000 and 0<=idof_0,jdof_0<35 and 0<=x_0,r_0<3}",
+         " 0<=iel_0<1000 and 0<=idof_0,jdof_0<35 and 0<=x_0,r_0<3}",
          "{[iel_1, idof_1, jdof_1, r_1, x_1]:"
-         " 0<=iel_1<10000 and 0<=idof_1,jdof_1<35 and 0<=r_1,x_1<3}",
+         " 0<=iel_1<1000 and 0<=idof_1,jdof_1<35 and 0<=r_1,x_1<3}",
          "{[iel_2, idof_2, ifacedof, iface]:"
-         " 0<=iel_2<10000 and 0<=idof_2<35 and 0<=ifacedof<15 and 0<=iface<4}"],
+         " 0<=iel_2<1000 and 0<=idof_2<35 and 0<=ifacedof<15 and 0<=iface<4}"],
         """
         # ----- Div(v)
         with {tags=div}
@@ -66,15 +66,18 @@ def main(cl_ctx):
     f.autotune(grad_einsum,
                os.path.abspath(xre_rij_ej_to_xei.__file__),
                cl_ctx,
-               stop_after=5)
+               long_dim_length=1000,
+               stop_after=3)
     f.autotune(div_einsum,
                os.path.abspath(xre_rij_xej_to_ei.__file__),
                cl_ctx,
-               stop_after=5)
+               long_dim_length=1000,
+               stop_after=3)
     f.autotune(lift_einsum,
                os.path.abspath(ifj_fe_fej_to_ei.__file__),
                cl_ctx,
-               stop_after=5)
+               long_dim_length=1000,
+               stop_after=3)
 
     # }}}
 
