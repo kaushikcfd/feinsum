@@ -254,7 +254,7 @@ def variant_3(t_unit):
     return t_unit
 
 
-def paranumal_transform(t_unit):
+def paranumal_transform(t_unit, insn_match=None, kernel_name=None):
 
     t_unit = lp.split_reduction_inward(t_unit, "j")
     t_unit = f.hoist_reduction_invariant_terms(t_unit, "j")

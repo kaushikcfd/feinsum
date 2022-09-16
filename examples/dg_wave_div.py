@@ -40,7 +40,7 @@ def variant_0(t_unit):
     return t_unit
 
 
-def variant_1(t_unit):
+def variant_1(t_unit, insn_match=None, kernel_name=None):
     """
     Simple work division strategy.
     """
@@ -84,7 +84,7 @@ def main():
     print(f.stringify_comparison_vs_roofline(expr,
                                              cl_ctx=cl_ctx,
                                              transform=variant_1,
-                                             ignore_unkown_device=True  # For CI
+                                             ignore_unknown_device=True  # For CI
                                              ))
 
 

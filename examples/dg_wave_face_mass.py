@@ -64,7 +64,7 @@ def variant_1(t_unit):
     return t_unit
 
 
-def variant_2(t_unit):
+def variant_2(t_unit, insn_match=None, kernel_name=None):
     ncells_per_group = 16
     nworkitems_per_cell = 12
 
