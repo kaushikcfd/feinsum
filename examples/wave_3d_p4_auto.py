@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 def main(cl_ctx):
     t_unit = lp.make_kernel(
-        ["{[iel_0, idof_0, jdof_0, r_0]:"
-         " 0<=iel_0<10000 and 0<=idof_0,jdof_0<35 and 0<=r_0<3}",
+        ["{[iel_0, idof_0, jdof_0, r_0, x_0]:"
+         " 0<=iel_0<10000 and 0<=idof_0,jdof_0<35 and 0<=x_0,r_0<3}",
          "{[iel_1, idof_1, jdof_1, r_1, x_1]:"
          " 0<=iel_1<10000 and 0<=idof_1,jdof_1<35 and 0<=r_1,x_1<3}",
          "{[iel_2, idof_2, ifacedof, iface]:"
@@ -21,32 +21,28 @@ def main(cl_ctx):
         """
         # ----- Div(v)
         with {tags=div}
-            div_out_x[iel_0,idof_0] = sum([jdof_0,r_0], \
-                                          Jx[iel_0,r_0]*R[r_0,idof_0,jdof_0]*vx[iel_0,jdof_0])
-            div_out_y[iel_0,idof_0] = sum([jdof_0,r_0], \
-                                          Jy[iel_0,r_0]*R[r_0,idof_0,jdof_0]*vy[iel_0,jdof_0])
-            div_out_z[iel_0,idof_0] = sum([jdof_0,r_0], \
-                                          Jz[iel_0,r_0]*R[r_0,idof_0,jdof_0]*vz[iel_0,jdof_0])
+            div_out[iel_0,idof_0] = sum([jdof_0,r_0,x_0], \
+                                        J[x_0, r_0, iel_0]*R[r_0,idof_0,jdof_0]*v[x_0, iel_0,jdof_0])
         end
 
-        ... gbarrier {id=g_barrier_0, dep_query=(writes:div_out_*)}
+        ... gbarrier {id=g_barrier_0, dep_query=(writes:div_out)}
         # ----- Grad(u)
         with {dep=g_barrier_0, tags=grad}
             grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
-                                               J[x_1, iel_1, r_1]*R[r_1, idof_1, jdof_1]*u[iel_1, jdof_1])
+                                               J[x_1, r_1, iel_1]*R[r_1, idof_1, jdof_1]*u[iel_1, jdof_1])
         end
 
         ... gbarrier {id=g_barrier_1, dep_query=(writes:grad_out)}
         # ----- Lift(f*)
         with {dep=g_barrier_1, tags=lift}
             lift_0[iel_2, idof_2] = sum([iface, ifacedof], \
-                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_0[iface, iel_2, ifacedof])
+                                        Rlift[idof_2, iface, ifacedof]*Jface[iface, iel_2]*F_0[iface, iel_2, ifacedof])
             lift_1[iel_2, idof_2] = sum([iface, ifacedof], \
-                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_1[iface, iel_2, ifacedof])
+                                        Rlift[idof_2, iface, ifacedof]*Jface[iface, iel_2]*F_1[iface, iel_2, ifacedof])
             lift_2[iel_2, idof_2] = sum([iface, ifacedof], \
-                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_2[iface, iel_2, ifacedof])
+                                        Rlift[idof_2, iface, ifacedof]*Jface[iface, iel_2]*F_2[iface, iel_2, ifacedof])
             lift_3[iel_2, idof_2] = sum([iface, ifacedof], \
-                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_3[iface, iel_2, ifacedof])
+                                        Rlift[idof_2, iface, ifacedof]*Jface[iface, iel_2]*F_3[iface, iel_2, ifacedof])
         end
         """  # noqa: E501
     )

@@ -122,6 +122,21 @@ class ParametrizedTransform:
     def __call__(self, *args: Any, **kwargs: Any) -> lp.TranslationUnit:
         return self.transform(*args, **kwargs)
 
+    def bind_args(self,
+                  einsum: FusedEinsum,
+                  **transform_args: Any) -> TransformT:
+        """
+        Binds *transform_args* to *self* and returns a python callable
+        to the corresponding instance in the self space.
+        """
+        from functools import partial
+
+        py_clbl = partial(self.transform,
+                          **{arg.var_name: arg.func(einsum)
+                             for arg in self.einsum_derivative_args},
+                          **transform_args)
+        return py_clbl
+
 # }}}
 
 
@@ -141,20 +156,25 @@ class ConfigurationNotInDBError(LookupError):
     pass
 
 
-def bind_args(transform: ParametrizedTransform,
-              einsum: FusedEinsum,
-              **transform_args: Any) -> TransformT:
-    """
-    Binds *transform_args* to *transform* and returns a python callable
-    to the corresponding instance in the transform space.
-    """
-    from functools import partial
+def get_transform_func_from_module_path(module_path: str) -> ParametrizedTransform:
+    from importlib import util
+    _, filename = os.path.split(module_path)
 
-    py_clbl = partial(transform.transform,
-                      **{arg.var_name: arg.func(einsum)
-                         for arg in transform.einsum_derivative_args},
-                      **transform_args)
-    return py_clbl
+    assert filename.endswith(".py")
+
+    spec = util.spec_from_file_location(filename[:-3], module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not import 'transform' function"
+                           f" from {module_path}.")
+    transform_module = util.module_from_spec(spec)
+    spec.loader.exec_module(transform_module)
+    transform_obj = transform_module.transform
+
+    if isinstance(transform_obj, ParametrizedTransform):
+        return transform_obj
+    else:
+        assert callable(transform_obj)
+        return ParametrizedTransform(transform_obj, (), ())
 
 
 # {{{ Opentuner entrypoint
@@ -233,24 +253,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
     @cached_property
     def transform_func(self) -> ParametrizedTransform:
-        from importlib import util
-        _, filename = os.path.split(self.module_path)
-
-        assert filename.endswith(".py")
-
-        spec = util.spec_from_file_location(filename[:-3], self.module_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("Could not import 'transform' function"
-                               f" from {self.module_path}.")
-        transform_module = util.module_from_spec(spec)
-        spec.loader.exec_module(transform_module)
-        transform_obj = transform_module.transform
-
-        if isinstance(transform_obj, ParametrizedTransform):
-            return transform_obj
-        else:
-            assert callable(transform_obj)
-            return ParametrizedTransform(transform_obj, (), ())
+        return get_transform_func_from_module_path(self.module_path)
 
     def manipulator(self) -> "opentuner.ConfigurationManipulator":
         from opentuner import ConfigurationManipulator
@@ -409,9 +412,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
         # }}}
 
-        bound_transform = bind_args(self.transform_func,
-                                    self.einsum,
-                                    **cfg)
+        bound_transform = self.transform_func.bind_args(self.einsum,
+                                                        **cfg)
 
         try:
             logger.info("\n"+stringify_comparison_vs_roofline(

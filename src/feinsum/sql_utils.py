@@ -105,13 +105,19 @@ class QueryInfo:
     runtime_in_sec: float
     compiler_version: str
     giga_op_info: Map[np.dtype[Any], float]
+    _einsum: FusedEinsum
 
     def giga_op_rate(self, dtype: npt.DTypeLike) -> float:
         return self.giga_op_info[np.dtype(dtype)]/self.runtime_in_sec
 
     @cached_property
     def transform(self) -> TransformT:
-        raise NotImplementedError
+        from feinsum.tuning import (get_transform_func_from_module_path,
+                                    _get_impls_path)
+
+        module_path = os.path.join(_get_impls_path(), self.transform_id)
+        return get_transform_func_from_module_path(
+            module_path).bind_args(self._einsum, **self.transform_params)
 
 
 def query(einsum: FusedEinsum,
@@ -174,10 +180,11 @@ def query(einsum: FusedEinsum,
     query_result = tuple(
         QueryInfo(
             transform_id=fact[0],
-            transform_params=fact[1],
+            transform_params=json.loads(fact[1]),
             runtime_in_sec=fact[2],
             compiler_version=fact[3],
-            giga_op_info=load_op_info(fact[4]))
+            giga_op_info=load_op_info(fact[4]),
+            _einsum=einsum)
         for fact in facts)
     conn.close()
 

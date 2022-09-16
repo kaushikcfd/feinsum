@@ -119,6 +119,7 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                              dim_arg_names=[rprftchD, iprftchD, jprftchD],
                              temporary_address_space=lp.AddressSpace.LOCAL,
                              temporary_name=D_fetch,
+                             within=within,
                              default_tag=None)
     t_unit = lp.split_iname(t_unit, iprftchD, n_e_per_wg, inner_tag="l.1")
     t_unit = lp.split_iname(t_unit, jprftchD, nwork_items_per_e, inner_tag="l.0")
