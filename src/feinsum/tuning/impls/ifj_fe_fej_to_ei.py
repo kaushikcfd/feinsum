@@ -482,10 +482,8 @@ def transform(t_unit: lp.TranslationUnit,
         )
 
     for i_stmt_tile in range(1, n_stmt_tile):
-        predecessor = lp_match.And((within,
-                                    lp_match.Iname(j_tile_names[i_stmt_tile-1])))
-        successor = lp_match.And((within,
-                                  lp_match.Iname(j_tile_names[i_stmt_tile])))
+        predecessor = lp_match.Iname(j_tile_names[i_stmt_tile-1])
+        successor = lp_match.Iname(j_tile_names[i_stmt_tile])
         t_unit = lp.add_dependency(t_unit, successor, predecessor)
 
     t_unit = lp.add_inames_to_insn(t_unit,
