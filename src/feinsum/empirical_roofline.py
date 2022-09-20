@@ -3,7 +3,6 @@ import numpy as np
 import pyopencl.array as clarray
 import pyopencl.clrandom as clrandom
 from pyopencl.tools import ImmediateAllocator
-from frozendict import frozendict
 from dataclasses import dataclass
 
 # Will get queues for each device with the same name
