@@ -189,17 +189,11 @@ def get_alpha_beta_model(results_list, total_least_squares=False):
         M = np.array([(1, result.bytes_transferred, result.tmin) for result in results_list])
         U, S, VT = np.linalg.svd(M)
         coeffs = ((-1/VT[-1,-1])*VT[-1,:-1]).flatten()
-        return (coeffs[0], coeffs[1],)
     else:
-        ## The number of bytes transferred is exact so put it on the rhs
-        M = np.array([(-1, result.tmin, result.bytes_transferred) for result in results_list])
-        coeffs = np.linalg.lstsq(M[:,:2], M[:,2])[0]
-        ## -beta*alpha + beta*t = n
-        return(coeffs[0]/coeffs[1], 1/coeffs[1],) 
+        M = np.array([(1, result.bytes_transferred, result.tmin) for result in results_list])
+        coeffs = np.linalg.lstsq(M[:,:2], M[:,2], rcond=None)[0]
 
-        #M = np.array([(1, result.bytes_transferred) for result in results_list])
-        #ts = np.array([result.tmin for result in results_list])
-        #coeffs = np.linalg.lstsq(M, ts, rcond=None)[0]
+    return (coeffs[0], coeffs[1],)
 
 def plot_bandwidth(results_list):
     import matplotlib.pyplot as plt
