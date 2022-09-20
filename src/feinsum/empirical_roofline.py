@@ -194,16 +194,21 @@ def get_alpha_beta_model(results_list, total_least_squares=True):
         ts = np.array([result.tmin for result in results_list])
         coeffs = np.linalg.lstsq(M, ts, rcond=None)[0]
 
-    # Latency and bandwidth
-    return (coeffs[0], 1/(coeffs[1]*1e9),)
+    # Latency and inverse bandwidth
+    return (coeffs[0], coeffs[1],)
 
 def plot_bandwidth(results_list):
     import matplotlib.pyplot as plt
 
-    M = np.array([(result.bytes_transferred, result.avg_bandwidth) for result in results_list])
+    latency, inv_bandwidth = get_alpha_beta_model(results_list)
+    print("LATENCY:", latency, "BANDWIDTH:", 1/inv_bandwidth/1e9)
+    M = np.array([(result.bytes_transferred, result.max_bandwidth) for result in results_list])
+
+    best_fit_bandwidth = M[:,0]/(latency + M[:,0]*inv_bandwidth)/1e9
     
     fig = plt.figure()
     plt.semilogx(M[:,0], M[:,1]/1e9)
+    plt.semilogx(M[:,0], best_fit_bandwidth)
     plt.xlabel("Bytes read + bytes written")
     plt.ylabel("Bandwidth (GBps)")
     plt.show()
@@ -215,16 +220,18 @@ if __name__ == "__main__":
 
 
     #results_list = enqueue_copy_bandwidth_test(queue, dtype=None, fill_on_device=True, max_used_bytes=None)
-    results_list_list = enqueue_copy_bandwidth_test_with_queues_like(queue, max_used_bytes=None)
 
+    #get_alpha_beta_model(results_list)
+    #plot_bandwidth(results_list)
+
+    results_list_list = enqueue_copy_bandwidth_test_with_queues_like(queue, max_used_bytes=None)
+    
     key = lambda result: result.tmin
     combined_list = [sorted(tup, key=key)[0] for tup in zip(*results_list_list)]
 
     for results_list in results_list_list:
         coeffs = get_alpha_beta_model(results_list)
         print(coeffs)
-
-    print(get_alpha_beta_model(combined_list))
 
     plot_bandwidth(combined_list)
 
