@@ -179,8 +179,8 @@ def enqueue_copy_bandwidth_test(queue, dtype=None, fill_on_device=True, max_used
 
     return tuple(results_list)
 
-
-def get_alpha_beta_model(results_list, total_least_squares=True):
+# Returns latency in seconds and inverse bandwidth in seconds per byte
+def get_alpha_beta_model(results_list, total_least_squares=False):
 
     # Could take the latency to be the lowest time ever seen,
     # but that might be limited by the precision of the event timer
@@ -189,13 +189,17 @@ def get_alpha_beta_model(results_list, total_least_squares=True):
         M = np.array([(1, result.bytes_transferred, result.tmin) for result in results_list])
         U, S, VT = np.linalg.svd(M)
         coeffs = ((-1/VT[-1,-1])*VT[-1,:-1]).flatten()
+        return (coeffs[0], coeffs[1],)
     else:
-        M = np.array([(1, result.bytes_transferred) for result in results_list])
-        ts = np.array([result.tmin for result in results_list])
-        coeffs = np.linalg.lstsq(M, ts, rcond=None)[0]
+        ## The number of bytes transferred is exact so put it on the rhs
+        M = np.array([(-1, result.tmin, result.bytes_transferred) for result in results_list])
+        coeffs = np.linalg.lstsq(M[:,:2], M[:,2])[0]
+        ## -beta*alpha + beta*t = n
+        return(coeffs[0]/coeffs[1], 1/coeffs[1],) 
 
-    # Latency and inverse bandwidth
-    return (coeffs[0], coeffs[1],)
+        #M = np.array([(1, result.bytes_transferred) for result in results_list])
+        #ts = np.array([result.tmin for result in results_list])
+        #coeffs = np.linalg.lstsq(M, ts, rcond=None)[0]
 
 def plot_bandwidth(results_list):
     import matplotlib.pyplot as plt
