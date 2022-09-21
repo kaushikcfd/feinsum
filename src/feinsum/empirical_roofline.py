@@ -88,7 +88,7 @@ def get_buffers(queue, dtype_in, n_dtype_in, dtype_out=None,
         elif np.issubdtype(dtype_in, np.float):
             # The host array is formed as a float64 before being copied and converted
             if virtual_memory().available < \
-                        n_dtype_in*(np.float64().itemsize + dtype_in().itemsize):
+                        n_dtype_in*(np.float64(0).itemsize + dtype_in().itemsize):
                 raise ValueError(
                     "Not enough host memory to fill the buffer from the host")
             h_in_buf = np.random.rand(n_dtype_in).astype(dtype_in)
@@ -211,11 +211,11 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
                 if ogti:
                     n_out = ni
                     n_in = int(np.ceil(in_out_ratio*n_out))
-                    knl = lp.fix_parameters(n_out=n_out)
+                    knl = lp.fix_parameters(knl, n_out=n_out)
                 elif igto:
                     n_in = ni
                     n_out = int(np.ceil(out_in_ratio*n_in))
-                    knl = lp.fix_parameters(n_in=n_in)
+                    knl = lp.fix_parameters(knl, n_in=n_in)
                 else:
                     n_in = ni
                     n_out = ni
