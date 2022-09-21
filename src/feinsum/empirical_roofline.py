@@ -408,4 +408,8 @@ if __name__ == "__main__":
     for entry in combined_list:
         print(entry.bytes_transferred, entry.tmin, entry.max_bandwidth)
 
+    print()
+    print("Loopy results:", get_alpha_beta_model(loopy_results_list))
+    print("Enqueue copy results:", get_alpha_beta_model(enqueue_results_list))
+
     plot_bandwidth(combined_list)
