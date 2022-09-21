@@ -2,7 +2,6 @@ import pyopencl as cl
 import numpy as np
 import loopy as lp
 import pyopencl.clrandom as clrandom
-from pyopencl.tools import ImmediateAllocator
 from dataclasses import dataclass
 
 # Will get queues for each device with the same name
@@ -64,6 +63,7 @@ def get_buffers(queue, dtype_in, n_dtype_in, dtype_out=None,
     if fill_on_device:
         # Requires making a READ_WRITE buffer instead of a READ_ONLY buffer
         if dtype_in in {np.float64, np.float32, np.int32, np.int64}:
+            from pyopencl.tools import ImmediateAllocator
             allocator = ImmediateAllocator(queue)
             d_in_buf = cl.Buffer(context, cl.mem_flags.READ_WRITE |
                                  cl.mem_flags.HOST_NO_ACCESS, size=n_bytes_in)
@@ -145,7 +145,7 @@ def loopy_bandwidth_test_with_queues_like(
 
 def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
                         dtype_out=None, fill_on_device=True,
-                        ntrials=100, fast=True):
+                        ntrials=100, fast=True, print_results=False):
 
     if dtype_in is None:
         dtype_in = np.int32
@@ -182,7 +182,7 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
         assumptions="ni>=0 and nj>=0",
     )
     knl = lp.add_dtypes(knl, {"output": dtype_out, "input": dtype_in})
-    knl = lp.set_options(knl, "no_numpy")  # Output code before editing it
+    knl = lp.set_options(knl, "no_numpy")
     knl_orig = knl.copy()
 
     # Just do this once so don't need to do in the tuning loop
@@ -259,10 +259,6 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
                 # Calculate bandwidth in GBps
                 nbytes_transferred = dtype_in().itemsize*np.product(inpt.shape) + \
                                         dtype_out().itemsize*np.product(outpt.shape)
-                avg_bw = nbytes_transferred/dt_avg/1e9
-                max_bw = nbytes_transferred/dt_min/1e9
-                min_bw = nbytes_transferred/dt_max/1e9
-
                 result = BandwidthTestResult(str(queue.device), dt_avg,
                             dt_min, dt_max, nbytes_transferred, "loopy",
                             (nj, local_size))
@@ -273,14 +269,19 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
                 elif result.tmin < results_dict[nbytes_transferred].tmin:
                     results_dict[nbytes_transferred] = result
 
-                print(
-                    f"Bytes: {nbytes_transferred}, \
-                     Avg time: {dt_avg}, \
-                     Min time: {dt_min}, \
-                     Max time: {dt_max}, \
-                     Avg GBps: {avg_bw}, \
-                     Max GBps: {max_bw}, \
-                     Min GBps  {min_bw}")
+                if print_results:
+                    avg_bw = nbytes_transferred/dt_avg/1e9
+                    max_bw = nbytes_transferred/dt_min/1e9
+                    min_bw = nbytes_transferred/dt_max/1e9
+
+                    print(
+                        f"Bytes: {nbytes_transferred}, \
+                         Avg time: {dt_avg}, \
+                         Min time: {dt_min}, \
+                         Max time: {dt_max}, \
+                         Avg GBps: {avg_bw}, \
+                         Max GBps: {max_bw}, \
+                         Min GBps  {min_bw}")
 
                 # Need to have read access on both input and output arrays
                 # for this to work
@@ -307,7 +308,8 @@ def enqueue_copy_bandwidth_test_with_queues_like(
 
 
 def enqueue_copy_bandwidth_test(
-        queue, dtype=None, fill_on_device=True, max_used_bytes=None, ntrials=1000):
+        queue, dtype=None, fill_on_device=True, max_used_bytes=None,
+        ntrials=1000, print_results=False):
 
     if dtype is None:
         dtype = np.int32 if fill_on_device else np.int8
@@ -363,23 +365,24 @@ def enqueue_copy_bandwidth_test(
 
         # Calculate bandwidth in GBps
         nbytes_transferred = 2*byte_count
-        avg_bw = nbytes_transferred/dt_avg/1e9
-        max_bw = nbytes_transferred/dt_min/1e9
-        min_bw = nbytes_transferred/dt_max/1e9
-
         result = BandwidthTestResult(
             str(queue.device), dt_avg, dt_min, dt_max,
             nbytes_transferred, "enqueue_copy")
         results_list.append(result)
 
-        print(
-            f"Bytes: {nbytes_transferred}, \
-             Avg time: {dt_avg}, \
-             Min time: {dt_min}, \
-             Max time: {dt_max}, \
-             Avg GBps: {avg_bw}, \
-             Max GBps: {max_bw}, \
-             Min GBps  {min_bw}")
+        if print_results:
+            avg_bw = nbytes_transferred/dt_avg/1e9
+            max_bw = nbytes_transferred/dt_min/1e9
+            min_bw = nbytes_transferred/dt_max/1e9
+
+            print(
+                f"Bytes: {nbytes_transferred}, \
+                 Avg time: {dt_avg}, \
+                 Min time: {dt_min}, \
+                 Max time: {dt_max}, \
+                 Avg GBps: {avg_bw}, \
+                 Max GBps: {max_bw}, \
+                 Min GBps  {min_bw}")
 
     return tuple(results_list)
 
@@ -428,9 +431,11 @@ if __name__ == "__main__":
     queue = cl.CommandQueue(
         context, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
-    loopy_results_list = loopy_bandwidth_test(queue, fast=True)
+    loopy_results_list = loopy_bandwidth_test(queue, fast=True,
+        print_results=True, fill_on_device=True)
     enqueue_results_list = enqueue_copy_bandwidth_test(
-        queue, dtype=None, fill_on_device=True, max_used_bytes=None)
+        queue, dtype=None, fill_on_device=False, max_used_bytes=None,
+        print_results=True)
 
     combined_list = loopy_results_list + enqueue_results_list
 
