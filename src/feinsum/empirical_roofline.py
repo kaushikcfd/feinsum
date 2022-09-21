@@ -166,7 +166,8 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
     knl = lp.add_dtypes(knl, {"output": dtype_out, "input": dtype_in})
     knl = lp.set_options(knl, "no_numpy")  # Output code before editing it
     knl_orig = knl.copy()
-    # Just do this once so don't ne and nj>=0ed to do in the tuning loop
+
+    # Just do this once so don't need to do in the tuning loop
     d_in_buf, d_out_buf = get_buffers(queue, dtype_in, n_in_max, dtype_out=dtype_out, n_dtype_out=n_out_max, fill_on_device=True)
 
     results_dict = {}
@@ -378,11 +379,15 @@ if __name__ == "__main__":
     context = cl.create_some_context(interactive=True)
     queue = cl.CommandQueue(context, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
-    loopy_results_list = loopy_bandwidth_test(queue, fast=False)
+    loopy_results_list = loopy_bandwidth_test(queue, fast=True)
     enqueue_results_list = enqueue_copy_bandwidth_test(queue, dtype=None, fill_on_device=True, max_used_bytes=None)
 
     combined_list = loopy_results_list + enqueue_results_list
+
+    # Loopy kernel is probably more indicative of real world performance
+    plot_bandwidth(loopy_results_list)
     
+    """    
     tmin_key = lambda result: result.tmin
 
     #results_list_list_enqueue = enqueue_copy_bandwidth_test_with_queues_like(queue)
@@ -413,3 +418,4 @@ if __name__ == "__main__":
     print("Enqueue copy results:", get_alpha_beta_model(enqueue_results_list))
 
     plot_bandwidth(combined_list)
+    """
