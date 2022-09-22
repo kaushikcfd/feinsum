@@ -484,7 +484,7 @@ def plot_split_alpha_beta(results_list):
 
     highest_delta = 0
     for ind, result in enumerate(results_list):
-        if ind > 0 and ind < len(results_list) - 1:
+        if ind > 0 and ind < len(results_list) - 1 and ind >= split_index_lower:
             if result.max_bandwidth < results_list[ind-1].max_bandwidth and \
                     result.max_bandwidth < results_list[ind+1].max_bandwidth:
                 delta = abs(result.max_bandwidth -
