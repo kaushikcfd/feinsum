@@ -2,6 +2,7 @@ import pyopencl as cl
 import numpy as np
 import loopy as lp
 import pyopencl.clrandom as clrandom
+import matplotlib.pyplot as plt
 from dataclasses import dataclass
 
 # Will get queues for each device with the same name
@@ -145,7 +146,12 @@ def loopy_bandwidth_test_with_queues_like(
 
 def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
                         dtype_out=None, fill_on_device=True,
-                        ntrials=100, fast=True, print_results=False):
+                        ntrials=100, fast=True, print_results=False,
+                        pollute_caches=True):
+
+    if pollute_caches and n_in_max is not None and n_out_max is not None:
+        raise ValueError(
+            "Cache pollution only available when max sizes are unspecified")
 
     if dtype_in is None:
         dtype_in = np.int32
@@ -164,6 +170,11 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
         raise ValueError("Maximum input length exceeds maximum allocation size")
     if n_out_max_bytes > queue.device.max_mem_alloc_size:
         raise ValueError("Maximum output length exceeds maximum allocation size")
+
+    pollute_size = queue.device.max_mem_alloc_size
+    # Could probably get by with something smaller
+    #pollute_size = min(10*queue.device.global_mem_cache_size,
+    #                    queue.device.max_mem_alloc_size)
 
     ogti = n_out_max > n_in_max
     igto = n_in_max > n_out_max
@@ -220,7 +231,6 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
                     n_in = ni
                     n_out = ni
 
-                local_size = 128  # 256 or 512 seems to do the best
                 end_slab = 0 if ni % min(local_size, ni) == 0 else 1
                 knl = lp.split_iname(
                     knl, "i", min(
@@ -236,9 +246,15 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
                 dt_min = np.inf
                 events = []
 
-                for j in range(2):
+                for j in range(5):
+                    if pollute_caches:
+                        cl.enqueue_copy(queue, d_out_buf, d_in_buf,
+                                        byte_count=pollute_size)
                     knl(queue, input=inpt, output=outpt)
                 for j in range(ntrials):
+                    if pollute_caches:
+                        cl.enqueue_copy(queue, d_out_buf, d_in_buf,
+                                        byte_count=pollute_size)
                     evt, _ = knl(queue, input=inpt, output=outpt)
                     events.append(evt)
 
@@ -309,7 +325,11 @@ def enqueue_copy_bandwidth_test_with_queues_like(
 
 def enqueue_copy_bandwidth_test(
         queue, dtype=None, fill_on_device=True, max_used_bytes=None,
-        ntrials=1000, print_results=False):
+        ntrials=100, print_results=False, pollute_caches=True):
+
+    if pollute_caches and max_used_bytes is not None:
+        raise ValueError(
+            "Cache pollution only available when max_used_bytes is unspecified")
 
     if dtype is None:
         dtype = np.int32 if fill_on_device else np.int8
@@ -334,6 +354,11 @@ def enqueue_copy_bandwidth_test(
     word_count_list = get_word_counts(max_shape_dtype)
     results_list = []
 
+    pollute_size = queue.device.max_mem_alloc_size
+    # Could probably get by with something smaller
+    #pollute_size = min(10*queue.device.global_mem_cache_size,
+    #                   queue.device.max_mem_alloc_size)
+
     for word_count in word_count_list:
         dt_max = 0
         dt_min = np.inf
@@ -344,8 +369,12 @@ def enqueue_copy_bandwidth_test(
 
         # Warmup
         for i in range(5):
+            if pollute_caches:
+                cl.enqueue_copy(queue, d_out_buf, d_in_buf, byte_count=pollute_size)
             evt = cl.enqueue_copy(queue, d_out_buf, d_in_buf, byte_count=byte_count)
         for i in range(ntrials):
+            if pollute_caches:
+                cl.enqueue_copy(queue, d_out_buf, d_in_buf, byte_count=pollute_size)
             evt = cl.enqueue_copy(queue, d_out_buf, d_in_buf, byte_count=byte_count)
             events.append(evt)
 
@@ -359,6 +388,7 @@ def enqueue_copy_bandwidth_test(
                 dt_min = dt
 
         # Convert to seconds
+
         dt_avg = dt_avg / ntrials / 1e9
         dt_max = dt_max / 1e9
         dt_min = dt_min / 1e9
@@ -386,9 +416,18 @@ def enqueue_copy_bandwidth_test(
 
     return tuple(results_list)
 
+
+# For when the latency is already known
+def get_beta_model(results_list, latency):
+
+    M = np.array([(result.bytes_transferred, result.tmin)
+                 for result in results_list])
+    coeffs = np.linalg.lstsq(M[:, :1], M[:, 1] - latency, rcond=None)[0]
+
+    return (coeffs[0])
+
+
 # Returns latency in seconds and inverse bandwidth in seconds per byte
-
-
 def get_alpha_beta_model(results_list, total_least_squares=False):
 
     # Could take the latency to be the lowest time ever seen,
@@ -408,7 +447,6 @@ def get_alpha_beta_model(results_list, total_least_squares=False):
 
 
 def plot_bandwidth(results_list):
-    import matplotlib.pyplot as plt
 
     latency, inv_bandwidth = get_alpha_beta_model(results_list)
     print("LATENCY:", latency, "BANDWIDTH:", 1/inv_bandwidth/1e9)
@@ -420,6 +458,63 @@ def plot_bandwidth(results_list):
     plt.figure()
     plt.semilogx(M[:, 0], M[:, 1]/1e9)
     plt.semilogx(M[:, 0], best_fit_bandwidth)
+    plt.xlabel("Bytes read + bytes written")
+    plt.ylabel("Bandwidth (GBps)")
+    plt.show()
+
+
+def plot_split_alpha_beta(results_list):
+
+    # Find index of the the highest local maximum
+    # then find the index of the next local minimum
+    # Use those as the indices
+
+    highest_delta = 0
+    for ind, result in enumerate(results_list):
+        if ind > 0 and ind < len(results_list) - 1:
+            if result.max_bandwidth > results_list[ind-1].max_bandwidth and \
+                    result.max_bandwidth > results_list[ind+1].max_bandwidth:
+                delta = abs(result.max_bandwidth -
+                            results_list[ind-1].max_bandwidth) + \
+                        abs(result.max_bandwidth -
+                            results_list[ind+1].max_bandwidth)
+                if delta > highest_delta:
+                    highest_delta = delta
+                    split_index_lower = ind + 1
+
+    highest_delta = 0
+    for ind, result in enumerate(results_list):
+        if ind > 0 and ind < len(results_list) - 1:
+            if result.max_bandwidth < results_list[ind-1].max_bandwidth and \
+                    result.max_bandwidth < results_list[ind+1].max_bandwidth:
+                delta = abs(result.max_bandwidth -
+                            results_list[ind-1].max_bandwidth) + \
+                        abs(result.max_bandwidth -
+                            results_list[ind+1].max_bandwidth)
+                if delta > highest_delta:
+                    highest_delta = delta
+                    split_index_upper = ind
+
+    M = np.array([(result.bytes_transferred, result.max_bandwidth)
+                 for result in results_list])
+
+    latency, inv_bw = get_alpha_beta_model(results_list)
+    s1_latency, s1_inv_bw = get_alpha_beta_model(results_list[:split_index_lower])
+    s2_inv_bw = get_beta_model(results_list[split_index_upper:], latency)
+
+    print("LATENCY:", latency, "BANDWIDTH:", 1/inv_bw/1e9)
+    print("REGION 1 LATENCY:", s1_latency, "REGION 1 BANDWIDTH:", 1/s1_inv_bw/1e9)
+    print("LATENCY:", latency, "REGION 2 BANDWIDTH:", 1/s2_inv_bw/1e9)
+
+    best_fit_bw = M[:, 0]/(latency + M[:, 0]*inv_bw)/1e9
+    s1_bw = M[:, 0]/(s1_latency + M[:, 0]*s1_inv_bw)/1e9
+    s2_bw = M[:, 0]/(latency + M[:, 0]*s2_inv_bw)/1e9
+
+    plt.figure()
+    plt.semilogx(M[:, 0], M[:, 1]/1e9)
+    plt.semilogx(M[:, 0], best_fit_bw)
+    plt.semilogx(M[:split_index_lower, 0], s1_bw[:split_index_lower])
+    plt.semilogx(M[split_index_upper:, 0], s2_bw[split_index_upper:])
     plt.xlabel("Bytes read + bytes written")
     plt.ylabel("Bandwidth (GBps)")
     plt.show()
@@ -439,8 +534,12 @@ if __name__ == "__main__":
 
     combined_list = loopy_results_list + enqueue_results_list
 
+    sorted_list = sorted(loopy_results_list, reverse=True,
+                         key=lambda result: result.avg_bandwidth)
+    print(sorted_list[0])
     # Loopy kernel is probably more indicative of real world performance
-    plot_bandwidth(loopy_results_list)
+    #plot_bandwidth(loopy_results_list)
+    plot_split_alpha_beta(loopy_results_list)
 
     """
     tmin_key = lambda result: result.tmin
