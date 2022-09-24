@@ -1,14 +1,20 @@
 import abc
 import numpy as np
+import pymbolic.primitives as p
 
 from loopy.symbolic import CombineMapper, Reduction
 from typing import Sequence, Any, FrozenSet, Iterable, Mapping, Tuple
-import pymbolic.primitives as p
 from feinsum.einsum import FusedEinsum, SummationAxis, ScalarT, EinsumAxisAccess
 from more_itertools import zip_equal as zip
+from functools import cached_property
+from dataclasses import dataclass
 
 
 class ReductionCollector(CombineMapper):
+    """
+    A mapper that collects all instances of :class:`loopy.symbolic.Reduction`
+    in an expression.
+    """
     def combine(self, values: Iterable[FrozenSet[p.Expression]]):
         from functools import reduce
         return reduce(frozenset.union, values, frozenset())
@@ -25,6 +31,11 @@ class ReductionCollector(CombineMapper):
 
 
 class IsReductionSurroundedByIf(CombineMapper):
+    """
+    Mapper that returns *True* only if the expression contains a reduction
+    expression that is conditionally executed depending on the values of
+    *free_indices*.
+    """
     def __init__(self, free_indices: FrozenSet[str]) -> None:
         self.free_indices = free_indices
         super().__init__()
@@ -56,7 +67,7 @@ class IsReductionSurroundedByIf(CombineMapper):
 
 def _strify_index_expr(access_descrs: Tuple[EinsumAxisAccess, ...],
                        access_descr_to_name: Mapping[EinsumAxisAccess, str]) -> str:
-    return f"[{', '.join(access_descr_to_name[descr] for descr in access_descrs)}]"
+    return f"[{','.join(access_descr_to_name[descr] for descr in access_descrs)}]"
 
 
 def template_einsum_as_str(einsum: FusedEinsum, iexpr: int) -> str:
@@ -83,19 +94,7 @@ def template_einsum_as_str(einsum: FusedEinsum, iexpr: int) -> str:
     return f"sum([{','.join(redn_index_names)}], {inner_expr})"
 
 
-class UseExtractor(CombineMapper):
-    """
-    Collects all instances of :class:`Use` in an expression.
-    """
-    def __init__(self, inames):
-        ...
-    ...
-
-
-class Match:
-    # TODO: Not quite sure what's the correct state to store here?!
-    ...
-
+# {{{
 
 class Use(abc.ABC):
     """
@@ -106,6 +105,7 @@ class Use(abc.ABC):
     """
 
 
+@dataclass(frozen=True)
 class PlainOldSubscriptUse(Use):
     """
     An unconditional global memory access per iteration point of the domain.
@@ -114,27 +114,114 @@ class PlainOldSubscriptUse(Use):
     indices: Tuple[p.Expression, ...]
 
 
+@dataclass(frozen=True)
 class ConditionalUse(Use):
+    """
+    A conditional global memory access per iteration point of the einsum's
+    domain. The condition depends on dimensions spanning the iteration domain.
+    """
     cond: p.Expression
     then: Use
     else_: Use
+
+# }}}
+
+
+class UseExtractor(CombineMapper):
+    """
+    Collects all instances of :class:`Use` in an expression.
+
+    .. attribute:: inames
+
+        A :class:`frozenset` of :class:`str` containing the names by which the
+        dimensions of einsum are referred to.
+    """
+    def __init__(self,
+                 inames: FrozenSet[str]) -> None:
+        super().__init__()
+        self.inames = inames
+
+    def combine(self, values: FrozenSet[Use]) -> FrozenSet[Use]:
+        from functools import reduce
+        return reduce(frozenset.union, values, frozenset())
+
+    @cached_property
+    def _dep_mapper(self):
+        from loopy.symbolic import DependencyMapper
+        return DependencyMapper()
+
+    def get_dependencies(self, expr: p.Expression) -> FrozenSet[str]:
+        return frozenset({x.name
+                          for x in self._dep_mapper(expr)})
+
+    def map_subscript(self, expr: p.Subscript) -> FrozenSet[Use]:
+        if not isinstance(expr.aggregate, p.Variable):
+            # TODO: Is this a case we even need to worry about?
+            raise NotImplementedError
+        if any(bool(self.get_dependencies(idx) & self.inames)
+               for idx in expr.index_tuple):
+            return frozenset([PlainOldSubscriptUse(
+                expr.aggregate.name, expr.index_tuple)])
+        else:
+            return frozenset()
+
+    def map_if(self, expr: p.If) -> FrozenSet[Use]:
+        if self.rec(expr.condition):
+            # the condition expression contains a use.
+            raise NotImplementedError(
+                "conditions that access variables in global"
+                " memory aren't (yet) supported.")
+        else:
+            if (self.get_dependencies(expr.condition) & self.inames):
+                then_uses = self.rec(expr.then)
+                else_uses = self.rec(expr.else_)
+                if len(then_uses) != len(else_uses):
+                    raise ValueError(f"Branches of '{expr}' have different number "
+                                     "of uses => disallowed as predicting its "
+                                     "performance is quite challenging.")
+
+                return frozenset([
+                    ConditionalUse(expr.condition, then_use, else_use)
+                    for then_use, else_use in zip(then_uses, else_uses)
+                ])
+            else:
+                # static condition. (not yet implemented)
+                raise NotImplementedError()
+
+    def map_constant(self, expr: Any) -> FrozenSet[Use]:
+        return frozenset()
+
+    def map_algebraic_leaf(self, expr: Any) -> FrozenSet[Use]:
+        return frozenset()
+
+
+@dataclass(frozen=True)
+class Match:
+    einsum_use_to_loopy_use: Mapping[str, Use]
+    loopy_operands: Tuple[Tuple[p.Expression, ...]]
 
 
 def match(exprs: Sequence[p.Expression],
           einsum: FusedEinsum,
           free_indices: Sequence[str],
           dtypes: Mapping[str, np.dtype[Any]],
-          shapes: Mapping[str, ScalarT]
+          shapes: Mapping[str, Tuple[ScalarT, ...]]
           ) -> Match:
     if len(exprs) != einsum.noutputs:
         raise ValueError("The number of outputs do not match.")
+
+    if len(free_indices) != einsum.ndim:
+        raise ValueError(f"Expected {einsum.ndim} free indices,"
+                         f" got {len(free_indices)}.")
 
     redn_collector = ReductionCollector()
     is_redn_surrounded_by_predicate = IsReductionSurroundedByIf(
         free_indices=frozenset(free_indices))
 
-    for expr in exprs:
+    for iexpr, (expr, use_row) in enumerate(zip(exprs, einsum.use_matrix)):
+        template_expr = template_einsum_as_str(einsum, iexpr)
         redns_in_expr = redn_collector(expr)
+
         if not redns_in_expr:
             if any(any(isinstance(access_descr, SummationAxis)
                        for access_descr in access_descrs)
@@ -165,9 +252,30 @@ def match(exprs: Sequence[p.Expression],
 
         if len(einsum.access_descriptors) > 1 and not isinstance(expr_to_match,
                                                                  p.Product):
-            raise ValueError("")
+            raise ValueError(
+                f"Cannot infer operands the '{expr}' as '{template_expr}'"
+                " since the reduction is not over a product expression."
+            )
 
-        print(expr_to_match)
+        if isinstance(expr_to_match, p.Product):
+            from pymbolic.primitives import flattened_product
+            einsum_terms: Tuple[p.Expression] = (flattened_product(expr_to_match
+                                                                   .children)
+                                                 .children)
+        else:
+            einsum_terms = (expr_to_match,)
+
+        if len(einsum_terms) < len(einsum.access_descriptors):
+            raise ValueError("Multiplicative terms in reduction of"
+                             f"{expr} are not enough for {template_expr}"
+                             " => matching unsuccessful.")
+
+        extracted_uses = tuple(
+            UseExtractor(
+                frozenset(free_indices) | set(redn_in_expr.inames))(operand_expr)
+            for operand_expr in einsum_terms)
+
+        print(extracted_uses)
         1/0
 
 # vim:fdm=marker
