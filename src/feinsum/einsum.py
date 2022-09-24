@@ -34,10 +34,10 @@ from more_itertools import zip_equal as zip
 from pytools import UniqueNameGenerator, memoize_method
 
 
-IntegralT = Union[int, np.int8, np.int16, np.int32, np.int64, np.uint8,
-                  np.uint16, np.uint32, np.uint64]
-INT_CLASSES = (int, np.int8, np.int16, np.int32, np.int64, np.uint8,
-               np.uint16, np.uint32, np.uint64)
+IntegralT = Union[int, np.integer]
+ScalarT = Union[np.number, int, np.bool_, bool, float, complex]
+INT_CLASSES = (int, np.integer)
+SCALAR_CLASSES = (np.number, int, np.bool_, bool, float, complex)
 
 
 ShapeComponentT = Union[IntegralT, "SizeParam"]
