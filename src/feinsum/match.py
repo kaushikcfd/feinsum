@@ -3,11 +3,13 @@ import numpy as np
 import pymbolic.primitives as p
 
 from loopy.symbolic import CombineMapper, Reduction
-from typing import Sequence, Any, FrozenSet, Iterable, Mapping, Tuple
+from typing import Sequence, Any, FrozenSet, Iterable, Mapping, Tuple, Set, Dict
 from feinsum.einsum import FusedEinsum, SummationAxis, ScalarT, EinsumAxisAccess
 from more_itertools import zip_equal as zip
 from functools import cached_property
 from dataclasses import dataclass
+from pytools import memoize_on_first_arg
+from immutables import Map
 
 
 class ReductionCollector(CombineMapper):
@@ -119,12 +121,44 @@ class ConditionalUse(Use):
     """
     A conditional global memory access per iteration point of the einsum's
     domain. The condition depends on dimensions spanning the iteration domain.
+
+    .. note::
+
+        - Since a :class:`Use` is associated with a fixed size global memory
+          access the data type of both branches of a conditional use must be
+          the same.
     """
     cond: p.Expression
     then: Use
     else_: Use
 
 # }}}
+
+
+class ConditionalUseDtypeMismatchError(ValueError):
+    """
+    Raised by :func:`_get_use_dtype` if it encounters a :class:`ConditionalUse`
+    which uses with different dtypes in both of its branches.
+    """
+
+
+@memoize_on_first_arg
+def _get_use_dtype(use: Use, var_name_to_dtype: Map[str, np.dtype[Any]]):
+    """
+    Returns the data type of *use*. By definition, *use* must be associated
+    with a single dtype.
+    """
+    if isinstance(use, PlainOldSubscriptUse):
+        return var_name_to_dtype[use.var_name]
+    elif isinstance(use, ConditionalUse):
+        then_dtype = _get_use_dtype(use.then, var_name_to_dtype)
+        else_dtype = _get_use_dtype(use.else_, var_name_to_dtype)
+        if then_dtype != else_dtype:
+            raise ConditionalUseDtypeMismatchError
+        else:
+            return then_dtype
+    else:
+        raise NotImplementedError(type(use))
 
 
 class UseExtractor(CombineMapper):
@@ -137,9 +171,11 @@ class UseExtractor(CombineMapper):
         dimensions of einsum are referred to.
     """
     def __init__(self,
-                 inames: FrozenSet[str]) -> None:
+                 inames: FrozenSet[str],
+                 var_to_dtype: Map[str, np.dtype[Any]]) -> None:
         super().__init__()
         self.inames = inames
+        self.var_to_dtype = var_to_dtype
 
     def combine(self, values: FrozenSet[Use]) -> FrozenSet[Use]:
         from functools import reduce
@@ -175,15 +211,46 @@ class UseExtractor(CombineMapper):
             if (self.get_dependencies(expr.condition) & self.inames):
                 then_uses = self.rec(expr.then)
                 else_uses = self.rec(expr.else_)
+
                 if len(then_uses) != len(else_uses):
                     raise ValueError(f"Branches of '{expr}' have different number "
                                      "of uses => disallowed as predicting its "
                                      "performance is quite challenging.")
 
-                return frozenset([
-                    ConditionalUse(expr.condition, then_use, else_use)
-                    for then_use, else_use in zip(then_uses, else_uses)
-                ])
+                dtype_to_then_uses: Dict[np.dtype[Any], Set[Use]] = {}
+                dtype_to_else_uses: Dict[np.dtype[Any], Set[Use]] = {}
+
+                try:
+                    for then_use, else_use in zip(then_uses, else_uses):
+                        dtype_to_then_uses.setdefault(_get_use_dtype(
+                                                        then_use,
+                                                        self.var_to_dtype),
+                                                      set()).add(then_use)
+                        dtype_to_else_uses.setdefault(_get_use_dtype(
+                                                        else_use,
+                                                        self.var_to_dtype),
+                                                      set()).add(else_use)
+                except ConditionalUseDtypeMismatchError:
+                    raise NotImplementedError("Matching with a weak-use match"
+                                              " is not supported.")
+
+                if (set(dtype_to_then_uses) != set(dtype_to_else_uses)
+                        or any((len(dtype_to_then_uses[dtype])
+                                != len(dtype_to_else_uses[dtype]))
+                               for dtype in dtype_to_then_uses)):
+                    raise NotImplementedError("matching with a weak-use match"
+                                              " is not supported.")
+                else:
+                    new_uses = set()
+                    for dtype in dtype_to_then_uses:
+                        new_uses.update({ConditionalUse(expr.condition,
+                                                        then_use,
+                                                        else_use)
+                                         for then_use, else_use in zip(
+                                             dtype_to_then_uses[dtype],
+                                             dtype_to_else_uses[dtype])})
+
+                    return frozenset(new_uses)
             else:
                 # static condition. (not yet implemented)
                 raise NotImplementedError()
@@ -204,7 +271,7 @@ class Match:
 def match(exprs: Sequence[p.Expression],
           einsum: FusedEinsum,
           free_indices: Sequence[str],
-          dtypes: Mapping[str, np.dtype[Any]],
+          dtypes: Mapping[str, Any],
           shapes: Mapping[str, Tuple[ScalarT, ...]]
           ) -> Match:
     if len(exprs) != einsum.noutputs:
@@ -215,6 +282,8 @@ def match(exprs: Sequence[p.Expression],
                          f" got {len(free_indices)}.")
 
     redn_collector = ReductionCollector()
+    var_to_dtype = {var: np.dtype(dtype)
+                    for var, dtype in dtypes.items()}
     is_redn_surrounded_by_predicate = IsReductionSurroundedByIf(
         free_indices=frozenset(free_indices))
 
@@ -272,8 +341,11 @@ def match(exprs: Sequence[p.Expression],
 
         extracted_uses = tuple(
             UseExtractor(
-                frozenset(free_indices) | set(redn_in_expr.inames))(operand_expr)
+                frozenset(free_indices) | set(redn_in_expr.inames),
+                Map(var_to_dtype))(operand_expr)
             for operand_expr in einsum_terms)
+
+        # TODO:Now just run some tests for th
 
         print(extracted_uses)
         1/0
