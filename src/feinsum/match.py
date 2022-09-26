@@ -328,9 +328,9 @@ def match(exprs: Sequence[p.Expression],
 
         if isinstance(expr_to_match, p.Product):
             from pymbolic.primitives import flattened_product
-            einsum_terms: Tuple[p.Expression] = (flattened_product(expr_to_match
+            einsum_terms: Tuple[p.Expression, ...] = (flattened_product(expr_to_match
                                                                    .children)
-                                                 .children)
+                                                      .children)
         else:
             einsum_terms = (expr_to_match,)
 
@@ -339,15 +339,37 @@ def match(exprs: Sequence[p.Expression],
                              f"{expr} are not enough for {template_expr}"
                              " => matching unsuccessful.")
 
-        extracted_uses = tuple(
-            UseExtractor(
-                frozenset(free_indices) | set(redn_in_expr.inames),
-                Map(var_to_dtype))(operand_expr)
-            for operand_expr in einsum_terms)
+        ieinsum_term = 0
+        matched_terms = []
+        use_extractor = UseExtractor(frozenset(free_indices)
+                                     | set(redn_in_expr.inames),
+                                     Map(var_to_dtype))
 
-        # TODO:Now just run some tests for th
+        for ref_einsum_uses in use_row:
+            acc_match_terms = []
+            extracted_uses = set()
 
-        print(extracted_uses)
-        1/0
+            while len(extracted_uses) < len(ref_einsum_uses):
+                if ieinsum_term >= len(einsum_terms):
+                    raise ValueError("Multiplicative terms in reduction of"
+                                     f"{expr} are not enough for {template_expr}"
+                                     " => matching unsuccessful.")
+                extracted_uses.update(use_extractor(einsum_terms[ieinsum_term]))
+                acc_match_terms.append(einsum_terms[ieinsum_term])
+                ieinsum_term += 1
+
+            if len(acc_match_terms) == 0:
+                matched_terms.append(1)
+            elif len(acc_match_terms) == len(ref_einsum_uses):
+                if len(acc_match_terms) == 1:
+                    matched_terms.append(acc_match_terms[0])
+                else:
+                    matched_terms.append(p.Product(tuple(acc_match_terms)))
+            else:
+                raise ValueError("Multiplicative terms in reduction of"
+                                 f"{expr} are not enough for {template_expr}"
+                                 " => matching unsuccessful.")
+
+        # Now run semantic checks on `matched_terms`.
 
 # vim:fdm=marker
