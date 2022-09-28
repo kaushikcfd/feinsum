@@ -159,7 +159,7 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
         dtype_out = dtype_in
 
     if n_in_max is None:
-        n_in_max = queue.device.max_mem_alloc_size // dtype_in().itemsize
+        n_in_max = queue.device.max_mem_alloc_size // (2*dtype_in().itemsize)
     if n_out_max is None:
         n_out_max = n_in_max
 
@@ -171,7 +171,7 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
     if n_out_max_bytes > queue.device.max_mem_alloc_size:
         raise ValueError("Maximum output length exceeds maximum allocation size")
 
-    pollute_size = queue.device.max_mem_alloc_size
+    pollute_size = queue.device.max_mem_alloc_size // 2
     # Could probably get by with something smaller
     #pollute_size = min(10*queue.device.global_mem_cache_size,
     #                    queue.device.max_mem_alloc_size)
@@ -532,6 +532,9 @@ if __name__ == "__main__":
         queue, dtype=None, fill_on_device=False, max_used_bytes=None,
         print_results=True)
 
+    plot_split_alpha_beta(loopy_results_list)
+    #plot_split_alpha_beta(enqueue_results_list)
+    #exit()
     combined_list = loopy_results_list + enqueue_results_list
 
     sorted_list = sorted(loopy_results_list, reverse=True,
@@ -539,7 +542,8 @@ if __name__ == "__main__":
     print(sorted_list[0])
     # Loopy kernel is probably more indicative of real world performance
     #plot_bandwidth(loopy_results_list)
-    plot_split_alpha_beta(loopy_results_list)
+    #plot_split_alpha_beta(enqueue_results_list)
+    #plot_split_alpha_beta(loopy_results_list)
 
     """
     tmin_key = lambda result: result.tmin
