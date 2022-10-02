@@ -153,10 +153,8 @@ def _get_use_dtype(use: Use, var_name_to_dtype: Map[str, np.dtype[Any]]):
     elif isinstance(use, ConditionalUse):
         then_dtype = _get_use_dtype(use.then, var_name_to_dtype)
         else_dtype = _get_use_dtype(use.else_, var_name_to_dtype)
-        if then_dtype != else_dtype:
-            raise ConditionalUseDtypeMismatchError
-        else:
-            return then_dtype
+        assert then_dtype == else_dtype
+        return then_dtype
     else:
         raise NotImplementedError(type(use))
 
@@ -204,6 +202,7 @@ class UseExtractor(CombineMapper):
     def map_if(self, expr: p.If) -> FrozenSet[Use]:
         if self.rec(expr.condition):
             # the condition expression contains a use.
+            # This is the case of a weak use?
             raise NotImplementedError(
                 "conditions that access variables in global"
                 " memory aren't (yet) supported.")
@@ -220,26 +219,23 @@ class UseExtractor(CombineMapper):
                 dtype_to_then_uses: Dict[np.dtype[Any], Set[Use]] = {}
                 dtype_to_else_uses: Dict[np.dtype[Any], Set[Use]] = {}
 
-                try:
-                    for then_use, else_use in zip(then_uses, else_uses):
-                        dtype_to_then_uses.setdefault(_get_use_dtype(
-                                                        then_use,
-                                                        self.var_to_dtype),
-                                                      set()).add(then_use)
-                        dtype_to_else_uses.setdefault(_get_use_dtype(
-                                                        else_use,
-                                                        self.var_to_dtype),
-                                                      set()).add(else_use)
-                except ConditionalUseDtypeMismatchError:
-                    raise NotImplementedError("Matching with a weak-use match"
-                                              " is not supported.")
+                for then_use, else_use in zip(then_uses, else_uses):
+                    dtype_to_then_uses.setdefault(_get_use_dtype(
+                                                    then_use,
+                                                    self.var_to_dtype),
+                                                  set()).add(then_use)
+                    dtype_to_else_uses.setdefault(_get_use_dtype(
+                                                    else_use,
+                                                    self.var_to_dtype),
+                                                  set()).add(else_use)
 
                 if (set(dtype_to_then_uses) != set(dtype_to_else_uses)
                         or any((len(dtype_to_then_uses[dtype])
                                 != len(dtype_to_else_uses[dtype]))
                                for dtype in dtype_to_then_uses)):
-                    raise NotImplementedError("matching with a weak-use match"
-                                              " is not supported.")
+                    raise ValueError(f"Branches of '{expr}' have different number "
+                                     "of uses => disallowed as predicting its "
+                                     "performance is quite challenging.")
                 else:
                     new_uses = set()
                     for dtype in dtype_to_then_uses:
@@ -266,6 +262,12 @@ class UseExtractor(CombineMapper):
 class Match:
     einsum_use_to_loopy_use: Mapping[str, Use]
     loopy_operands: Tuple[Tuple[p.Expression, ...]]
+
+
+class RaisedUse:
+    shape: ...
+    indices: ...
+    use: ...
 
 
 def match(exprs: Sequence[p.Expression],
@@ -340,6 +342,7 @@ def match(exprs: Sequence[p.Expression],
                              " => matching unsuccessful.")
 
         ieinsum_term = 0
+        matched_use_row = []
         matched_terms = []
         use_extractor = UseExtractor(frozenset(free_indices)
                                      | set(redn_in_expr.inames),
@@ -367,9 +370,30 @@ def match(exprs: Sequence[p.Expression],
                     matched_terms.append(p.Product(tuple(acc_match_terms)))
             else:
                 raise ValueError("Multiplicative terms in reduction of"
-                                 f"{expr} are not enough for {template_expr}"
-                                 " => matching unsuccessful.")
+                                 f" {expr} are more than what was expected"
+                                 f" for {template_expr} => matching unsuccessful.")
+            matched_use_row.append(frozenset(extracted_uses))
 
-        # Now run semantic checks on `matched_terms`.
+        for imatched_term, (matched_uses, matched_term) in enumerate(
+                zip(matched_use_row, matched_terms)):
+            print(f"{imatched_term} => ({matched_term},"
+                  f" len={len(matched_uses)}, {matched_uses})")
+
+        # {{{ dimensionality checks
+
+        for arg_shape, uses in matched_use_row:
+            for use in uses:
+                use_ndim = _get_ndim_from_use(use,
+                                              (frozenset(free_indices)
+                                               | set(redn_in_expr.inames)))
+                if len(arg_shape) != use_ndim:
+                    raise ValueError(f"Expected a {len(arg_shape)}-dimensional,"
+                                     f" got {use_ndim}-dimensional expression.")
+
+        # }}}
+
+        # Now run semantic checks on `matched_use_row`?
+        # Option (1). Check if it is a legal match.
+        # Option (2). Lower to a normalized form and then assume perfect match.
 
 # vim:fdm=marker
