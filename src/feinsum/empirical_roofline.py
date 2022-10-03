@@ -158,23 +158,28 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
     if dtype_out is None:
         dtype_out = dtype_in
 
+    try:
+        max_shape_bytes = queue.device.global_variable_preferred_total_size // 2
+    except cl._cl.LogicError:
+        max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_mem_size // 2)
+    max_shape_bytes = (max_shape_bytes // dtype_in().itemsize)*dtype_in().itemsize
+
     if n_in_max is None:
-        n_in_max = queue.device.max_mem_alloc_size // (2*dtype_in().itemsize)
+        n_in_max = max_shape_bytes // dtype_in().itemsize
     if n_out_max is None:
         n_out_max = n_in_max
 
     n_in_max_bytes = n_in_max*dtype_in().itemsize
     n_out_max_bytes = n_out_max*dtype_out().itemsize
 
-    if n_in_max_bytes > queue.device.max_mem_alloc_size:
-        raise ValueError("Maximum input length exceeds maximum allocation size")
-    if n_out_max_bytes > queue.device.max_mem_alloc_size:
-        raise ValueError("Maximum output length exceeds maximum allocation size")
+    assert n_in_max_bytes <= queue.device.max_mem_alloc_size
+    assert n_out_max_bytes <= queue.device.max_mem_alloc_size
+    assert n_in_max_bytes + n_out_max_bytes <= queue.device.global_mem_size
 
-    pollute_size = queue.device.max_mem_alloc_size // 2
+    pollute_size = max_shape_bytes
     # Could probably get by with something smaller
-    #pollute_size = min(10*queue.device.global_mem_cache_size,
-    #                    queue.device.max_mem_alloc_size)
+    #pollute_size = min(100*queue.device.global_mem_cache_size,
+    #                    max_shape_bytes)
 
     ogti = n_out_max > n_in_max
     igto = n_in_max > n_out_max
@@ -334,19 +339,21 @@ def enqueue_copy_bandwidth_test(
     if dtype is None:
         dtype = np.int32 if fill_on_device else np.int8
 
-    if max_used_bytes is None:
-        max_shape_bytes = queue.device.max_mem_alloc_size
-    else:
+    try:
+        max_shape_bytes = queue.device.global_variable_preferred_total_size // 2
+    except cl._cl.LogicError:
+        max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_mem_size // 2)
+
+    if max_used_bytes is not None:
+        assert max_used_bytes // 2 <= queue.device.max_mem_alloc_size
+        assert max_used_bytes <= queue.device.global_mem_size
         max_shape_bytes = max_used_bytes // 2
 
+    # Redefine max_shape_bytes in case there is a remainder in the division
     word_size = dtype().itemsize
     max_shape_dtype = max_shape_bytes // word_size
-    # Redefine max_shape_bytes in case there is a remainder in the division
     max_shape_bytes = max_shape_dtype*word_size
     max_used_bytes = 2*max_shape_bytes
-
-    if max_shape_bytes > queue.device.max_mem_alloc_size:
-        raise ValueError("max_shape_bytes is larger than can be allocated")
 
     d_in_buf, d_out_buf = get_buffers(
         queue, dtype, max_shape_dtype, fill_on_device=fill_on_device)
@@ -354,10 +361,10 @@ def enqueue_copy_bandwidth_test(
     word_count_list = get_word_counts(max_shape_dtype)
     results_list = []
 
-    pollute_size = queue.device.max_mem_alloc_size
+    pollute_size = max_shape_bytes#queue.device.max_mem_alloc_size
     # Could probably get by with something smaller
-    #pollute_size = min(10*queue.device.global_mem_cache_size,
-    #                   queue.device.max_mem_alloc_size)
+    #pollute_size = min(100*queue.device.global_mem_cache_size,
+    #                   max_shape_bytes)
 
     for word_count in word_count_list:
         dt_max = 0
