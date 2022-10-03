@@ -180,7 +180,7 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
                         ntrials=100, fast=True, print_results=False,
                         pollute_caches=True):
 
-    if pollute_caches and n_in_max is not None and n_out_max is not None:
+    if pollute_caches and n_in_max is not None and n_out_max is not None and dtype_out is not None:
         raise ValueError(
             "Cache pollution only available when max sizes are unspecified")
 
@@ -196,12 +196,12 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
     except cl._cl.LogicError:
         max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_mem_size // 2)
 
-    max_shape_bytes = (max_shape_bytes // dtype_in().itemsize)*dtype_in().itemsize
+    #max_shape_bytes = (max_shape_bytes // dtype_in().itemsize)*dtype_in().itemsize
 
     if n_in_max is None:
         n_in_max = max_shape_bytes // dtype_in().itemsize
     if n_out_max is None:
-        n_out_max = n_in_max
+        n_out_max = max_shape_bytes // dtype_out().itemsize
 
     n_in_max_bytes = n_in_max*dtype_in().itemsize
     n_out_max_bytes = n_out_max*dtype_out().itemsize
@@ -210,10 +210,10 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
     assert n_out_max_bytes <= queue.device.max_mem_alloc_size
     assert n_in_max_bytes + n_out_max_bytes <= queue.device.global_mem_size
 
-    pollute_size = max_shape_bytes
+    pollute_size = n_in_max_bytes
     # Could probably get by with something smaller
     #pollute_size = min(100*queue.device.global_mem_cache_size,
-    #                    max_shape_bytes)
+    #                    n_in_max_bytes)
 
     ogti = n_out_max > n_in_max
     igto = n_in_max > n_out_max
@@ -572,13 +572,13 @@ if __name__ == "__main__":
     flop_rate = get_theoretical_maximum_flop_rate(queue, np.float64)
     print("FLOP RATE (GFLOP/s)", flop_rate / 1e9)
 
-    #loopy_results_list = loopy_bandwidth_test(queue, fast=True,
-    #    print_results=True, fill_on_device=True)
+    loopy_results_list = loopy_bandwidth_test(queue, fast=True,
+        print_results=True, fill_on_device=True)
     enqueue_results_list = enqueue_copy_bandwidth_test(
         queue, dtype=None, fill_on_device=False, max_used_bytes=None,
         print_results=True)
 
-    #plot_split_alpha_beta(loopy_results_list)
+    plot_split_alpha_beta(loopy_results_list)
     plot_split_alpha_beta(enqueue_results_list)
     #exit()
     combined_list = loopy_results_list + enqueue_results_list
