@@ -45,6 +45,37 @@ class BandwidthTestResult():
     def min_bandwidth(self):
         return self.bytes_transferred/self.tmax
 
+def get_theoretical_maximum_flop_rate(queue, dtype):
+    clock_speed = queue.device.max_clock_frequency * 1.0e6
+    compute_units = queue.device.max_compute_units
+    madd_rate = 2 # Number of multiply add ops per cycle
+    try:
+        simd_size = queue.device.preferred_work_group_size_multiple
+    except cl._cl.LogicError:
+        if 'NVIDIA' in queue.device.vendor:
+            simd_size = queue.device.warp_size_nv
+        elif 'Advanced Micro Devices' in queue.device.vendor:
+            simd_size = queue.device.work_group_size_amd
+
+    # For some reason the number of shader units for nvidia
+    # is 2*simd_size*compute_units. Probably varies depending
+    # on the device.
+    simd_multiple = 2 if 'NVIDIA' in queue.device.vendor else 1
+
+    shading_units = compute_units*simd_size*simd_multiple
+    
+    # May vary depending on the data type
+    if dtype == np.float32:
+        cycles_per_flop = 1
+    elif dtype == np.float64:
+        # Can vary depending on the GPU. This only handles
+        # the Titan V, V100, A100, MI100, and MI250X
+        cycles_per_flop = 1 if "gfx90a" in queue.device.name else 2
+    else:
+        raise ValueError("Unhandled flop type")
+
+    return (clock_speed*shading_units*madd_rate) // cycles_per_flop 
+
 
 def get_buffers(queue, dtype_in, n_dtype_in, dtype_out=None,
                 n_dtype_out=None, fill_on_device=True):
@@ -532,6 +563,9 @@ if __name__ == "__main__":
     context = cl.create_some_context(interactive=True)
     queue = cl.CommandQueue(
         context, properties=cl.command_queue_properties.PROFILING_ENABLE)
+
+    flop_rate = get_theoretical_maximum_flop_rate(queue, np.float64)
+    print("FLOP RATE (GFLOP/s)", flop_rate / 1e9)
 
     loopy_results_list = loopy_bandwidth_test(queue, fast=True,
         print_results=True, fill_on_device=True)
