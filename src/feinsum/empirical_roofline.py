@@ -190,7 +190,7 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
         dtype_out = dtype_in
 
     try:
-        max_shape_bytes = queue.device.global_variable_preferred_total_size // 2
+        max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_variable_preferred_total_size // 2)
         if max_shape_bytes == 0:
             raise cl._cl.LogicError
     except cl._cl.LogicError:
@@ -377,7 +377,7 @@ def enqueue_copy_bandwidth_test(
         dtype = np.int32 if fill_on_device else np.int8
 
     try:
-        max_shape_bytes = queue.device.global_variable_preferred_total_size // 2
+        max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_variable_preferred_total_size // 2)
         if max_shape_bytes == 0:
             raise cl._cl.LogicError
     except cl._cl.LogicError:
