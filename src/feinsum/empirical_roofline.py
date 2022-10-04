@@ -194,14 +194,17 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
         if max_shape_bytes == 0:
             raise cl._cl.LogicError
     except cl._cl.LogicError:
-        max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_mem_size // 2)
+        if "A100-SXM4" in queue.device.name:
+            max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_mem_size // 5)
+        else:
+            max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_mem_size // 2)
 
     #max_shape_bytes = (max_shape_bytes // dtype_in().itemsize)*dtype_in().itemsize
 
     if n_in_max is None:
-        n_in_max = max_shape_bytes // dtype_in().itemsize
+        n_in_max = max_shape_bytes // max(dtype_in().itemsize, dtype_out().itemsize)
     if n_out_max is None:
-        n_out_max = max_shape_bytes // dtype_out().itemsize
+        n_out_max = n_in_max
 
     n_in_max_bytes = n_in_max*dtype_in().itemsize
     n_out_max_bytes = n_out_max*dtype_out().itemsize
