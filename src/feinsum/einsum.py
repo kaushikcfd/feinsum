@@ -26,8 +26,7 @@ from __future__ import annotations
 import abc
 import numpy as np
 
-from pyrsistent.typing import PMap as PMapT
-from pyrsistent import pmap
+from immutables import Map
 from typing import Union, Tuple, Any, FrozenSet, List
 from dataclasses import dataclass
 from functools import cached_property
@@ -110,17 +109,17 @@ class FusedEinsum:
     .. automethod:: get_subscripts
     """
     arg_shapes: Tuple[ShapeT, ...]
-    value_to_dtype: PMapT[str, np.dtype[Any]]
+    value_to_dtype: Map[str, np.dtype[Any]]
     access_descriptors: Tuple[Tuple[EinsumAxisAccess, ...], ...]
     use_matrix: Tuple[Tuple[FrozenSet[str], ...], ...]
-    index_names: PMapT[EinsumAxisAccess, str]
+    index_names: Map[EinsumAxisAccess, str]
 
     @property
     def noutputs(self) -> int:
         return len(self.use_matrix)
 
     @memoize_method
-    def index_to_dim_length(self) -> PMapT[EinsumAxisAccess, ShapeComponentT]:
+    def index_to_dim_length(self) -> Map[EinsumAxisAccess, ShapeComponentT]:
         index_to_dim = {}
         for arg_shape, arg_axes in zip(self.arg_shapes,
                                        self.access_descriptors):
@@ -130,7 +129,7 @@ class FusedEinsum:
                 else:
                     assert dim == index_to_dim[index]
 
-        return pmap(index_to_dim)
+        return Map(index_to_dim)
 
     @cached_property
     def shape(self) -> ShapeT:

@@ -14,8 +14,7 @@ import pymbolic.primitives as p
 
 from multiset import Multiset
 from typing import Union, ClassVar, Optional, Tuple, FrozenSet, Any, Dict, List
-from pyrsistent.typing import PMap as PMapT
-from pyrsistent import pmap
+from immutables import Map
 from dataclasses import dataclass
 from more_itertools import zip_equal as szip
 from pymbolic.interop.matchpy.tofrom import (
@@ -240,7 +239,7 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
                            insn_match: Any = None,
                            long_dim_length: int = 500,
                            inames_only: bool = False,
-                           ) -> PMapT[str, str]:
+                           ) -> Map[str, str]:
     """
     Returns a mapping from the variable names in *ref_einsum* to the variables
     in *t_unit*. The unification is done by matching the instructions tagged
@@ -310,7 +309,7 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
         if len([ax
                 for ax in ref_einsum.index_to_dim_length().items()
                 if isinstance(ax, SummationAxis)]) == 0:
-            return pmap(subst_map)
+            return Map(subst_map)
         else:
             raise NotImplementedError("inames_only matching for"
                                       " einsums with contraction.")
@@ -369,7 +368,7 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit, ref_einsum: FusedEinsum,
 
     # }}}
 
-    return pmap(subst_map)
+    return Map(subst_map)
 
 
 def extract_einsum_terms_as_subst(t_unit: lp.TranslationUnit,
@@ -539,7 +538,7 @@ def match_einsum(t_unit: lp.TranslationUnit,
                   for insn in insns
                   for child in flatten(insn.expression.expr).children}
 
-    value_to_dtype = pmap(
+    value_to_dtype = Map(
         {val: kernel.arg_dict.get(val, kernel.temporary_variables.get(val)).dtype
          for val in all_values}
     )
@@ -561,10 +560,9 @@ def match_einsum(t_unit: lp.TranslationUnit,
     arg_shapes, = arg_shape_of_all_insns
 
     index_names = {}
-    # type-ignore reason: List is invariant
-    sorted_axes: List[EinsumAxisAccess] = ([FreeAxis(i)  # type: ignore[assignment]
+    sorted_axes: List[EinsumAxisAccess] = ([FreeAxis(i)
                                             for i in range(len(free_indices))]
-                                           + [SummationAxis(i)  # type: ignore[misc]
+                                           + [SummationAxis(i)
                                               for i in range(len(redn_indices))])
     for idx, ichr in zip(sorted_axes, range(97, 123)):
         index_names[idx] = chr(ichr)

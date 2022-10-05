@@ -21,7 +21,7 @@ from feinsum.einsum import (FusedEinsum, FreeAxis, SummationAxis,
                             get_trivial_contraction_schedule)
 from feinsum.make_einsum import fused_einsum
 from more_itertools import zip_equal as szip
-from pyrsistent import pmap
+from immutables import Map
 
 
 LOOPY_LANG_VERSION = (2018, 2)
@@ -148,10 +148,10 @@ def generate_loopy(einsum: FusedEinsum,
                                          for result_name in schedule.result_names)
                                    for _ in range(einsum.noutputs))
 
-    name_in_feinsum_to_lpy = tuple(pmap({feinsum_name: lpy_name
-                                         for feinsum_name, lpy_name in szip(
-                                                 schedule.result_names,
-                                                 result_name_in_lpy_knl[i_output])})
+    name_in_feinsum_to_lpy = tuple(Map({feinsum_name: lpy_name
+                                        for feinsum_name, lpy_name in szip(
+                                                schedule.result_names,
+                                                result_name_in_lpy_knl[i_output])})
                                    for i_output in range(einsum.noutputs))
 
     # }}}
@@ -209,10 +209,10 @@ def generate_loopy(einsum: FusedEinsum,
         subeinsum = fused_einsum(subscripts,
                                  [arg_to_shape[arg] for arg in args],
                                  subeinsum_use_matrix,
-                                 value_to_dtype=pmap(subeinsum_value_to_dtype))
+                                 value_to_dtype=Map(subeinsum_value_to_dtype))
         subeinsum = subeinsum.copy(
-            index_names=pmap({idx: name if istep == 0 else f"{name}_{istep-1}"
-                              for idx, name in subeinsum.index_names.items()}))
+            index_names=Map({idx: name if istep == 0 else f"{name}_{istep-1}"
+                             for idx, name in subeinsum.index_names.items()}))
         arg_to_shape[IntermediateResult(name_in_feinsum)] = subeinsum.shape
 
         subeinsum_domain, subeinsum_statements = _generate_trivial_einsum(
