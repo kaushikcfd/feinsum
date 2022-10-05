@@ -40,8 +40,7 @@ import numpy.typing as npt
 from typing import (Tuple, Protocol, Any, List, Sequence, Optional, Mapping,
                     FrozenSet, Union, Dict)
 from dataclasses import dataclass
-from pyrsistent import pmap
-from pyrsistent.typing import PMap as PMapT
+from immutables import Map
 from feinsum.einsum import (FusedEinsum, FreeAxis,
                             SummationAxis, EinsumAxisAccess, VeryLongAxis,
                             INT_CLASSES, IntegralT, SizeParam)
@@ -103,7 +102,7 @@ def array(shape: Any, dtype: npt.DTypeLike) -> Array:
 EINSUM_FIRST_INDEX = re.compile(r"^\s*((?P<alpha>[a-zA-Z])|(?P<ellipsis>\.\.\.))\s*")
 
 
-def _normalize_einsum_out_subscript(subscript: str) -> PMapT[str,
+def _normalize_einsum_out_subscript(subscript: str) -> Map[str,
                                                              EinsumAxisAccess]:
     """
     Normalizes the output subscript of an einsum (provided in the explicit
@@ -139,19 +138,19 @@ def _normalize_einsum_out_subscript(subscript: str) -> PMapT[str,
         raise ValueError("Used an input more than once to refer to the"
                          f" output axis in '{subscript}")
 
-    return pmap({idx: FreeAxis(i)
+    return Map({idx: FreeAxis(i)
                  for i, idx in enumerate(normalized_indices)})
 
 
 def _normalize_einsum_in_subscript(subscript: str,
                                    in_operand_shape: ShapeT,
-                                   index_to_descr: PMapT[str,
+                                   index_to_descr: Map[str,
                                                         EinsumAxisAccess],
-                                   index_to_axis_length: PMapT[str,
+                                   index_to_axis_length: Map[str,
                                                                ShapeComponentT],
                                    ) -> Tuple[Tuple[EinsumAxisAccess, ...],
-                                              PMapT[str, EinsumAxisAccess],
-                                              PMapT[str, ShapeComponentT]]:
+                                              Map[str, EinsumAxisAccess],
+                                              Map[str, ShapeComponentT]]:
     """
     Normalizes the subscript for an input operand in an einsum. Returns
     ``(access_descrs, updated_index_to_descr, updated_to_index_to_axis_length)``,
@@ -227,7 +226,7 @@ def _normalize_einsum_in_subscript(subscript: str,
 def _parse_subscripts(subscripts: str,
                       operand_shapes: Tuple[ShapeT, ...]
                       ) -> Tuple[Tuple[Tuple[EinsumAxisAccess, ...], ...],
-                                 PMapT[str, EinsumAxisAccess]]:
+                                 Map[str, EinsumAxisAccess]]:
     if len(operand_shapes) == 0:
         raise ValueError("must specify at least one operand")
 
@@ -250,7 +249,7 @@ def _parse_subscripts(subscripts: str,
         )
 
     index_to_descr = _normalize_einsum_out_subscript(out_spec)
-    index_to_axis_length: PMapT[str, ShapeComponentT] = pmap()
+    index_to_axis_length: Map[str, ShapeComponentT] = Map()
     access_descriptors = []
 
     for in_spec, in_operand_shape in szip(in_specs, operand_shapes):
@@ -334,7 +333,7 @@ def fused_einsum(subscripts: str,
 
     # }}}
 
-    axis_to_name = pmap({v: k for k, v in index_to_descr.items()})
+    axis_to_name = Map({v: k for k, v in index_to_descr.items()})
     vng = UniqueNameGenerator()
     vng.add_names(value_to_proc_dtype.keys())
 
@@ -368,7 +367,7 @@ def fused_einsum(subscripts: str,
     # }}}
 
     return FusedEinsum(tuple(size_param_op_shapes),
-                       pmap(value_to_proc_dtype),
+                       Map(value_to_proc_dtype),
                        access_descriptors,
                        tuple(tuple(use_row)
                              for use_row in use_matrix),
