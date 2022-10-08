@@ -196,7 +196,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                  manipulator: Optional[Any] = None,
                  objective: Optional[Any] = None,
                  input_manager: Optional[Any] = None) -> None:
-        from feinsum.normalization import normalize_einsum
+        from feinsum.canonicalization import canonicalize_einsum
         super().__init__(args=args,
                          project_name=project_name,
                          program_name=program_name,
@@ -205,7 +205,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                          objective=objective,
                          input_manager=input_manager)
 
-        self.einsum = normalize_einsum(einsum)
+        self.einsum = canonicalize_einsum(einsum)
         self.cl_ctx = cl_ctx
         self.module_path = module_path
         self.long_dim_length = long_dim_length

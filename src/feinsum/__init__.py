@@ -16,7 +16,7 @@ from feinsum.loopy_utils import (match_t_unit_to_einsum,
                                  extract_einsum_terms_as_subst,
                                  hoist_reduction_invariant_terms,
                                  match_einsum)
-from feinsum.normalization import normalize_einsum
+from feinsum.canonicalization import canonicalize_einsum
 from feinsum.cl_utils import make_fake_cl_context
 from feinsum.tuning import autotune
 
@@ -40,7 +40,7 @@ __all__ = (
     "match_t_unit_to_einsum", "hoist_reduction_invariant_terms",
     "extract_einsum_terms_as_subst", "match_einsum",
 
-    "normalize_einsum",
+    "canonicalize_einsum",
 
     "make_fake_cl_context",
 

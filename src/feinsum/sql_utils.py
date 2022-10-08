@@ -133,9 +133,8 @@ def query(einsum: FusedEinsum,
         recorded runs corresponding to *einsum* are available in *database*.
         Defaults to *False*.
     """
-    # TODO: This should  somehow solve the normalized FusedEinsum problem.
-    from feinsum.normalization import normalize_einsum
-    einsum = normalize_einsum(einsum)
+    from feinsum.canonicalization import canonicalize_einsum
+    einsum = canonicalize_einsum(einsum)
     conn = sqlite3.connect(database)
     cursor = conn.cursor()
 
