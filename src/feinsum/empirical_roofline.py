@@ -4,6 +4,9 @@ import loopy as lp
 import pyopencl.clrandom as clrandom
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
+import shlex
+import subprocess
+from subprocess import check_output
 
 # Will get queues for each device with the same name
 # since different CL implementations may have different
@@ -20,6 +23,7 @@ def get_queues_like(queue):
                     context, properties=cl.command_queue_properties.PROFILING_ENABLE)
                 queues.append(queue)
     return queues
+
 
 
 @dataclass
@@ -566,14 +570,89 @@ def plot_split_alpha_beta(results_list):
     plt.show()
 
 
+def get_indices_from_queue(queue):
+    dev = queue.device
+    if "NVIDIA" in dev.vendor:
+        pcie_id = dev.pci_bus_id_nv
+    elif dev.vendor == "Advanced Micro Devices":
+        pcie_id = dev.pcie_id_amd
+    else:
+        raise RuntimeError("Device does not have a PCI-Express bus ID")
+
+    for platform_number, platform in enumerate(cl.get_platforms()):
+        for device_number, d in enumerate(platform.get_devices()):
+            if "NVIDIA" in d.vendor:
+                d_pcie_id = d.pci_bus_id_nv
+            elif dev.vendor == "Advanced Micro Devices":
+                d_pcie_id = d.pcie_id_amd
+            else:
+                d_pcie_id = None
+
+            if pcie_id == d_pcie_id:
+                # We found the device
+                return platform_number, device_number
+
+    raise ValueError("Unable to obtain platform and device numbers from queue")
+
+
+def get_max_bandwidth_clpeak(queue=None, platform_number=0, device_number=0):
+    
+    if queue is not None:
+        platform_number, device_number = get_indices_from_queue(queue)
+
+    output = check_output(shlex.split(f"clpeak -p {platform_number} -d {device_number} --global-bandwidth"))
+    output_split = output.decode().split()
+    bandwidths = []
+    for ind, entry in enumerate(output_split):
+        if "float" in entry:
+            bandwidths.append(float(output_split[ind + 2]))
+    max_el = np.array(bandwidths).max()*1e9
+    return max_el
+
+
+def get_max_flop_rate_clpeak(dtype, queue=None, platform_number=0, device_number=0):
+    
+    if queue is not None:
+        platform_number, device_number = get_indices_from_queue(queue)
+
+    if dtype == np.float64:
+        float_str = "dp"
+    elif dtype == np.float32:
+        float_str = "sp"
+    elif dtype == np.float16:
+        float_str = "hp"
+    else:
+        raise ValueError(f"Cannot handle dtype {dtype}")
+
+    output = check_output(shlex.split(f"clpeak -p {platform_number} -d {device_number} --compute-{float_str}"))
+
+    output_split = output.decode().split()
+    flop_rates = []
+    for ind, entry in enumerate(output_split):
+        # Work around for message about half precision support in dp test
+        if (dtype == np.float64 and "double" in entry) or \
+            (dtype == np.float32 and "float" in entry) or \
+            (dtype == np.float16 and "half" in entry):
+            if not output_split[ind + 2] == "support":
+                flop_rates.append(float(output_split[ind + 2]))
+    if len(flop_rates) == 0:
+        raise ValueError(f"No support for {dtype} on device")
+
+    max_el = np.array(flop_rates).max()*1e9
+    return max_el
+
+
 if __name__ == "__main__":
 
     context = cl.create_some_context(interactive=True)
     queue = cl.CommandQueue(
         context, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
+    get_max_bandwidth_clpeak(queue=queue, platform_number=0, device_number=0)
+    get_max_flop_rate_clpeak(np.float64, queue=queue, platform_number=0, device_number=0)
+
     flop_rate = get_theoretical_maximum_flop_rate(queue, np.float64)
-    print("FLOP RATE (GFLOP/s)", flop_rate / 1e9)
+    print("MAX THEORETICAL FLOP RATE (GFLOP/s)", flop_rate / 1e9)
 
     loopy_results_list = loopy_bandwidth_test(queue, fast=True,
         print_results=True, fill_on_device=True)
