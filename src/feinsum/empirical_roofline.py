@@ -641,9 +641,12 @@ def get_max_flop_rate_clpeak(dtype, queue=None, platform_number=0, device_number
     max_el = np.array(flop_rates).max()*1e9
     return max_el
 
-# Remove the effect of latency from the bandwidth calculation
+# Remove the effect of latency from the bandwidth calculation.
 def calc_latency_adjusted_bandwidth(latency, total_time, bytes_transferred):
-    return bytes_transferred / (total_time - latency)
+    denominator = total_time - latency
+    assert latency >= 0
+    assert denominator > 0
+    return bytes_transferred / denominator
 
 # Adds the effect of latency to the bandwidth calculation
 def calc_effective_bandwidth(latency, bandwidth, bytes_transferred):
