@@ -641,6 +641,35 @@ def get_max_flop_rate_clpeak(dtype, queue=None, platform_number=0, device_number
     max_el = np.array(flop_rates).max()*1e9
     return max_el
 
+# Remove the effect of latency from the bandwidth calculation
+def calc_latency_adjusted_bandwidth(latency, total_time, bytes_transferred):
+    return bytes_transferred / (total_time - latency)
+
+# Adds the effect of latency to the bandwidth calculation
+def calc_effective_bandwidth(latency, bandwidth, bytes_transferred):
+    return bytes_transferred / (bytes_transferred / bandwidth + latency)
+
+def get_min_device_memory_latency(results_list):
+    sorted_list = sorted(results_list, reverse=False,
+                         key=lambda result: result.tmin)
+    return sorted_list[0].tmin
+   
+def get_max_device_memory_bandwidth(results_list):
+    sorted_list = sorted(results_list, reverse=True,
+                         key=lambda result: result.max_bandwidth)
+    return sorted_list[0].max_bandwidth
+    
+def get_latency_adjusted_max_device_memory_bandwidth(results_list):
+    sorted_list = sorted(results_list, reverse=False,
+                         key=lambda result: result.tmin)
+    latency = sorted_list[0].tmin
+
+    sorted_list = sorted(results_list, reverse=True,
+                         key=lambda result: result.max_bandwidth)
+    tmin = sorted_list[0].tmin
+    bytes_transferred = sorted_list[0].bytes_transferred
+    return calc_latency_adjusted_bandwidth(latency, tmin, bytes_transferred)
+    
 
 if __name__ == "__main__":
 
@@ -648,11 +677,6 @@ if __name__ == "__main__":
     queue = cl.CommandQueue(
         context, properties=cl.command_queue_properties.PROFILING_ENABLE)
 
-    get_max_bandwidth_clpeak(queue=queue, platform_number=0, device_number=0)
-    get_max_flop_rate_clpeak(np.float64, queue=queue, platform_number=0, device_number=0)
-
-    flop_rate = get_theoretical_maximum_flop_rate(queue, np.float64)
-    print("MAX THEORETICAL FLOP RATE (GFLOP/s)", flop_rate / 1e9)
 
     loopy_results_list = loopy_bandwidth_test(queue, fast=True,
         print_results=True, fill_on_device=True)
@@ -660,10 +684,24 @@ if __name__ == "__main__":
         queue, dtype=None, fill_on_device=False, max_used_bytes=None,
         print_results=True)
 
-    plot_split_alpha_beta(loopy_results_list)
-    plot_split_alpha_beta(enqueue_results_list)
+    #plot_split_alpha_beta(loopy_results_list)
+    #plot_split_alpha_beta(enqueue_results_list)
     #exit()
     combined_list = loopy_results_list + enqueue_results_list
+
+    clpeak_bw = get_max_bandwidth_clpeak(queue=queue, platform_number=0, device_number=0)
+    clpeak_flop_rate = get_max_flop_rate_clpeak(np.float64, queue=queue, platform_number=0, device_number=0)
+
+    flop_rate = get_theoretical_maximum_flop_rate(queue, np.float64)
+    print("MAX THEORETICAL FLOP RATE (GFLOP/s)", flop_rate / 1e9)
+    print("clpeak MAX FLOP RATE (GLOP/s)", clpeak_flop_rate / 1e9)
+    print("clpeak MAX BW (GB/s)", clpeak_bw/1e9)
+    print("Device memory latency (s)", get_min_device_memory_latency(combined_list))
+    print("Loopy kernel MAX BW (GB/s)", get_max_device_memory_bandwidth(combined_list)/1e9)
+    print("Latency adjusted MAX BW (GB/s)", get_latency_adjusted_max_device_memory_bandwidth(combined_list)/1e9)
+    exit()
+
+
 
     sorted_list = sorted(loopy_results_list, reverse=True,
                          key=lambda result: result.avg_bandwidth)
