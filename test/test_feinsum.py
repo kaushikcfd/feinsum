@@ -1,8 +1,45 @@
+__copyright__ = "Copyright (C) 2022 Kaushik Kulkarni"
+
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
 import feinsum as f
 import numpy as np
 
 
-def test_einsum_normalization_dg_einsums():
+def are_einsums_isomorphic(e1: f.FusedEinsum,
+                           e2: f.FusedEinsum) -> bool:
+    e1_pr = f.canonicalize_einsum(e1)
+    e2_pr = f.canonicalize_einsum(e2)
+    if 0:
+        # enable for debugging
+        print(e1_pr.arg_shapes)
+        print(e2_pr.arg_shapes)
+        for use_row in e1_pr.use_matrix:
+            print(use_row)
+        for use_row in e2_pr.use_matrix:
+            print(use_row)
+    return e1_pr == e2_pr
+
+
+def test_einsum_canonicalization_dg_einsums():
 
     # {{{ div components
 
@@ -13,7 +50,7 @@ def test_einsum_normalization_dg_einsums():
                             [(np.inf, ndim),
                             (ndim, ndofs, ndofs),
                             (np.inf, ndofs)],
-                            dtypes="float64",
+                            dtypes=np.float64,
                             use_matrix=[
                                 [{"Jx"}, {"R"}, {"ux"}],
                                 [{"Jy"}, {"R"}, {"uy"}],
@@ -24,7 +61,7 @@ def test_einsum_normalization_dg_einsums():
                             [(np.inf, ndim),
                             (ndim, ndofs, ndofs),
                             (np.inf, ndofs)],
-                            dtypes="float64",
+                            dtypes=np.float64,
                             use_matrix=[
                                 [{"JacX"}, {"ref_mat"}, {"x_dofs"}],
                                 [{"JacY"}, {"ref_mat"}, {"y_dofs"}],
@@ -35,7 +72,7 @@ def test_einsum_normalization_dg_einsums():
                             [(np.inf, ndim),
                             (ndim, ndofs, ndofs),
                             (np.inf, ndofs)],
-                            dtypes="float64",
+                            dtypes=np.float64,
                             use_matrix=[
                                 [{"JacX"}, {"ref_mat"}, {"u"}],
                                 [{"JacY"}, {"ref_mat"}, {"u"}],
@@ -46,18 +83,117 @@ def test_einsum_normalization_dg_einsums():
                             [(np.inf, ndim),
                             (ndim, ndofs, ndofs),
                             (np.inf, ndofs)],
-                            dtypes="float32",
+                            dtypes=np.float32,
                             use_matrix=[
                                 [{"Jx"}, {"R"}, {"ux"}],
                                 [{"Jy"}, {"R"}, {"uy"}],
                                 [{"Jz"}, {"R"}, {"uz"}],
                             ])
-
-    assert (f.normalize_einsum(einsum1)
-            == f.normalize_einsum(einsum2)
-            == f.normalize_einsum(f.normalize_einsum(einsum1))
-            == f.normalize_einsum(f.normalize_einsum(einsum2)))
-    assert f.normalize_einsum(einsum2) != f.normalize_einsum(einsum3)
-    assert f.normalize_einsum(einsum1) != f.normalize_einsum(einsum4)
+    assert are_einsums_isomorphic(einsum1, einsum2)
+    assert are_einsums_isomorphic(f.canonicalize_einsum(einsum1),
+                                  f.canonicalize_einsum(einsum2))
+    assert not are_einsums_isomorphic(einsum2, einsum3)
+    assert not are_einsums_isomorphic(einsum1, einsum4)
 
     # }}}
+
+
+def test_canonicalization_with_automorphic_vertices():
+    assert are_einsums_isomorphic(
+        f.einsum("ij,ik->i",
+                 f.array((np.inf, 10), np.float64),
+                 f.array((np.inf, 10), np.float32)),
+
+        f.einsum("ik,ij->i",
+                 f.array((np.inf, 10), np.float32),
+                 f.array((np.inf, 10), np.float64)),
+    )
+
+    assert not are_einsums_isomorphic(
+        f.einsum("ijk,ij,ik->i",
+                 f.array((np.inf, 10, 10), np.float64),
+                 f.array((np.inf, 10), np.float64),
+                 f.array((np.inf, 10), np.float32)),
+
+        f.einsum("ijk,ij,ik->i",
+                 f.array((np.inf, 10, 10), np.float64),
+                 f.array((np.inf, 10), np.float32),
+                 f.array((np.inf, 10), np.float64)),
+    )
+
+    assert are_einsums_isomorphic(
+        f.einsum("ijk,ij,ik->i",
+                 f.array((np.inf, 10, 10), np.float64),
+                 f.array((np.inf, 10), np.float64),
+                 f.array((np.inf, 10), np.float64)),
+
+        f.einsum("ijk,ik,ij->i",
+                 f.array((np.inf, 10, 10), np.float64),
+                 f.array((np.inf, 10), np.float64),
+                 f.array((np.inf, 10), np.float64)),
+    )
+
+    assert are_einsums_isomorphic(
+        f.fused_einsum("ijk,ik,ij,ij->i",
+                       [(np.inf, 10, 10),
+                        (np.inf, 10),
+                        (np.inf, 10),
+                        (np.inf, 10)],
+                       dtypes=np.float64,
+                       use_matrix=[
+                           [{"A"}, {"B"}, {"C"}, {"D"}]
+                       ]),
+        f.fused_einsum("ijk,ik,ij->i",
+                       [(np.inf, 10, 10),
+                        (np.inf, 10),
+                        (np.inf, 10)],
+                       dtypes=np.float64,
+                       use_matrix=[
+                           [{"P"}, {"Q"}, {"R", "S"}]
+                       ]),
+    )
+
+    assert not are_einsums_isomorphic(
+        f.fused_einsum("ijk,ik,ij,ij->i",
+                       [(np.inf, 10, 10),
+                        (np.inf, 10),
+                        (np.inf, 10),
+                        (np.inf, 10)],
+                       dtypes=np.float64,
+                       use_matrix=[
+                           [{"A"}, {"B"}, {"C"}, {"D"}]
+                       ]),
+        f.fused_einsum("ijk,ij,ik->i",
+                       [(np.inf, 10, 10),
+                        (np.inf, 10),
+                        (np.inf, 10)],
+                       dtypes=np.float64,
+                       use_matrix=[
+                           [{"P"}, {"Q"}, {"R", "S"}]
+                       ]),
+    )
+
+    assert are_einsums_isomorphic(
+        f.fused_einsum("ijk,ik,ij,ij->i",
+                       [(np.inf, 10, 10),
+                        (np.inf, 10),
+                        (np.inf, 10),
+                        (np.inf, 10)],
+                       dtypes=np.float64,
+                       use_matrix=[
+                           [{"A"}, {"B"}, {"C"}, {"D"}],
+                           [{"A"}, {"B"}, {"C"}, {"B"}]
+                       ]),
+        f.fused_einsum("ijk,ik,ij->i",
+                       [(np.inf, 10, 10),
+                        (np.inf, 10),
+                        (np.inf, 10)],
+                       dtypes=np.float64,
+                       use_matrix=[
+                           [{"P"}, {"Q"}, {"R", "Q"}],
+                           [{"P"}, {"Q"}, {"R", "S"}]
+                       ]),
+    )
+
+
+# vim: fdm=marker

@@ -174,4 +174,5 @@ def test_match_einsum():
                                 ])
 
     inferred_einsum = f.match_einsum(t_unit)
-    assert f.normalize_einsum(inferred_einsum) == f.normalize_einsum(ref_einsum)
+    assert (f.canonicalize_einsum(inferred_einsum)
+            == f.canonicalize_einsum(ref_einsum))
