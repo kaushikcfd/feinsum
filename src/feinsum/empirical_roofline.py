@@ -573,9 +573,10 @@ def plot_split_alpha_beta(results_list):
 def get_indices_from_queue(queue):
     dev = queue.device
     if "NVIDIA" in dev.vendor:
-        pcie_id = dev.pci_bus_id_nv
-    elif dev.vendor == "Advanced Micro Devices":
-        pcie_id = dev.pcie_id_amd
+        # Is there any need for the slot id?
+        pcie_id = dev.pci_bus_id_nv 
+    elif "Advanced Micro Devices" in dev.vendor: 
+        pcie_id = dev.topology_amd
     else:
         raise RuntimeError("Device does not have a PCI-Express bus ID")
 
@@ -584,7 +585,7 @@ def get_indices_from_queue(queue):
             if "NVIDIA" in d.vendor:
                 d_pcie_id = d.pci_bus_id_nv
             elif dev.vendor == "Advanced Micro Devices":
-                d_pcie_id = d.pcie_id_amd
+                d_pcie_id = d.topology_amd
             else:
                 d_pcie_id = None
 
@@ -650,7 +651,7 @@ def calc_latency_adjusted_bandwidth(latency, total_time, bytes_transferred):
 
 # Adds the effect of latency to the bandwidth calculation
 def calc_effective_bandwidth(latency, bandwidth, bytes_transferred):
-    return bytes_transferred / (bytes_transferred / bandwidth + latency)
+    return bytes_transferred / ((bytes_transferred / bandwidth) + latency)
 
 def get_min_device_memory_latency(results_list):
     sorted_list = sorted(results_list, reverse=False,
