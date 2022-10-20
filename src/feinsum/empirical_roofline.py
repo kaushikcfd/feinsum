@@ -584,7 +584,7 @@ def get_indices_from_queue(queue):
         for device_number, d in enumerate(platform.get_devices()):
             if "NVIDIA" in d.vendor:
                 d_pcie_id = d.pci_bus_id_nv
-            elif dev.vendor == "Advanced Micro Devices":
+            elif "Advanced Micro Devices" in dev.vendor:
                 d_pcie_id = d.topology_amd
             else:
                 d_pcie_id = None
