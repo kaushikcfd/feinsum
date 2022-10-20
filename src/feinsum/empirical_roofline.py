@@ -194,7 +194,11 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
         dtype_out = dtype_in
 
     try:
-        max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_variable_preferred_total_size // 2)
+        if "Advanced Micro Devices" in queue.device.vendor:
+            # Allocating arrays above a certain size slows the MI-100 significantly
+            max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_variable_preferred_total_size // 8)
+        else:
+            max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_variable_preferred_total_size // 2)
         if max_shape_bytes == 0:
             raise cl._cl.LogicError
     except cl._cl.LogicError:
