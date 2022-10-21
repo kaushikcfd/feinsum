@@ -580,7 +580,7 @@ def get_indices_from_queue(queue):
         # Is there any need for the slot id?
         pcie_id = dev.pci_bus_id_nv 
     elif "Advanced Micro Devices" in dev.vendor: 
-        pcie_id = dev.topology_amd
+        pcie_id = dev.topology_amd.bus
     else:
         raise RuntimeError("Device does not have a PCI-Express bus ID")
 
@@ -589,7 +589,7 @@ def get_indices_from_queue(queue):
             if "NVIDIA" in d.vendor:
                 d_pcie_id = d.pci_bus_id_nv
             elif "Advanced Micro Devices" in d.vendor:
-                d_pcie_id = d.topology_amd
+                d_pcie_id = d.topology_amd.bus
             else:
                 d_pcie_id = None
 
