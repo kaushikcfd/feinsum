@@ -412,7 +412,8 @@ class EinsumTermsHoister(BaseIdentityMapper):  # type: ignore[misc]
         from loopy.symbolic import get_dependencies
         if isinstance(expr.expr, p.Product) and isinstance(expr.operation,
                                                            SumReductionOperation):
-            inner_expr = self.rec(expr.expr)
+            from pymbolic.primitives import flattened_product
+            inner_expr = flattened_product(self.rec(expr.expr).children)
             assert isinstance(inner_expr, p.Product)
             invariants, variants = partition(lambda x: (get_dependencies(x)
                                                         & self.reduction_inames),
