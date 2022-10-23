@@ -5,13 +5,14 @@ import loopy as lp
 
 from loopy.symbolic import CombineMapper, Reduction
 from typing import (Any, FrozenSet, Iterable, Mapping, Tuple, Set,
-                    Dict, Optional)
+                    Dict, Optional, List)
 from feinsum.einsum import FusedEinsum, SummationAxis, EinsumAxisAccess
 from more_itertools import zip_equal as zip
 from functools import cached_property
 from dataclasses import dataclass
 from pytools import memoize_on_first_arg
 from immutables import Map
+from loopy.types import LoopyType
 
 
 class ReductionCollector(CombineMapper):
@@ -279,50 +280,103 @@ class MatchResult:
 
 
 def match(t_unit: lp.TranslationUnit,
-          reference_einsum: FusedEinsum,
           *,
           kernel_name: Optional[str] = None,
           insn_match: Any = None,
-          ) -> Tuple[lp.TranslationUnit, MatchResult]:
+          long_dim_threshold: int = 500
+          ) -> Tuple[lp.TranslationUnit, FusedEinsum, MatchResult]:
     r"""
-    Returns ``(transformed_t_unit, mapping)``, where:
+    Returns ``(transformed_t_unit, einsum, mapping)``, where:
 
     - ``transformed_t_unit`` is a copy of *t_unit* with all reads to arrays in
-      *t_unit*\ s expressions spanning *insn_match*,
+      *t_unit*\ s expressions spanning *insn_match* are replaced by
+      substitutions.
+    - ``einsum`` is an instance of :class:`feinsum.FusedEinsum` that can be
+      interpreted from the *t_unit*\ 's statements within *insn_match*.
     - ``mapping`` is the substitution mapping as an instance of
-      :class:`MatchResult`.
-    """
-    if len(exprs) != einsum.noutputs:
-        raise ValueError("The number of outputs do not match.")
+      :class:`MatchResult` between the variables of ``transformed_t_unit`` and
+      ``einsum``.
 
-    if len(free_indices) != einsum.ndim:
-        raise ValueError(f"Expected {einsum.ndim} free indices,"
-                         f" got {len(free_indices)}.")
+    :param long_dim_threshold: Axis length greater than or equal to this value
+        is interpreted to be of :math:`\infty`-length. Defaults to 500.
+    """
+
+    from loopy.match import parse_match
+
+    within = parse_match(insn_match)
+
+    if kernel_name is None:
+        if len(t_unit.entrypoints) != 1:
+            raise ValueError("`kernel_name` is required when "
+                             " translation unit has multiple entrypoints.")
+        else:
+            kernel_name = t_unit.default_entrypoint.name
+
+    assert isinstance(kernel_name, str)
+
+    knl = t_unit[kernel_name]
+
+    insns = [insn
+             for insn in knl.instructions
+             if within(knl, insn)]
+
+    if not all(len(insn.assignees) == 1
+               for insn in insns):
+        raise ValueError("Each instruction being matched for an einsum"
+                         " must have a single assignee.")
+
+    index_tuples: Set[p.Expression] = set()
+    for insn in insns:
+        assignee = insn.assignee
+        if isinstance(assignee, p.Variable):
+            index_tuples.add(())
+        elif isinstance(assignee, p.Subscript):
+            index_tuples.add(assignee.index_tuple)
+        else:
+            raise ValueError("Assignee can be either Subscript or Variable,"
+                             f" got {type(assignee)}.")
+
+    if len(index_tuples) != 1:
+        raise ValueError("All instructions must write to expressions"
+                         " with same indexing expression.")
+
+    if len({insn.assignee_var_names for insn in insns}) != len(insns):
+        raise ValueError("All the instructions being matched over must"
+                         " write to a different output.")
+
+    if len({insn.reduction_inames() for insn in insns}) != 1:
+        raise ValueError("All the instructions being matched over must have the"
+                         " same reduction inames.")
+
+    index_tuple, = index_tuples
+    free_inames: Tuple[str, ...] = tuple(idx.name for idx in index_tuple)
+
+    # TODO: Check the strides for the assignees here.
 
     redn_collector = ReductionCollector()
-    var_to_dtype = {var: np.dtype(dtype)
-                    for var, dtype in dtypes.items()}
     is_redn_surrounded_by_predicate = IsReductionSurroundedByIf(
-        free_indices=frozenset(free_indices))
+        free_indices=frozenset(free_inames))
 
-    for iexpr, (expr, use_row) in enumerate(zip(exprs, einsum.use_matrix)):
-        template_expr = template_einsum_as_str(einsum, iexpr)
-        redns_in_expr = redn_collector(expr)
+    arguments_rows: List[List[Set[str]]] = []
+    matched_ary_to_argument_name: Dict[MatchedArray, str] = {}
+
+    for insn in insns:
+        arguments_row = []
+        redns_in_expr = redn_collector(insn.expression)
+        var_to_dtype: Dict[str, np.dtype[Any]] = {}
+
+        for var in (insn.read_dependency_names()
+                    & (set(knl.temporary_variables.keys())
+                       | set(knl.arg_dict.keys()))):
+            dtype = knl.get_var_descriptor(var).dtype
+            if isinstance(dtype, LoopyType):
+                var_to_dtype[var] = dtype.numpy_dtype
+            else:
+                raise ValueError(f"Got uninferred dtype for '{var}'"
+                                 " -> not allowed.")
 
         if not redns_in_expr:
-            if any(any(isinstance(access_descr, SummationAxis)
-                       for access_descr in access_descrs)
-                   for access_descrs in einsum.access_descriptors):
-                raise ValueError("No reductions in the current expression, but"
-                                 " the reference einsum involves contractions.")
-
-            # TODO: This case is tricky. What do we pick up as the expression
-            # being matched over. Typically we look at the expression and then
-            # see which expression is the reduction expression and then try to
-            # infer the product expression from there. But.. but.. figuring out
-            # the same in normal expression is pretty difficult. Maybe we can
-            # require some more restrictions on such expressions. Anywho this
-            # is no the biggest concern.
+            # FIXME: Not an interesting case right now.
             raise NotImplementedError()
 
         if len(redns_in_expr) > 1:
@@ -330,86 +384,45 @@ def match(t_unit: lp.TranslationUnit,
                              " cannot be inferred as an einsum-like"
                              " expression.")
 
-        if is_redn_surrounded_by_predicate(expr, False):
-            raise ValueError(f"Reduction in {expr} is nested"
+        if is_redn_surrounded_by_predicate(insn.expression, nested_in_ifelse=False):
+            raise ValueError(f"Reduction in '{insn}' is nested"
                              " within an if-else arm => not allowed.")
 
-        redn_in_expr, = redns_in_expr
-        expr_to_match = redn_in_expr.expr
-
-        if len(einsum.access_descriptors) > 1 and not isinstance(expr_to_match,
-                                                                 p.Product):
-            raise ValueError(
-                f"Cannot infer operands the '{expr}' as '{template_expr}'"
-                " since the reduction is not over a product expression."
-            )
+        if redns_in_expr:
+            redn_in_expr, = redns_in_expr
+            expr_to_match = redn_in_expr.expr
+            redn_inames: Tuple[str, ...] = redn_in_expr.inames
+            del redn_in_expr
+        else:
+            expr_to_match = insn.expression
+            redn_inames = ()
 
         if isinstance(expr_to_match, p.Product):
             from pymbolic.primitives import flattened_product
             einsum_terms: Tuple[p.Expression, ...] = (flattened_product(expr_to_match
-                                                                   .children)
+                                                                        .children)
                                                       .children)
         else:
             einsum_terms = (expr_to_match,)
 
-        if len(einsum_terms) < len(einsum.access_descriptors):
-            raise ValueError("Multiplicative terms in reduction of"
-                             f"{expr} are not enough for {template_expr}"
-                             " => matching unsuccessful.")
-
-        ieinsum_term = 0
-        matched_use_row = []
-        matched_terms = []
-        use_extractor = UseExtractor(frozenset(free_indices)
-                                     | set(redn_in_expr.inames),
+        use_extractor = UseExtractor(frozenset(free_inames) | frozenset(redn_inames),
                                      Map(var_to_dtype))
+        for term in einsum_terms:
+            arguments = set()
+            for matched_ary in use_extractor(term):
+                if matched_ary not in matched_ary_to_argument_name:
+                    matched_ary_to_argument_name[matched_ary] = (
+                        f"arg_{len(matched_ary_to_argument_name)}")
 
-        for ref_einsum_uses in use_row:
-            acc_match_terms = []
-            extracted_uses = set()
+                arguments.add(matched_ary_to_argument_name[matched_ary])
 
-            while len(extracted_uses) < len(ref_einsum_uses):
-                if ieinsum_term >= len(einsum_terms):
-                    raise ValueError("Multiplicative terms in reduction of"
-                                     f"{expr} are not enough for {template_expr}"
-                                     " => matching unsuccessful.")
-                extracted_uses.update(use_extractor(einsum_terms[ieinsum_term]))
-                acc_match_terms.append(einsum_terms[ieinsum_term])
-                ieinsum_term += 1
+            arguments_row.append(arguments)
 
-            if len(acc_match_terms) == 0:
-                matched_terms.append(1)
-            elif len(acc_match_terms) == len(ref_einsum_uses):
-                if len(acc_match_terms) == 1:
-                    matched_terms.append(acc_match_terms[0])
-                else:
-                    matched_terms.append(p.Product(tuple(acc_match_terms)))
-            else:
-                raise ValueError("Multiplicative terms in reduction of"
-                                 f" {expr} are more than what was expected"
-                                 f" for {template_expr} => matching unsuccessful.")
-            matched_use_row.append(frozenset(extracted_uses))
+        arguments_rows.append(arguments_row)
 
-        for imatched_term, (matched_uses, matched_term) in enumerate(
-                zip(matched_use_row, matched_terms)):
-            print(f"{imatched_term} => ({matched_term},"
-                  f" len={len(matched_uses)}, {matched_uses})")
+    print(arguments_rows)
 
-        # {{{ dimensionality checks
-
-        for arg_shape, uses in matched_use_row:
-            for use in uses:
-                use_ndim = _get_ndim_from_use(use,
-                                              (frozenset(free_indices)
-                                               | set(redn_in_expr.inames)))
-                if len(arg_shape) != use_ndim:
-                    raise ValueError(f"Expected a {len(arg_shape)}-dimensional,"
-                                     f" got {use_ndim}-dimensional expression.")
-
-        # }}}
-
-        # Now run semantic checks on `matched_use_row`?
-        # Option (1). Check if it is a legal match.
-        # Option (2). Lower to a normalized form and then assume perfect match.
+    # TODO.. Fill this ->
+    # matched_ary_to_access_inames: Dict[MatchedArray, Tuple[str, ...]] = {}
 
 # vim:fdm=marker
