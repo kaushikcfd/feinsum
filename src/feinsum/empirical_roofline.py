@@ -569,7 +569,8 @@ def plot_split_alpha_beta(results_list):
     plt.ylabel("Bandwidth (GBps)")
     plt.show()
 
-
+# This is not actually a valid way to obtain the same queue because
+# the order is not guaranteed.
 def get_indices_from_queue(queue):
     dev = queue.device
     if "NVIDIA" in dev.vendor:
@@ -584,7 +585,7 @@ def get_indices_from_queue(queue):
         for device_number, d in enumerate(platform.get_devices()):
             if "NVIDIA" in d.vendor:
                 d_pcie_id = d.pci_bus_id_nv
-            elif dev.vendor == "Advanced Micro Devices":
+            elif  "Advanced Micro Devices" in d.vendor:
                 d_pcie_id = d.topology_amd
             else:
                 d_pcie_id = None
