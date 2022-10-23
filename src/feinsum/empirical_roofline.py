@@ -194,7 +194,11 @@ def loopy_bandwidth_test(queue, n_in_max=None, dtype_in=None, n_out_max=None,
         dtype_out = dtype_in
 
     try:
-        max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_variable_preferred_total_size // 2)
+        if "Advanced Micro Devices" in queue.device.vendor:
+            # Allocating arrays above a certain size slows the MI-100 significantly
+            max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_variable_preferred_total_size // 8)
+        else:
+            max_shape_bytes = min(queue.device.max_mem_alloc_size, queue.device.global_variable_preferred_total_size // 2)
         if max_shape_bytes == 0:
             raise cl._cl.LogicError
     except cl._cl.LogicError:
@@ -577,7 +581,7 @@ def get_indices_from_queue(queue):
         # Is there any need for the slot id?
         pcie_id = dev.pci_bus_id_nv 
     elif "Advanced Micro Devices" in dev.vendor: 
-        pcie_id = dev.topology_amd
+        pcie_id = dev.topology_amd.bus
     else:
         raise RuntimeError("Device does not have a PCI-Express bus ID")
 
@@ -585,8 +589,8 @@ def get_indices_from_queue(queue):
         for device_number, d in enumerate(platform.get_devices()):
             if "NVIDIA" in d.vendor:
                 d_pcie_id = d.pci_bus_id_nv
-            elif  "Advanced Micro Devices" in d.vendor:
-                d_pcie_id = d.topology_amd
+            elif "Advanced Micro Devices" in d.vendor:
+                d_pcie_id = d.topology_amd.bus
             else:
                 d_pcie_id = None
 
