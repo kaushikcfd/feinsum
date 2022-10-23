@@ -1,10 +1,12 @@
 import abc
 import numpy as np
 import pymbolic.primitives as p
+import loopy as lp
 
 from loopy.symbolic import CombineMapper, Reduction
-from typing import Sequence, Any, FrozenSet, Iterable, Mapping, Tuple, Set, Dict
-from feinsum.einsum import FusedEinsum, SummationAxis, ScalarT, EinsumAxisAccess
+from typing import (Any, FrozenSet, Iterable, Mapping, Tuple, Set,
+                    Dict, Optional)
+from feinsum.einsum import FusedEinsum, SummationAxis, EinsumAxisAccess
 from more_itertools import zip_equal as zip
 from functools import cached_property
 from dataclasses import dataclass
@@ -96,9 +98,9 @@ def template_einsum_as_str(einsum: FusedEinsum, iexpr: int) -> str:
     return f"sum([{','.join(redn_index_names)}], {inner_expr})"
 
 
-# {{{
+# {{{ type of expressions being matched to a multi-dimensional array.
 
-class Use(abc.ABC):
+class MatchedArray(abc.ABC):
     """
     A global memory access per iteration point of an einsum. An iteration point
     is a point in the iteration domain of the :class:`feinsum.FusedEinsum`,
@@ -108,7 +110,7 @@ class Use(abc.ABC):
 
 
 @dataclass(frozen=True)
-class PlainOldSubscriptUse(Use):
+class PlainOldSubscript(MatchedArray):
     """
     An unconditional global memory access per iteration point of the domain.
     """
@@ -117,40 +119,40 @@ class PlainOldSubscriptUse(Use):
 
 
 @dataclass(frozen=True)
-class ConditionalUse(Use):
+class ConditionalArray(MatchedArray):
     """
     A conditional global memory access per iteration point of the einsum's
     domain. The condition depends on dimensions spanning the iteration domain.
 
     .. note::
 
-        - Since a :class:`Use` is associated with a fixed size global memory
+        - Since a :class:`MatchedArray` is associated with a fixed size global memory
           access the data type of both branches of a conditional use must be
           the same.
     """
     cond: p.Expression
-    then: Use
-    else_: Use
+    then: MatchedArray
+    else_: MatchedArray
 
 # }}}
 
 
-class ConditionalUseDtypeMismatchError(ValueError):
+class ConditionalArrayDtypeMismatchError(ValueError):
     """
-    Raised by :func:`_get_use_dtype` if it encounters a :class:`ConditionalUse`
+    Raised by :func:`_get_use_dtype` if it encounters a :class:`ConditionalArray`
     which uses with different dtypes in both of its branches.
     """
 
 
 @memoize_on_first_arg
-def _get_use_dtype(use: Use, var_name_to_dtype: Map[str, np.dtype[Any]]):
+def _get_use_dtype(use: MatchedArray, var_name_to_dtype: Map[str, np.dtype[Any]]):
     """
     Returns the data type of *use*. By definition, *use* must be associated
     with a single dtype.
     """
-    if isinstance(use, PlainOldSubscriptUse):
+    if isinstance(use, PlainOldSubscript):
         return var_name_to_dtype[use.var_name]
-    elif isinstance(use, ConditionalUse):
+    elif isinstance(use, ConditionalArray):
         then_dtype = _get_use_dtype(use.then, var_name_to_dtype)
         else_dtype = _get_use_dtype(use.else_, var_name_to_dtype)
         assert then_dtype == else_dtype
@@ -161,7 +163,7 @@ def _get_use_dtype(use: Use, var_name_to_dtype: Map[str, np.dtype[Any]]):
 
 class UseExtractor(CombineMapper):
     """
-    Collects all instances of :class:`Use` in an expression.
+    Collects all instances of :class:`MatchedArray` in an expression.
 
     .. attribute:: inames
 
@@ -175,7 +177,7 @@ class UseExtractor(CombineMapper):
         self.inames = inames
         self.var_to_dtype = var_to_dtype
 
-    def combine(self, values: FrozenSet[Use]) -> FrozenSet[Use]:
+    def combine(self, values: FrozenSet[MatchedArray]) -> FrozenSet[MatchedArray]:
         from functools import reduce
         return reduce(frozenset.union, values, frozenset())
 
@@ -188,18 +190,18 @@ class UseExtractor(CombineMapper):
         return frozenset({x.name
                           for x in self._dep_mapper(expr)})
 
-    def map_subscript(self, expr: p.Subscript) -> FrozenSet[Use]:
+    def map_subscript(self, expr: p.Subscript) -> FrozenSet[MatchedArray]:
         if not isinstance(expr.aggregate, p.Variable):
             # TODO: Is this a case we even need to worry about?
             raise NotImplementedError
         if any(bool(self.get_dependencies(idx) & self.inames)
                for idx in expr.index_tuple):
-            return frozenset([PlainOldSubscriptUse(
+            return frozenset([PlainOldSubscript(
                 expr.aggregate.name, expr.index_tuple)])
         else:
             return frozenset()
 
-    def map_if(self, expr: p.If) -> FrozenSet[Use]:
+    def map_if(self, expr: p.If) -> FrozenSet[MatchedArray]:
         if self.rec(expr.condition):
             # the condition expression contains a use.
             # This is the case of a weak use?
@@ -216,8 +218,8 @@ class UseExtractor(CombineMapper):
                                      "of uses => disallowed as predicting its "
                                      "performance is quite challenging.")
 
-                dtype_to_then_uses: Dict[np.dtype[Any], Set[Use]] = {}
-                dtype_to_else_uses: Dict[np.dtype[Any], Set[Use]] = {}
+                dtype_to_then_uses: Dict[np.dtype[Any], Set[MatchedArray]] = {}
+                dtype_to_else_uses: Dict[np.dtype[Any], Set[MatchedArray]] = {}
 
                 for then_use, else_use in zip(then_uses, else_uses):
                     dtype_to_then_uses.setdefault(_get_use_dtype(
@@ -239,7 +241,7 @@ class UseExtractor(CombineMapper):
                 else:
                     new_uses = set()
                     for dtype in dtype_to_then_uses:
-                        new_uses.update({ConditionalUse(expr.condition,
+                        new_uses.update({ConditionalArray(expr.condition,
                                                         then_use,
                                                         else_use)
                                          for then_use, else_use in zip(
@@ -251,31 +253,45 @@ class UseExtractor(CombineMapper):
                 # static condition. (not yet implemented)
                 raise NotImplementedError()
 
-    def map_constant(self, expr: Any) -> FrozenSet[Use]:
+    def map_constant(self, expr: Any) -> FrozenSet[MatchedArray]:
         return frozenset()
 
-    def map_algebraic_leaf(self, expr: Any) -> FrozenSet[Use]:
+    def map_algebraic_leaf(self, expr: Any) -> FrozenSet[MatchedArray]:
         return frozenset()
 
 
 @dataclass(frozen=True)
-class Match:
-    einsum_use_to_loopy_use: Mapping[str, Use]
-    loopy_operands: Tuple[Tuple[p.Expression, ...]]
+class MatchResult:
+    """
+    Records the result of :func:`match`.
+
+    .. attribute:: index_mapping
+
+        A mapping from the index name in the reference einsum to the
+
+    .. attribute:: array_mapping
+
+        A mapping from the array name in the reference einsum to the
+        substitution name in the kernel.
+    """
+    index_mapping: Mapping[str, str]
+    array_mapping: Mapping[str, str]
 
 
-class RaisedUse:
-    shape: ...
-    indices: ...
-    use: ...
+def match(t_unit: lp.TranslationUnit,
+          reference_einsum: FusedEinsum,
+          *,
+          kernel_name: Optional[str] = None,
+          insn_match: Any = None,
+          ) -> Tuple[lp.TranslationUnit, MatchResult]:
+    r"""
+    Returns ``(transformed_t_unit, mapping)``, where:
 
-
-def match(exprs: Sequence[p.Expression],
-          einsum: FusedEinsum,
-          free_indices: Sequence[str],
-          dtypes: Mapping[str, Any],
-          shapes: Mapping[str, Tuple[ScalarT, ...]]
-          ) -> Match:
+    - ``transformed_t_unit`` is a copy of *t_unit* with all reads to arrays in
+      *t_unit*\ s expressions spanning *insn_match*,
+    - ``mapping`` is the substitution mapping as an instance of
+      :class:`MatchResult`.
+    """
     if len(exprs) != einsum.noutputs:
         raise ValueError("The number of outputs do not match.")
 
