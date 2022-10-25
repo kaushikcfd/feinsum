@@ -486,6 +486,8 @@ def get_alpha_beta_model(results_list, total_least_squares=False):
 
     # Could take the latency to be the lowest time ever seen,
     # but that might be limited by the precision of the event timer
+    # The latency here is the latency to start a small kernel,
+    # not the device memory latency (although that may be incorporated)
 
     if total_least_squares:
         M = np.array([(1, result.bytes_transferred, result.tmin)
@@ -648,6 +650,10 @@ def get_max_flop_rate_clpeak(dtype, queue=None, platform_number=0, device_number
     return max_el
 
 # Remove the effect of latency from the bandwidth calculation.
+# Note: GPU timers have limited resolution (Nvidia's is apparently 1 microsecond)
+# So the reported latency
+# and the actual latency could differ by a wide margin. Least squares may or
+# may not help with this. This can throw off roofline calculations.
 def calc_latency_adjusted_bandwidth(latency, total_time, bytes_transferred):
     denominator = total_time - latency
     assert latency >= 0
@@ -658,7 +664,7 @@ def calc_latency_adjusted_bandwidth(latency, total_time, bytes_transferred):
 def calc_effective_bandwidth(latency, bandwidth, bytes_transferred):
     return bytes_transferred / ((bytes_transferred / bandwidth) + latency)
 
-def get_min_device_memory_latency(results_list):
+def get_min_device_latency(results_list):
     sorted_list = sorted(results_list, reverse=False,
                          key=lambda result: result.tmin)
     return sorted_list[0].tmin
@@ -705,7 +711,7 @@ if __name__ == "__main__":
     print("MAX THEORETICAL FLOP RATE (GFLOP/s)", flop_rate / 1e9)
     print("clpeak MAX FLOP RATE (GLOP/s)", clpeak_flop_rate / 1e9)
     print("clpeak MAX BW (GB/s)", clpeak_bw/1e9)
-    print("Device memory latency (s)", get_min_device_memory_latency(combined_list))
+    print("Device latency (s)", get_min_device_latency(combined_list))
     print("Loopy kernel MAX BW (GB/s)", get_max_device_memory_bandwidth(combined_list)/1e9)
     print("Latency adjusted MAX BW (GB/s)", get_latency_adjusted_max_device_memory_bandwidth(combined_list)/1e9)
     exit()
