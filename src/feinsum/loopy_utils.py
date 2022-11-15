@@ -87,7 +87,8 @@ class TemplateReplacer:
         for subexpr, count in star_wildcard_operands.items():
             leftover_args.extend([subexpr] * count)
 
-        return type(self.rule_rhs)((self.rule_lhs, *leftover_args))
+        return type(self.rule_rhs)(  # pylint: disable=abstract-class-instantiated
+            (self.rule_lhs, *leftover_args))
 
 
 # {{{ extract_subst
