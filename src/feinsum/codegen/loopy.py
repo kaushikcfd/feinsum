@@ -71,6 +71,15 @@ def make_subscript(name: str,
                                   for axis in axes)]
 
 
+def make_access_expr(name: str,
+                     axes: Tuple[EinsumAxisAccess, ...],
+                     einsum: FusedEinsum,
+                     ) -> p.Call:
+    return p.Variable(_get_input_subst_name(name))(
+        *tuple(p.Variable(einsum.index_names[axis])
+               for axis in axes))
+
+
 def _generate_trivial_einsum(einsum: FusedEinsum,
                              output_names: Tuple[str, ...],
                              ) -> Tuple[isl.BasicSet, "lp.TranslationUnit"]:
@@ -88,11 +97,11 @@ def _generate_trivial_einsum(einsum: FusedEinsum,
                                                    for idim in
                                    range(einsum.ndim)),
                              einsum)
-        rhs = p.Product(tuple((p.Sum(tuple(make_subscript(dep, axes, einsum)
-                                          for dep in deps)
+        rhs = p.Product(tuple((p.Sum(tuple(make_access_expr(dep, axes, einsum)
+                                           for dep in deps)
                                      )
                                if len(deps) > 1
-                               else make_subscript(list(deps)[0], axes, einsum))
+                               else make_access_expr(list(deps)[0], axes, einsum))
                               for deps, axes in zip(einsum.use_matrix[i_out],
                                                     einsum.access_descriptors))
                         )
@@ -103,6 +112,10 @@ def _generate_trivial_einsum(einsum: FusedEinsum,
         statements.append(lp.Assignment(lhs, rhs))
 
     return domain, statements
+
+
+def _get_input_subst_name(x: str) -> str:
+    return f"_fe_subst_{x}"
 
 
 @memoize_on_first_arg
@@ -227,7 +240,9 @@ def generate_loopy(einsum: FusedEinsum,
 
     # Inputs:
     for value, dtype in einsum.value_to_dtype.items():
-        kernel_data.append(lp.GlobalArg(value, shape=lp.auto, dtype=dtype))
+        kernel_data.append(lp.GlobalArg(value,
+                                        shape=lp.auto,
+                                        dtype=dtype))
 
     # Outputs
     for i_output in range(einsum.noutputs):
@@ -244,10 +259,32 @@ def generate_loopy(einsum: FusedEinsum,
 
     # }}}
 
-    return lp.make_kernel(
+    # Substitutions
+    substitutions: Dict[str, lp.SubstitutionRule] = {}
+    for val in einsum.value_to_dtype:
+        val_ndim = len(einsum.get_arg_shape(val))
+        subst_name = _get_input_subst_name(val)
+        substitutions[subst_name] = lp.SubstitutionRule(
+            subst_name,
+            tuple(f"_{idim}"
+                  for idim in range(val_ndim)),
+            p.Variable(val)[
+                tuple(p.Variable(f"_{idim}")
+                      for idim in range(val_ndim))]
+        )
+
+    t_unit = lp.make_kernel(
         domains, statements,
         kernel_data=kernel_data+[...],
         lang_version=LOOPY_LANG_VERSION)
+
+    # TODO: Once https://github.com/inducer/loopy/issues/705
+    # is fixed avoid this copy
+    t_unit = t_unit.with_kernel(
+        t_unit.default_entrypoint
+        .copy(substitutions=substitutions))
+
+    return t_unit
 
 
 def generate_loopy_with_opt_einsum_schedule(expr: FusedEinsum,
