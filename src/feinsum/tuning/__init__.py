@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from functools import cached_property, cache
 from feinsum.einsum import (FusedEinsum, IntegralT, ShapeComponentT,
                             INT_CLASSES)
-from feinsum.sql_utils import DEFAULT_DB
+from feinsum.sql_utils import DEFAULT_DB, TIMINGS_TABLENAME
 from feinsum.typing import TransformT
 import logging
 logger = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                  manipulator: Optional[Any] = None,
                  objective: Optional[Any] = None,
                  input_manager: Optional[Any] = None) -> None:
-        from feinsum.normalization import normalize_einsum
+        from feinsum.canonicalization import canonicalize_einsum
         super().__init__(args=args,
                          project_name=project_name,
                          program_name=program_name,
@@ -205,17 +205,11 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                          objective=objective,
                          input_manager=input_manager)
 
-        self.einsum = normalize_einsum(einsum)
+        self.einsum = canonicalize_einsum(einsum)
         self.cl_ctx = cl_ctx
         self.module_path = module_path
         self.long_dim_length = long_dim_length
         self.db_path = db_path
-
-    @cached_property
-    def sql_table_name(self) -> str:
-        from feinsum.sql_utils import dump_tablename
-        dev, = self.cl_ctx.devices
-        return dump_tablename(dev)
 
     @cached_property
     def transform_space_id(self) -> str:
@@ -231,17 +225,19 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         db = sqlite3.connect(self.db_path)
         cursor = db.cursor()
         cursor.execute(" SELECT name FROM sqlite_master"
-                       f" WHERE (type='table' AND name='{self.sql_table_name}');")
+                       " WHERE (type='table' AND name=?);",
+                       (TIMINGS_TABLENAME,))
 
         if not cursor.fetchall():
             # device table not available
-            logger.info(f"Table {self.sql_table_name} not in DB, creating one.")
-            cursor.execute(f"CREATE TABLE {self.sql_table_name} ("
+            logger.info(f"Table {TIMINGS_TABLENAME} not in DB, creating one.")
+            cursor.execute("CREATE TABLE {TIMINGS_TABLENAME} ("
                            " ID INTEGER PRIMARY KEY AUTOINCREMENT,"
                            " subscripts TEXT,"
                            " index_to_length TEXT,"
                            " use_matrix TEXT,"
                            " value_to_dtype TEXT,"
+                           " device_name TEXT,"
                            " transform_id TEXT,"
                            " transform_params TEXT,"
                            " runtime_in_sec REAL,"
@@ -280,6 +276,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                                        dump_use_matrix,
                                        dump_value_to_dtype,
                                        dump_op_info,
+                                       dump_device_name,
                                        )
 
         cursor = self.conn.cursor()
@@ -288,11 +285,13 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         use_matrix = dump_use_matrix(self.einsum)
         op_info = dump_op_info(self.einsum, self.long_dim_length)
         value_to_dtype = dump_value_to_dtype(self.einsum)
+        dev, = self.cl_ctx.devices
+        device_name = dump_device_name(dev)
 
         cursor.execute(" SELECT"
                        "     transform_params"
                        "  FROM "
-                       f"    {self.sql_table_name}"
+                       f"    {TIMINGS_TABLENAME}"
                        " WHERE ("
                        "    transform_id = ?"
                        "    AND subscripts = ?"
@@ -300,9 +299,10 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                        "    AND use_matrix = ?"
                        "    AND value_to_dtype = ?"
                        "    AND giga_op_info = ?"
+                       "    AND device_name = ?"
                        ");",
                        (self.transform_space_id, subscripts, index_to_length,
-                        use_matrix, value_to_dtype, op_info))
+                        use_matrix, value_to_dtype, op_info, device_name))
 
         return [
             json.loads(transform_params[0])
@@ -314,7 +314,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         from feinsum.sql_utils import (dump_index_to_length,
                                        dump_use_matrix,
                                        dump_op_info,
-                                       dump_value_to_dtype)
+                                       dump_value_to_dtype,
+                                       dump_device_name)
 
         cursor = self.conn.cursor()
         subscripts = self.einsum.get_subscripts()
@@ -323,21 +324,25 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         value_to_dtype = dump_value_to_dtype(self.einsum)
         transform_params_str = json.dumps(parameters, sort_keys=True)
         op_info = dump_op_info(self.einsum, self.long_dim_length)
+        dev, = self.cl_ctx.devices
+        device_name = dump_device_name(dev)
 
         cursor.execute(" SELECT"
                         "     runtime_in_sec"
                        "  FROM "
-                       f"    {self.sql_table_name}"
+                       f"    {TIMINGS_TABLENAME}"
                        " WHERE ("
-                       f"    subscripts = ?"
-                       f"    AND index_to_length = ?"
-                       f"    AND use_matrix = ?"
-                       f"    AND value_to_dtype = ?"
-                       f"    AND transform_params = ?"
-                       f"    AND giga_op_info = ?"
+                       "    subscripts = ?"
+                       "    AND index_to_length = ?"
+                       "    AND use_matrix = ?"
+                       "    AND value_to_dtype = ?"
+                       "    AND transform_params = ?"
+                       "    AND giga_op_info = ?"
+                       "    AND device_name = ?"
                        ");",
                        (subscripts, index_to_length, use_matrix,
-                        value_to_dtype, transform_params_str, op_info,))
+                        value_to_dtype, transform_params_str, op_info,
+                        device_name,))
         stored_results = cursor.fetchall()
 
         if not stored_results:
@@ -353,6 +358,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         from feinsum.sql_utils import (dump_index_to_length,
                                        dump_use_matrix,
                                        dump_value_to_dtype,
+                                       dump_device_name,
                                        dump_cl_version,
                                        dump_op_info)
 
@@ -363,6 +369,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         value_to_dtype = dump_value_to_dtype(self.einsum)
         transform_params_str = json.dumps(parameters, sort_keys=True)
         cl_device, = self.cl_ctx.devices
+        device_name = dump_device_name(cl_device)
         compiler_version = dump_cl_version(cl_device)
         op_info = dump_op_info(self.einsum, long_dim_length=self.long_dim_length)
 
@@ -377,14 +384,14 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
         # }}}
 
-        cursor.execute(f"INSERT INTO {self.sql_table_name}"
+        cursor.execute(f"INSERT INTO {TIMINGS_TABLENAME}"
                        " (subscripts, index_to_length, use_matrix,"
-                       "  value_to_dtype, transform_id,"
+                       "  value_to_dtype, device_name, transform_id,"
                        "  transform_params, runtime_in_sec,"
                        "  compiler_version, giga_op_info, timestamp)"
-                       " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                        (subscripts, index_to_length, use_matrix,
-                       value_to_dtype, self.transform_space_id,
+                       value_to_dtype, device_name, self.transform_space_id,
                        transform_params_str, runtime, compiler_version,
                        op_info, timestamp))
 

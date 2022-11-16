@@ -35,7 +35,8 @@ TransformT = Callable[["lp.TranslationUnit", Optional[Any], Optional[str]],
 
 DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           os.path.pardir, os.path.pardir,
-                          "data", "transform_archive_v2.sqlite")
+                          "data", "transform_archive_v3.sqlite")
+TIMINGS_TABLENAME = "FEINSUM_TIMING_FACTS"
 
 
 def dump_value_to_dtype(einsum: FusedEinsum) -> str:
@@ -85,7 +86,7 @@ def load_op_info(op_info: str) -> Map[np.dtype[Any], float]:
                 for k, v in json.loads(op_info).items()})
 
 
-def dump_tablename(cl_device: "cl.Device") -> str:
+def dump_device_name(cl_device: "cl.Device") -> str:
     dev_name = cl_device.name
     assert isinstance(dev_name, str)
     return (dev_name
@@ -133,9 +134,8 @@ def query(einsum: FusedEinsum,
         recorded runs corresponding to *einsum* are available in *database*.
         Defaults to *False*.
     """
-    # TODO: This should  somehow solve the normalized FusedEinsum problem.
-    from feinsum.normalization import normalize_einsum
-    einsum = normalize_einsum(einsum)
+    from feinsum.canonicalization import canonicalize_einsum
+    einsum = canonicalize_einsum(einsum)
     conn = sqlite3.connect(database)
     cursor = conn.cursor()
 
@@ -144,7 +144,7 @@ def query(einsum: FusedEinsum,
                                   " not supported.")
 
     cl_device = cl_ctx.devices[0]
-    tablename = dump_tablename(cl_device)
+    device_name = dump_device_name(cl_device)
     subscripts = einsum.get_subscripts()
     index_to_length = dump_index_to_length(einsum)
     use_matrix = dump_use_matrix(einsum)
@@ -152,11 +152,11 @@ def query(einsum: FusedEinsum,
 
     cursor.execute(" SELECT name FROM sqlite_master"
                    " WHERE (type='table' AND name=?);",
-                   (tablename,))
+                   (TIMINGS_TABLENAME,))
 
     if not cursor.fetchall():
-        logger.warn(f"No entries for {cl_device}")
-        return ()
+        raise RuntimeError(f"Database '{database}' does not"
+                           " contain the timing facts table.")
 
     cursor.execute(" SELECT"
                    "     transform_id,"
@@ -165,15 +165,17 @@ def query(einsum: FusedEinsum,
                    "     compiler_version,"
                    "     giga_op_info"
                    "  FROM "
-                   f"    {tablename}"
+                   f"    {TIMINGS_TABLENAME}"
                    " WHERE ("
                    "    subscripts = ?"
                    "    AND index_to_length = ?"
                    "    AND use_matrix = ?"
                    "    AND value_to_dtype = ?"
+                   "    AND device_name = ?"
                    ");",
                    (subscripts, index_to_length,
-                    use_matrix, value_to_dtype))
+                    use_matrix, value_to_dtype,
+                    device_name))
 
     facts = cursor.fetchall()
 
