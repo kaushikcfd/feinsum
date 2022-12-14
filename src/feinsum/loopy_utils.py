@@ -17,7 +17,6 @@ from typing import (Union, ClassVar, Optional, Tuple, FrozenSet, Any, Dict,
                     List, Iterable, Set, Mapping)
 from immutables import Map
 from dataclasses import dataclass
-from more_itertools import zip_equal as szip
 from pymbolic.interop.matchpy.tofrom import (
     ToMatchpyExpressionMapper as BaseToMatchpyExpressionMapper,
     FromMatchpyExpressionMapper as BaseFromMatchpyExpressionMapper)
@@ -25,7 +24,6 @@ from matchpy import Arity
 from feinsum.einsum import (FusedEinsum, FreeAxis, SizeParam, EinsumAxisAccess,
                             SummationAxis)
 from feinsum.diagnostics import EinsumTunitMatchError
-from pytools import UniqueNameGenerator
 from loopy.symbolic import (pw_aff_to_expr, IdentityMapper as BaseIdentityMapper,
                             CombineMapper, Reduction)
 from more_itertools import partition
@@ -281,11 +279,82 @@ def _check_if_t_unit_and_ref_einsum_have_the_same_axis_dim(ref_idx: EinsumAxisAc
                                         " dimensionality as in einsum.")
 
 
-def _get_iname_len(kernel, iname, long_dim_length):
-    ...
+def _get_iname_len(kernel, iname, long_dim_length) -> Union[np.floating, np.integer]:
+    """
+    Returns the iname bounds
+    """
+    from loopy.isl_helpers import static_min_of_pw_aff, static_max_of_pw_aff
+    # TODO: Get the constant iname length.
+    bounds = kernel.get_iname_bounds(iname)
+    lbound_pwaff = bounds.lower_bound_pw_aff
+    static_min_lbound_pwaff = static_min_of_pw_aff(lbound_pwaff,
+                                                   constants_only=True)
+    if static_min_lbound_pwaff.get_constant_val().to_python() != 0:
+        raise EinsumTunitMatchError(f"Iname {iname} that appears as an einsum index"
+                                    f" in {kernel.name} does not have '0' as its"
+                                    " lower bound -> not allowed in feinsum"
+                                    " grammar.")
+
+    ubound_pw_aff = bounds.upper_bound_pw_aff
+
+    ubound = static_max_of_pw_aff(ubound_pw_aff, constants_only=False)
+
+    if ubound.is_cst():
+        ubound_val = ubound.get_pieces()[0][1].get_constant_val().to_python()
+        if ubound_val >= long_dim_length:
+            return np.inf
+        else:
+            return ubound_val
+    else:
+        return np.inf
 
 
-def get_matched_einsum(kernel: lp.LoopKernel,
+def _get_dtype_for_subst_argument(t_unit: lp.LoopKernel,
+                                  kernel_name: str,
+                                  rule_name: str) -> np.dtype[Any]:
+    from loopy.type_inference import TypeReader
+    from pymbolic.mapper.substitutor import make_subst_func
+    from loopy.symbolic import (SubstitutionMapper,
+                                SubstitutionRuleExpander)
+    knl = t_unit.default_entrypoint
+    # TODO: The loopy.TypeReader is flaky -> try to break it and fix it.
+    type_reader = TypeReader(knl, t_unit.callables_table)
+    subst = knl.substitutions[rule_name]
+    subst_expr = subst.expression
+    submap1 = SubstitutionRuleExpander(knl.substitutions)
+    submap2 = SubstitutionMapper(
+        make_subst_func({arg: np.iinfo(knl.index_dtype.numpy_dtype).max
+                         for arg in subst.arguments})
+    )
+
+    subst_dtype = type_reader(submap2(submap1(subst_expr)))
+    return subst_dtype.numpy_dtype
+
+
+class SubstitutionInvocationGetter(CombineMapper):
+    def __init__(self, argument_substs: FrozenSet[str]):
+        self.argument_substs = argument_substs
+        super().__init__()
+
+    def combine(self, values: Iterable[FrozenSet[p.Call]]):
+        from functools import reduce
+        return reduce(frozenset.union, values, frozenset())
+
+    def map_call(self, expr: p.Call) -> FrozenSet[p.Call]:
+        if expr.function.name in self.argument_substs:
+            return frozenset([expr])
+        else:
+            return super().map_call(expr)
+
+    def map_algebraic_leaf(self, expr: Any) -> FrozenSet[p.Call]:
+        return frozenset()
+
+    def map_constant(self, expr: Any) -> FrozenSet[p.Call]:
+        return frozenset()
+
+
+def get_matched_einsum(t_unit: lp.TranslationUnit,
+                       kernel_name: Optional[str] = None,
                        insn_match: Any = None,
                        argument_substitutions: Optional[FrozenSet[str]] = None,
                        long_dim_length: int = 500,
@@ -314,7 +383,16 @@ def get_matched_einsum(kernel: lp.LoopKernel,
          See xxx (TODO) for a description of a translation unit with a einsum-like
          memory access pattern.
     """
-    subst_map = {}
+    if kernel_name is None:
+        if len(t_unit.entrypoints) != 1:
+            raise EinsumTunitMatchError("Must provide `kernel_name`, when"
+                                        " the translation unit has more than"
+                                        " 1 entrypoints.")
+        else:
+            kernel_name = t_unit.default_entrypoint.name
+
+    assert isinstance(kernel_name, str)
+    kernel = t_unit[kernel_name]
 
     argument_substitutions: FrozenSet[str] = (argument_substitutions
                                               or frozenset(kernel.substitutions))
@@ -329,10 +407,6 @@ def get_matched_einsum(kernel: lp.LoopKernel,
         raise EinsumTunitMatchError("Instructions forming the subject have"
                                     " more than 1 enclosing loop nest -- not"
                                     " allowed.")
-
-    # TODO: The comment on the next line is only to remind about a controversial
-    # design choice.
-    # Qn. How do we handle ``inames_only`` -> we don't
 
     free_indices_set = {_get_indices_from_assignee(insn.assignees[0])
                         for insn in insns}
@@ -356,16 +430,14 @@ def get_matched_einsum(kernel: lp.LoopKernel,
         access_to_operands: Dict[Tuple[str, ...], Set[str]] = {}
         redns_in_expr = get_reductions((insn.expression, tuple(insn.predicates)))
         if len(redns_in_expr) == 0:
-            # TODO: Do something here dude!!
             inner_expr = insn.expr
-            ensm_inames = free_indices
+            ensm_inames = insn.within_inames
             redn_inames = frozenset()
         elif len(redns_in_expr) == 1:
             redn_in_expr, = redns_in_expr
             inner_expr = redn_in_expr.expr
-            redn_inames = frozenset({iname.name
-                                     for iname in redn_in_expr.inames})
-            ensm_inames = free_indices | redn_inames
+            redn_inames = frozenset(redn_in_expr.inames)
+            ensm_inames = insn.within_inames | redn_inames
         else:
             raise EinsumTunitMatchError("More than one reductions found"
                                         " -> not within the grammar of expressions"
@@ -381,6 +453,8 @@ def get_matched_einsum(kernel: lp.LoopKernel,
 
         for term in einsum_terms:
             subst_invokes = subst_invokes_getter(term)
+            if not subst_invokes:
+                continue
             assert all(isinstance(subst_invoke, p.Call)
                        for subst_invoke in subst_invokes)
             if not all(all(isinstance(arg, p.Variable) and arg.name in ensm_inames
@@ -392,9 +466,9 @@ def get_matched_einsum(kernel: lp.LoopKernel,
                                             " feinsum's grammar.")
 
             access_index_tuple_var: Tuple[p.Variable, ...] = next(
-                iter(subst_invokes)).index_tuple
+                iter(subst_invokes)).parameters
 
-            if any(subst_invoke.index_tuple != access_index_tuple_var
+            if any(subst_invoke.parameters != access_index_tuple_var
                    for subst_invoke in subst_invokes):
                 raise EinsumTunitMatchError("Not all substitution invocations in"
                                             f" '{term}' are called with the same"
@@ -411,26 +485,69 @@ def get_matched_einsum(kernel: lp.LoopKernel,
 
         batched_access_to_operands.append(access_to_operands)
 
-    # TODO: Step 1. Get a mapping from einsum inames to indices.
-    ensm_inames = insns[0].within_inames | insn.reduction_inames
+    # TODO: We need to do something about the einsum index dependencies on the
+    # expression itself. It gets trickier if it comes as a multiplicative term and
+    # we intend to hoist certain terms.
+
+    # Step 1. Get a mapping from einsum inames to indices.
+    ensm_inames = insns[0].within_inames | insn.reduction_inames()
     einsum_indices_generator = (chr(i) for i in range(ord("a"), ord("z") + 1))
-    ensm_inames_to_indices: Dict[str, str] = {iname: next(einsum_indices_generator)
-                                              for iname in ensm_inames}
+    ensm_iname_to_index: Dict[str, str] = {iname: next(einsum_indices_generator)
+                                           for iname in ensm_inames}
 
-    # TODO: Step 2. Get the $\mathcal{L}(i)$ for each $i$ in the new indices.
+    # Step 2. Get the $\mathcal{L}(i)$ for each $i$ in the new indices.
     iname_to_len = {iname: _get_iname_len(kernel, iname, long_dim_length)
-                    for iname in einsum_inames}
+                    for iname in ensm_inames}
 
-    # TODO: Step 3. Combine these accesses to get the einsum expression.
-    # TODO: Step 4. Get the numeric data type for the substitutions
-    # TODO: Step 5. Get the shape from $L$'s.
-    # TODO: Step 6. Construct the batched einsum.
-    # TODO: Step 7. Canonicalize the batched-einsum, get the mapping.
-    # TODO: Step 8. Return
+    # Step 3. Combine these accesses to get the einsum expression.
+    from functools import reduce
+    unioned_accesses: Tuple[Tuple[str, ...]] = tuple(
+        reduce(frozenset.union,
+               (frozenset(access_to_operands)
+                for access_operands in batched_access_to_operands),
+               frozenset())
+    )
+    einsum_subscripts = (",".join(["".join(ensm_iname_to_index[iname]
+                                           for iname in accesses)
+                                   for accesses in unioned_accesses])
+                         + "->"
+                         + "".join(ensm_iname_to_index[iname]
+                                   for iname in free_indices))
+    use_matrix: List[List[FrozenSet[str]]] = []
+    for access_to_operands in batched_access_to_operands:
+        use_row = [frozenset(access_to_operands.get(accesses, set()))
+                   for accesses in unioned_accesses]
+        use_matrix.append(use_row)
 
+    # Step 4. Get the numeric data type for the substitution
+    value_to_dtype: Dict[str, np.dtype[Any]] = {}
 
+    for use_row in use_matrix:
+        for uses in use_row:
+            for use in uses:
+                if use not in value_to_dtype:
+                    value_to_dtype[use] = _get_dtype_for_subst_argument(
+                        t_unit,
+                        kernel_name,
+                        use)
 
-    1/0
+    # Step 5. Get arg_shapes from $L$'s.
+    arg_shapes: List[Tuple[Union[np.floating, np.integer], ...]] = []
+    for accesses in unioned_accesses:
+        arg_shapes.append([iname_to_len[iname]
+                           for iname in accesses])
+
+    # Step 6. Construct the batched einsum.
+    from feinsum.make_einsum import fused_einsum
+    batched_einsum = fused_einsum(einsum_subscripts,
+                                  arg_shapes,
+                                  use_matrix=use_matrix,
+                                  value_to_dtype=value_to_dtype)
+
+    # FIXME: Verify that the kernel's domain is indeed a dense-hypercube.
+
+    subst_map = Map(ensm_iname_to_index)
+    return batched_einsum, subst_map
 
 
 def extract_einsum_terms_as_subst(t_unit: lp.TranslationUnit,
@@ -631,11 +748,11 @@ def match_einsum(t_unit: lp.TranslationUnit,
         index_names[idx] = chr(ichr)
 
     subscripts = (",".join("".join(index_names[axis]
-                                for axis in axes)
-                    for axes in access_descrs)
-            + "->"
-            + "".join(index_names[FreeAxis(i)]
-                      for i in range(len(free_indices))))
+                                   for axis in axes)
+                           for axes in access_descrs)
+                  + "->"
+                  + "".join(index_names[FreeAxis(i)]
+                            for i in range(len(free_indices))))
 
     return fused_einsum(subscripts,
                         arg_shapes,
@@ -643,5 +760,9 @@ def match_einsum(t_unit: lp.TranslationUnit,
                         value_to_dtype=value_to_dtype)
 
 # }}}
+
+
+def match_t_unit_to_einsum(*args, **kwargs):
+    raise NotImplementedError
 
 # vim: foldmethod=marker
