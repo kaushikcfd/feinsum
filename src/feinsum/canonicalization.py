@@ -519,7 +519,7 @@ def get_substitution_mapping_between_isomorphic_batched_einsums(
         raise ValueError("Einsums are not isomorphic.")
 
     return Map({
-        var_in_from_einsum: subst_map_to.inv(var_in_canon_einsum)
+        var_in_from_einsum: subst_map_to.inv[var_in_canon_einsum]
         for var_in_from_einsum, var_in_canon_einsum in subst_map_from.items()})
 
 # vim: foldmethod=marker

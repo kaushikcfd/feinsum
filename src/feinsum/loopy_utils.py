@@ -16,6 +16,7 @@ from multiset import Multiset
 from typing import (Union, ClassVar, Optional, Tuple, FrozenSet, Any, Dict,
                     List, Iterable, Set, Mapping)
 from immutables import Map
+from bidict import frozenbidict
 from dataclasses import dataclass
 from pymbolic.interop.matchpy.tofrom import (
     ToMatchpyExpressionMapper as BaseToMatchpyExpressionMapper,
@@ -26,7 +27,7 @@ from feinsum.einsum import (FusedEinsum, FreeAxis, SizeParam, EinsumAxisAccess,
 from feinsum.diagnostics import EinsumTunitMatchError
 from loopy.symbolic import (pw_aff_to_expr, IdentityMapper as BaseIdentityMapper,
                             CombineMapper, Reduction)
-from more_itertools import partition
+from more_itertools import partition, zip_equal as szip
 
 PYMBOLIC_ASSOC_OPS = (p.Product, p.Sum, p.BitwiseOr, p.BitwiseXor,
                       p.BitwiseAnd, p.LogicalAnd, p.LogicalOr)
@@ -304,7 +305,7 @@ def _get_iname_len(kernel, iname, long_dim_length) -> Union[np.floating, np.inte
         if ubound_val >= long_dim_length:
             return np.inf
         else:
-            return ubound_val
+            return ubound_val+1
     else:
         return np.inf
 
@@ -358,13 +359,13 @@ def get_matched_einsum(t_unit: lp.TranslationUnit,
                        insn_match: Any = None,
                        argument_substitutions: Optional[FrozenSet[str]] = None,
                        long_dim_length: int = 500,
-                       ) -> Tuple[FusedEinsum, Map[str, str]]:
+                       ) -> Tuple[FusedEinsum, frozenbidict[str, str]]:
     """
     Returns a tuple of the form ``(matched_einsum, subst_map)`` where,
     ``matched_einsum`` is the batched einsum having a memory access pattern similar
     to the instructions in *insn_match* of *t_unit*, and, ``subst_map`` is a mapping
-    from the entities (i.e. indices, arguments) of *match_einsum* to the variables
-    in *t_unit*.
+    from the variables in *t_unit* to the entities (i.e. indices, arguments) of
+    *match_einsum*.
 
     :param t_unit: The subject translation unit which is being matched against
         *ref_einsum*.
@@ -545,8 +546,14 @@ def get_matched_einsum(t_unit: lp.TranslationUnit,
                                   value_to_dtype=value_to_dtype)
 
     # FIXME: Verify that the kernel's domain is indeed a dense-hypercube.
+    output_names = ["_fe_out"] + ["_fe_out_{i}" for i in range(len(insns) - 1)]
 
-    subst_map = Map(ensm_iname_to_index)
+    subst_map = frozenbidict({
+        **ensm_iname_to_index,
+        **{val: val for val in value_to_dtype.keys()},
+        **{insn.assignee_var_names()[0]: out_name
+           for insn, out_name in szip(insns, output_names)},
+    })
     return batched_einsum, subst_map
 
 
@@ -669,6 +676,10 @@ def match_einsum(t_unit: lp.TranslationUnit,
         raise EinsumTunitMatchError("Instructions forming the subject have"
                                     " more than 1 enclosing loop nest -- not"
                                     " allowed.")
+    if any(len(insn.assignees) != 1 for insn in insns):
+        raise EinsumTunitMatchError("One or more of the instructions to be matched"
+                                    " do not have a single assignee -> not within"
+                                    " feinsum's grammar.")
 
     free_indices_set = {_get_indices_from_assignee(insn.assignees[0])
                         for insn in insns}
@@ -762,7 +773,28 @@ def match_einsum(t_unit: lp.TranslationUnit,
 # }}}
 
 
-def match_t_unit_to_einsum(*args, **kwargs):
-    raise NotImplementedError
+def match_t_unit_to_einsum(t_unit: lp.TranslationUnit,
+                           einsum: FusedEinsum,
+                           kernel_name: Optional[str] = None,
+                           insn_match: Any = None,
+                           argument_substitutions: Optional[FrozenSet[str]] = None,
+                           long_dim_length: int = 500,
+                           ) -> Mapping[str, str]:
+    matched_einsum, var_in_tunit_to_var_in_matched_ensm = get_matched_einsum(
+        t_unit,
+        kernel_name,
+        insn_match,
+        argument_substitutions,
+        long_dim_length,)
+
+    from feinsum.canonicalization import (
+        get_substitution_mapping_between_isomorphic_batched_einsums)
+    isomorph_subst = get_substitution_mapping_between_isomorphic_batched_einsums(
+        einsum, matched_einsum)
+
+    return Map({
+        var_in_ensm: var_in_tunit_to_var_in_matched_ensm.inv[var_in_matched_ensm]
+        for var_in_ensm, var_in_matched_ensm in isomorph_subst.items()
+    })
 
 # vim: foldmethod=marker
