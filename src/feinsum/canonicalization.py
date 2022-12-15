@@ -39,6 +39,7 @@ from immutables import Map
 from dataclasses import dataclass
 from more_itertools import zip_equal as zip
 from pytools import UniqueNameGenerator
+from bidict import frozenbidict
 
 
 # {{{ private interface to build an einsum graph
@@ -387,14 +388,13 @@ def get_einsum_dag(einsum: FusedEinsum) -> Map[EinsumGraphNode,
                 for k, v in einsum_dag.items()})
 
 
-def canonicalize_einsum(einsum: FusedEinsum) -> FusedEinsum:
+def _get_canonicalized_einsum_with_subst_mapping(
+        einsum: FusedEinsum) -> Tuple[FusedEinsum, frozenbidict[str, str]]:
     """
-    Returns a canonicalized form of *einsum*.
-
-    .. note::
-
-        - Refer to (TODO PAPER) for a definition of isomorphism among
-          fused einsums.
+    Returns a tuple of the form ``(canonicalized_einsum, subst_map)`` where
+    *canonicalized_einsum* is an instance of :class:`BatchedEinsum` which is the
+    canonicalized version of *einsum* and *subst_map* is the mapping from variables
+    in *einsum* to the variables in `*canonicalized_einsum*.
     """
 
     # collect all the uses with same desciptors together.
@@ -471,6 +471,13 @@ def canonicalize_einsum(einsum: FusedEinsum) -> FusedEinsum:
     new_input_subscripts = ",".join(input_subscript_list[icol]
                                     for icol in use_matrix_col_permutation)
 
+    substitution_mapping = frozenbidict({
+        **idx_to_new_idx,
+        **input_ary_name_to_new_ary_name,
+        **{old_output_name: output_names[use_matrix_row_permutation[irow]]
+           for irow, old_output_name in enumerate(output_names)},
+    })
+
     return fused_einsum(
         f"{new_input_subscripts}->{output_subscript}",
         operand_shapes=[[np.inf if isinstance(d, SizeParam) else d
@@ -478,7 +485,41 @@ def canonicalize_einsum(einsum: FusedEinsum) -> FusedEinsum:
                         for icol in use_matrix_col_permutation],
         value_to_dtype={input_ary_name_to_new_ary_name[k]: v
                         for k, v in einsum.value_to_dtype.items()},
-        use_matrix=new_use_matrix)
+        use_matrix=new_use_matrix), substitution_mapping
 
+
+def canonicalize_einsum(einsum: FusedEinsum) -> FusedEinsum:
+    """
+    Returns a canonicalized form of *einsum*.
+
+    .. note::
+
+        - Refer to (TODO PAPER) for a definition of isomorphism among
+          fused einsums.
+    """
+    return _get_canonicalized_einsum_with_subst_mapping(einsum)[0]
+
+
+def get_substitution_mapping_between_isomorphic_batched_einsums(
+        batched_einsum_from, batched_einsum_to) -> Mapping[str, str]:
+    """
+    Returns the isomorphism mapping from *batched_einsum_from* to
+    *batched_einsum_to*.
+
+    .. note::
+
+        Raises a :class:`ValueError` if the two batched einsums are not isomorphic.
+    """
+    canon_batched_einsum_from, subst_map_from = (
+        _get_canonicalized_einsum_with_subst_mapping(batched_einsum_from))
+    canon_batched_einsum_to, subst_map_to = (
+        _get_canonicalized_einsum_with_subst_mapping(batched_einsum_to))
+
+    if canon_batched_einsum_from != canon_batched_einsum_to:
+        raise ValueError("Einsums are not isomorphic.")
+
+    return Map({
+        var_in_from_einsum: subst_map_to.inv(var_in_canon_einsum)
+        for var_in_from_einsum, var_in_canon_einsum in subst_map_from.items()})
 
 # vim: foldmethod=marker
