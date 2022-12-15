@@ -546,7 +546,7 @@ def get_matched_einsum(t_unit: lp.TranslationUnit,
                                   value_to_dtype=value_to_dtype)
 
     # FIXME: Verify that the kernel's domain is indeed a dense-hypercube.
-    output_names = ["_fe_out"] + ["_fe_out_{i}" for i in range(len(insns) - 1)]
+    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(len(insns) - 1)]
 
     subst_map = frozenbidict({
         **ensm_iname_to_index,
