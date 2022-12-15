@@ -137,19 +137,26 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
     return t_unit
 
 
-def test_match_einsum():
+def test_einsum_matching():
     t_unit = lp.make_kernel(
         "{[iel_2, idof_2, ifacedof, iface]:"
         " 0<=iel_2<10000 and 0<=idof_2<35 and 0<=ifacedof<15 and 0<=iface<4}",
         """
+        flux_subst_0(_0, _1, _2) := F_0[_0, _1, _2]
+        flux_subst_1(_0, _1, _2) := F_1[_0, _1, _2]
+        flux_subst_2(_0, _1, _2) := F_2[_0, _1, _2]
+        flux_subst_3(_0, _1, _2) := F_3[_0, _1, _2]
+        lift_subst(_0, _1, _2) := Rlift[_0, _1, _2]
+        face_jac_subst(_0, _1) := Jface[_0, _1]
+
         lift_0[iel_2, idof_2] = sum([iface, ifacedof],
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_0[iface, iel_2, ifacedof])
+                                    face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_0(iface, iel_2, ifacedof))
         lift_1[iel_2, idof_2] = sum([iface, ifacedof],
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_1[iface, iel_2, ifacedof])
+                                    face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_1(iface, iel_2, ifacedof))
         lift_2[iel_2, idof_2] = sum([iface, ifacedof],
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_2[iface, iel_2, ifacedof])
+                                    face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_2(iface, iel_2, ifacedof))
         lift_3[iel_2, idof_2] = sum([iface, ifacedof],
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_3[iface, iel_2, ifacedof])
+                                    face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_3(iface, iel_2, ifacedof))
         """  # noqa: E501
     )
 
@@ -173,6 +180,6 @@ def test_match_einsum():
                                     [{"J"}, {"R"}, {"v3"}],
                                 ])
 
-    inferred_einsum = f.match_einsum(t_unit)
+    inferred_einsum, _ = f.get_matched_einsum(t_unit)
     assert (f.canonicalize_einsum(inferred_einsum)
             == f.canonicalize_einsum(ref_einsum))

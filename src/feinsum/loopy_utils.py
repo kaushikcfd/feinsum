@@ -3,8 +3,8 @@
 upstreaming the heavy lifting parts to :mod:`loopy` itself.
 
 .. autofunction:: extract_subexpr_of_associative_op_as_subst
+.. autofunction:: get_a_matched_einsum
 .. autofunction:: match_t_unit_to_einsum
-.. autofunction:: match_einsum
 """
 
 import numpy as np
@@ -22,8 +22,7 @@ from pymbolic.interop.matchpy.tofrom import (
     ToMatchpyExpressionMapper as BaseToMatchpyExpressionMapper,
     FromMatchpyExpressionMapper as BaseFromMatchpyExpressionMapper)
 from matchpy import Arity
-from feinsum.einsum import (FusedEinsum, FreeAxis, SizeParam, EinsumAxisAccess,
-                            SummationAxis)
+from feinsum.einsum import FusedEinsum, SizeParam, EinsumAxisAccess
 from feinsum.diagnostics import EinsumTunitMatchError
 from loopy.symbolic import (pw_aff_to_expr, IdentityMapper as BaseIdentityMapper,
                             CombineMapper, Reduction)
@@ -354,12 +353,12 @@ class SubstitutionInvocationGetter(CombineMapper):
         return frozenset()
 
 
-def get_matched_einsum(t_unit: lp.TranslationUnit,
-                       kernel_name: Optional[str] = None,
-                       insn_match: Any = None,
-                       argument_substitutions: Optional[FrozenSet[str]] = None,
-                       long_dim_length: int = 500,
-                       ) -> Tuple[FusedEinsum, frozenbidict[str, str]]:
+def get_a_matched_einsum(t_unit: lp.TranslationUnit,
+                         kernel_name: Optional[str] = None,
+                         insn_match: Any = None,
+                         argument_substitutions: Optional[FrozenSet[str]] = None,
+                         long_dim_length: int = 500,
+                         ) -> Tuple[FusedEinsum, frozenbidict[str, str]]:
     """
     Returns a tuple of the form ``(matched_einsum, subst_map)`` where,
     ``matched_einsum`` is the batched einsum having a memory access pattern similar
@@ -645,134 +644,6 @@ def hoist_reduction_invariant_terms(t_unit: lp.TranslationUnit,
 # }}}
 
 
-# {{{ infer einsum
-
-def match_einsum(t_unit: lp.TranslationUnit,
-                 insn_match: Any = None,
-                 kernel_name: Optional[str] = None,
-                 long_dim_length: int = 1000,
-                 ) -> FusedEinsum:
-    """
-    Returns the inferred :class:`~feinsum.einsum.FusedEinsum` for the
-    instructions spanning *insn_match*.
-
-    :param insn_match: A match expression as understood as
-        :func:`loopy.match.parse_match`.
-    """
-    from loopy.match import parse_match
-    from pymbolic.mapper.flattener import flatten
-    from feinsum.make_einsum import fused_einsum
-
-    if kernel_name is None:
-        kernel_name = t_unit.default_entrypoint.name
-
-    insn_match = parse_match(insn_match)
-    kernel = t_unit[kernel_name]
-    insns = [insn
-             for insn in kernel.instructions
-             if insn_match(kernel, insn)]
-
-    if len({insn.within_inames for insn in insns}) != 1:
-        raise EinsumTunitMatchError("Instructions forming the subject have"
-                                    " more than 1 enclosing loop nest -- not"
-                                    " allowed.")
-    if any(len(insn.assignees) != 1 for insn in insns):
-        raise EinsumTunitMatchError("One or more of the instructions to be matched"
-                                    " do not have a single assignee -> not within"
-                                    " feinsum's grammar.")
-
-    free_indices_set = {_get_indices_from_assignee(insn.assignees[0])
-                        for insn in insns}
-    if len(free_indices_set) != 1:
-        raise EinsumTunitMatchError("Instructions have differing free indices"
-                                    " -- not allowed.")
-    free_indices, = free_indices_set
-
-    for insn in insns:
-        if not isinstance(insn.expression, lp.Reduction):
-            raise ValueError(f"Instruction {insn} does not have a"
-                             " reduction RHS.")
-        if not isinstance(insn.expression.expr, p.Product):
-            raise ValueError(f"Instruction {insn} does not have"
-                             " reduction of a product")
-
-        if insn.expression.inames != insns[0].expression.inames:
-            raise ValueError("Instructions don't have the same reduction"
-                            " inames, not supported.")
-
-    redn_indices = insns[0].expression.inames
-
-    iname_to_access_descr: Dict[str, EinsumAxisAccess] = {}
-
-    for i, iname in enumerate(free_indices):
-        iname_to_access_descr[iname] = FreeAxis(i)
-    for i, iname in enumerate(redn_indices):
-        iname_to_access_descr[iname] = SummationAxis(i)
-
-    access_descrs_for_insns = {
-        tuple(
-            tuple(iname_to_access_descr[idx.name]
-                  for idx in child.index_tuple)
-            for child in flatten(insn.expression.expr).children)
-        for insn in insns}
-    if len(access_descrs_for_insns) != 1:
-        raise ValueError("access pattern across instructions not uniform")
-
-    access_descrs, = access_descrs_for_insns
-
-    use_matrix = tuple(
-        tuple(frozenset([child.aggregate.name])
-              for child in flatten(insn.expression.expr).children)
-        for insn in insns
-    )
-    all_values = {child.aggregate.name
-                  for insn in insns
-                  for child in flatten(insn.expression.expr).children}
-
-    value_to_dtype = Map(
-        {val: kernel.arg_dict.get(val, kernel.temporary_variables.get(val)).dtype
-         for val in all_values}
-    )
-
-    arg_shape_of_all_insns = {
-        tuple(
-            tuple(dim
-                  if (isinstance(dim, int) and (dim < long_dim_length))
-                  else np.inf
-                  for dim in kernel.get_var_descriptor(child.aggregate.name).shape)
-            for child in flatten(insn.expression.expr).children)
-        for insn in insns
-    }
-
-    if len(arg_shape_of_all_insns) != 1:
-        raise ValueError("Arguments from instructions have different"
-                         " shapes: not allowed in a fused einsum.")
-
-    arg_shapes, = arg_shape_of_all_insns
-
-    index_names = {}
-    sorted_axes: List[EinsumAxisAccess] = ([FreeAxis(i)
-                                            for i in range(len(free_indices))]
-                                           + [SummationAxis(i)
-                                              for i in range(len(redn_indices))])
-    for idx, ichr in zip(sorted_axes, range(97, 123)):
-        index_names[idx] = chr(ichr)
-
-    subscripts = (",".join("".join(index_names[axis]
-                                   for axis in axes)
-                           for axes in access_descrs)
-                  + "->"
-                  + "".join(index_names[FreeAxis(i)]
-                            for i in range(len(free_indices))))
-
-    return fused_einsum(subscripts,
-                        arg_shapes,
-                        use_matrix,
-                        value_to_dtype=value_to_dtype)
-
-# }}}
-
-
 def match_t_unit_to_einsum(t_unit: lp.TranslationUnit,
                            einsum: FusedEinsum,
                            kernel_name: Optional[str] = None,
@@ -780,12 +651,17 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit,
                            argument_substitutions: Optional[FrozenSet[str]] = None,
                            long_dim_length: int = 500,
                            ) -> Mapping[str, str]:
-    matched_einsum, var_in_tunit_to_var_in_matched_ensm = get_matched_einsum(
+    """
+    Returns a mapping from the entities of *einsum* to the variables of the
+    corresponding matched einsum in *t_unit*. See :func:`get_a_matched_einsum` for a
+    subset of grammar of :mod:`loopy` kernels to be a matched as a batched einsum.
+    """
+    matched_einsum, var_in_tunit_to_var_in_matched_ensm = get_a_matched_einsum(
         t_unit,
         kernel_name,
         insn_match,
         argument_substitutions,
-        long_dim_length,)
+        long_dim_length)
 
     from feinsum.canonicalization import (
         get_substitution_mapping_between_isomorphic_batched_einsums)
