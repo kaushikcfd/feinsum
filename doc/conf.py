@@ -33,7 +33,7 @@ nitpick_ignore_regex = [
     # As of 2022-09-15, it doesn't look like there's sphinx documentation
     # available.
     ["py:class", r"immutables\.(.+)"],
-
+    ["py:class", r"bidict\.(.+)"],
 ]
 
 import sys

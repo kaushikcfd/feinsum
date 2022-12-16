@@ -180,6 +180,6 @@ def test_einsum_matching():
                                     [{"J"}, {"R"}, {"v3"}],
                                 ])
 
-    inferred_einsum, _ = f.get_matched_einsum(t_unit)
+    inferred_einsum, _ = f.get_a_matched_einsum(t_unit)
     assert (f.canonicalize_einsum(inferred_einsum)
             == f.canonicalize_einsum(ref_einsum))
