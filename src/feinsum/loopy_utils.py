@@ -22,9 +22,9 @@ from pymbolic.interop.matchpy.tofrom import (
     ToMatchpyExpressionMapper as BaseToMatchpyExpressionMapper,
     FromMatchpyExpressionMapper as BaseFromMatchpyExpressionMapper)
 from matchpy import Arity
-from feinsum.einsum import FusedEinsum, SizeParam, EinsumAxisAccess
+from feinsum.einsum import FusedEinsum
 from feinsum.diagnostics import EinsumTunitMatchError
-from loopy.symbolic import (pw_aff_to_expr, IdentityMapper as BaseIdentityMapper,
+from loopy.symbolic import (IdentityMapper as BaseIdentityMapper,
                             CombineMapper, Reduction)
 from more_itertools import partition, zip_equal as szip
 
@@ -191,8 +191,6 @@ def extract_subexpr_of_associative_op_as_subst(
 
 # {{{ matching loopy kernel against a ref. einsum
 
-# {{{ mapper classes
-
 class ReductionCollector(CombineMapper):
     """
     A mapper that collects all instances of :class:`loopy.symbolic.Reduction`
@@ -213,28 +211,11 @@ class ReductionCollector(CombineMapper):
         return frozenset()
 
 
-class ContainsIf(CombineMapper):
-    """
-    Mapper that returns *True* only if the expression contains a conditional
-    expression.
-    """
-
-    def combine(self, values: Iterable[bool]):
-        return any(values)
-
-    def map_algebraic_leaf(self, expr: Any) -> bool:
-        return False
-
-    def map_constant(self, expr: Any) -> bool:
-        return False
-
-    def map_if(self, expr: p.If) -> bool:
-        return True
-
-# }}}
-
-
 def _get_indices_from_assignee(assignee: p.Expression) -> Tuple[str, ...]:
+    r"""
+    Returns the accessed indices in assignee. Expects the assignee to be seen in a
+    batched-einsum matchable :class:`~loopy.LoopKernel`\ 's expression.
+    """
     if isinstance(assignee, p.Variable):
         return ()
     elif (isinstance(assignee, p.Subscript)
@@ -247,44 +228,16 @@ def _get_indices_from_assignee(assignee: p.Expression) -> Tuple[str, ...]:
                                     " not allowed.")
 
 
-def _check_if_t_unit_and_ref_einsum_have_the_same_axis_dim(ref_idx: EinsumAxisAccess,
-                                                           physical_idx: str,
-                                                           ref_einsum: FusedEinsum,
-                                                           kernel: lp.LoopKernel,
-                                                           long_dim_length: int,
-                                                           ) -> None:
-
-    idx_bounds = kernel.get_iname_bounds(physical_idx)
-    if not idx_bounds.lower_bound_pw_aff.non_zero_set().is_empty():
-        # TODO: Not sure whether we can also support lower bound with
-        # offset
-        raise NotImplementedError("Non-zero lower bounds not yet"
-                                  " supported.")
-    if not idx_bounds.upper_bound_pw_aff.is_cst():
-        if not isinstance(ref_einsum.index_to_dim_length()[ref_idx], SizeParam):
-            raise EinsumTunitMatchError(f"Index '{physical_idx}' in the"
-                                        " t-unit is of parametric length,"
-                                        " while not in the reference"
-                                        " einsum.")
-    else:
-        knl_axis_size = pw_aff_to_expr(idx_bounds.upper_bound_pw_aff) + 1
-        if (knl_axis_size == ref_einsum.index_to_dim_length()[ref_idx]
-                or ((knl_axis_size > long_dim_length)
-                    and isinstance(ref_einsum.index_to_dim_length()[ref_idx],
-                                   SizeParam))):
-            pass
-        else:
-            raise EinsumTunitMatchError(f"Index '{physical_idx}' in the"
-                                        " t-unit does not have the same"
-                                        " dimensionality as in einsum.")
-
-
-def _get_iname_len(kernel, iname, long_dim_length) -> Union[np.floating, np.integer]:
-    """
-    Returns the iname bounds
+def _get_iname_length(kernel, iname, long_dim_length
+                      ) -> Union[np.floating, np.integer]:
+    r"""
+    Returns :math:`\mathcal{L}(\text{iname})`. In order to have the same iteration
+    domain as that of an einsum, we enforce that *iname* has a zero lower bound
+    (inclusive). In the case when :math:`\mathcal{L}(\text{iname}) \geq
+    \text{long\_dim\_length}` or when the *iname*'s domain size is parametric we
+    return :data:`numpy.inf` to denote an :math:`\infty`-long dimension.
     """
     from loopy.isl_helpers import static_min_of_pw_aff, static_max_of_pw_aff
-    # TODO: Get the constant iname length.
     bounds = kernel.get_iname_bounds(iname)
     lbound_pwaff = bounds.lower_bound_pw_aff
     static_min_lbound_pwaff = static_min_of_pw_aff(lbound_pwaff,
@@ -296,7 +249,6 @@ def _get_iname_len(kernel, iname, long_dim_length) -> Union[np.floating, np.inte
                                     " grammar.")
 
     ubound_pw_aff = bounds.upper_bound_pw_aff
-
     ubound = static_max_of_pw_aff(ubound_pw_aff, constants_only=False)
 
     if ubound.is_cst():
@@ -306,12 +258,18 @@ def _get_iname_len(kernel, iname, long_dim_length) -> Union[np.floating, np.inte
         else:
             return ubound_val+1
     else:
+        # Parametric upper bound => infty
         return np.inf
 
 
 def _get_dtype_for_subst_argument(t_unit: lp.LoopKernel,
                                   kernel_name: str,
                                   rule_name: str) -> np.dtype[Any]:
+    """
+    Returns the inferred data type for *rule_name*'s expression when all the
+    arguments passed to it are equal to it kernel's
+    :attr:`loopy.LoopKernel.index_dtype`.
+    """
     from loopy.type_inference import TypeReader
     from pymbolic.mapper.substitutor import make_subst_func
     from loopy.symbolic import (SubstitutionMapper,
@@ -321,7 +279,10 @@ def _get_dtype_for_subst_argument(t_unit: lp.LoopKernel,
     type_reader = TypeReader(knl, t_unit.callables_table)
     subst = knl.substitutions[rule_name]
     subst_expr = subst.expression
+    # submap1: expand substitution invocations (expected by type inference mapper)
     submap1 = SubstitutionRuleExpander(knl.substitutions)
+    # submap2: pass arguments (with appropriate dtypes) to the substitution of
+    # interest
     submap2 = SubstitutionMapper(
         make_subst_func({arg: np.iinfo(knl.index_dtype.numpy_dtype).max
                          for arg in subst.arguments})
@@ -332,6 +293,9 @@ def _get_dtype_for_subst_argument(t_unit: lp.LoopKernel,
 
 
 class SubstitutionInvocationGetter(CombineMapper):
+    """
+    Mapper to collect all the substitution invocations in an expression.
+    """
     def __init__(self, argument_substs: FrozenSet[str]):
         self.argument_substs = argument_substs
         super().__init__()
@@ -496,7 +460,7 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
                                            for iname in ensm_inames}
 
     # Step 2. Get the $\mathcal{L}(i)$ for each $i$ in the new indices.
-    iname_to_len = {iname: _get_iname_len(kernel, iname, long_dim_length)
+    iname_to_len = {iname: _get_iname_length(kernel, iname, long_dim_length)
                     for iname in ensm_inames}
 
     # Step 3. Combine these accesses to get the einsum expression.

@@ -276,13 +276,8 @@ def generate_loopy(einsum: FusedEinsum,
     t_unit = lp.make_kernel(
         domains, statements,
         kernel_data=kernel_data+[...],
+        substitutions=substitutions,
         lang_version=LOOPY_LANG_VERSION)
-
-    # TODO: Once https://github.com/inducer/loopy/issues/705
-    # is fixed avoid this copy
-    t_unit = t_unit.with_kernel(
-        t_unit.default_entrypoint
-        .copy(substitutions=substitutions))
 
     return t_unit
 

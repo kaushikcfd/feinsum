@@ -393,8 +393,8 @@ def _get_canonicalized_einsum_with_subst_mapping(
     """
     Returns a tuple of the form ``(canonicalized_einsum, subst_map)`` where
     *canonicalized_einsum* is an instance of :class:`BatchedEinsum` which is the
-    canonicalized version of *einsum* and *subst_map* is the mapping from variables
-    in *einsum* to the variables in `*canonicalized_einsum*.
+    canonicalized version of *einsum* and *subst_map* is the mapping from entities
+    of *einsum* to the variables in `*canonicalized_einsum*.
     """
 
     # collect all the uses with same desciptors together.
@@ -503,8 +503,8 @@ def canonicalize_einsum(einsum: FusedEinsum) -> FusedEinsum:
 def get_substitution_mapping_between_isomorphic_batched_einsums(
         batched_einsum_from, batched_einsum_to) -> Mapping[str, str]:
     """
-    Returns the isomorphism mapping from *batched_einsum_from* to
-    *batched_einsum_to*.
+    Returns the isomorphism mapping from the entities of *batched_einsum_from* to
+    the entities of *batched_einsum_to*.
 
     .. note::
 
