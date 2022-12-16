@@ -501,7 +501,8 @@ def canonicalize_einsum(einsum: FusedEinsum) -> FusedEinsum:
 
 
 def get_substitution_mapping_between_isomorphic_batched_einsums(
-        batched_einsum_from, batched_einsum_to) -> Mapping[str, str]:
+    batched_einsum_from: FusedEinsum, batched_einsum_to: FusedEinsum
+) -> Mapping[str, str]:
     """
     Returns the isomorphism mapping from the entities of *batched_einsum_from* to
     the entities of *batched_einsum_to*.

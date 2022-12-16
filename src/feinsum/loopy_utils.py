@@ -14,7 +14,7 @@ import pymbolic.primitives as p
 
 from multiset import Multiset
 from typing import (Union, ClassVar, Optional, Tuple, FrozenSet, Any, Dict,
-                    List, Iterable, Set, Mapping)
+                    List, Iterable, Set, Mapping, cast)
 from immutables import Map
 from bidict import frozenbidict
 from dataclasses import dataclass
@@ -22,7 +22,7 @@ from pymbolic.interop.matchpy.tofrom import (
     ToMatchpyExpressionMapper as BaseToMatchpyExpressionMapper,
     FromMatchpyExpressionMapper as BaseFromMatchpyExpressionMapper)
 from matchpy import Arity
-from feinsum.einsum import FusedEinsum
+from feinsum.einsum import FusedEinsum, IntegralT
 from feinsum.diagnostics import EinsumTunitMatchError
 from loopy.symbolic import (IdentityMapper as BaseIdentityMapper,
                             CombineMapper, Reduction)
@@ -191,16 +191,19 @@ def extract_subexpr_of_associative_op_as_subst(
 
 # {{{ matching loopy kernel against a ref. einsum
 
-class ReductionCollector(CombineMapper):
+# type-ignore-reason: deriving from Any
+class ReductionCollector(CombineMapper):  # type: ignore[misc]
     """
     A mapper that collects all instances of :class:`loopy.symbolic.Reduction`
     in an expression.
     """
-    def combine(self, values: Iterable[FrozenSet[p.Expression]]):
+    def combine(self,
+                values: Iterable[FrozenSet[p.Expression]]
+                ) -> FrozenSet[p.Expression]:
         from functools import reduce
         return reduce(frozenset.union, values, frozenset())
 
-    def map_reduction(self, expr: Reduction) -> None:
+    def map_reduction(self, expr: Reduction) -> FrozenSet[p.Expression]:
         return self.combine([frozenset([expr]),
                              super().map_reduction(expr)])
 
@@ -228,8 +231,8 @@ def _get_indices_from_assignee(assignee: p.Expression) -> Tuple[str, ...]:
                                     " not allowed.")
 
 
-def _get_iname_length(kernel, iname, long_dim_length
-                      ) -> Union[np.floating, np.integer]:
+def _get_iname_length(kernel: lp.LoopKernel, iname: str, long_dim_length: IntegralT
+                      ) -> Union[float, IntegralT]:
     r"""
     Returns :math:`\mathcal{L}(\text{iname})`. In order to have the same iteration
     domain as that of an einsum, we enforce that *iname* has a zero lower bound
@@ -253,6 +256,7 @@ def _get_iname_length(kernel, iname, long_dim_length
 
     if ubound.is_cst():
         ubound_val = ubound.get_pieces()[0][1].get_constant_val().to_python()
+        assert isinstance(ubound_val, int)
         if ubound_val >= long_dim_length:
             return np.inf
         else:
@@ -289,10 +293,12 @@ def _get_dtype_for_subst_argument(t_unit: lp.LoopKernel,
     )
 
     subst_dtype = type_reader(submap2(submap1(subst_expr)))
-    return subst_dtype.numpy_dtype
+    # type-ignore-reason: missing precise typing information in loopy
+    return subst_dtype.numpy_dtype  # type: ignore[no-any-return]
 
 
-class SubstitutionInvocationGetter(CombineMapper):
+# type-ignore-reason: deriving from Any
+class SubstitutionInvocationGetter(CombineMapper):  # type: ignore[misc]
     """
     Mapper to collect all the substitution invocations in an expression.
     """
@@ -300,7 +306,7 @@ class SubstitutionInvocationGetter(CombineMapper):
         self.argument_substs = argument_substs
         super().__init__()
 
-    def combine(self, values: Iterable[FrozenSet[p.Call]]):
+    def combine(self, values: Iterable[FrozenSet[p.Call]]) -> FrozenSet[p.Call]:
         from functools import reduce
         return reduce(frozenset.union, values, frozenset())
 
@@ -308,7 +314,9 @@ class SubstitutionInvocationGetter(CombineMapper):
         if expr.function.name in self.argument_substs:
             return frozenset([expr])
         else:
-            return super().map_call(expr)
+            # type-ignore-reason: CombineMapper.map_call does not provide type
+            # information
+            return super().map_call(expr)  # type: ignore[no-any-return]
 
     def map_algebraic_leaf(self, expr: Any) -> FrozenSet[p.Call]:
         return frozenset()
@@ -358,8 +366,9 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
     assert isinstance(kernel_name, str)
     kernel = t_unit[kernel_name]
 
-    argument_substitutions: FrozenSet[str] = (argument_substitutions
-                                              or frozenset(kernel.substitutions))
+    argument_substitutions = (argument_substitutions
+                              or frozenset(kernel.substitutions))
+    assert isinstance(argument_substitutions, frozenset)
 
     from loopy.match import parse_match
     insn_match = parse_match(insn_match)
@@ -396,7 +405,7 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
         if len(redns_in_expr) == 0:
             inner_expr = insn.expr
             ensm_inames = insn.within_inames
-            redn_inames = frozenset()
+            redn_inames: FrozenSet[str] = frozenset()
         elif len(redns_in_expr) == 1:
             redn_in_expr, = redns_in_expr
             inner_expr = redn_in_expr.expr
@@ -447,7 +456,9 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
              .setdefault(access_index_tuple, set())
              .update(subst_names))
 
-        batched_access_to_operands.append(access_to_operands)
+        batched_access_to_operands.append(
+            Map({k: frozenset(v)
+                 for k, v in access_to_operands.items()}))
 
     # TODO: We need to do something about the einsum index dependencies on the
     # expression itself. It gets trickier if it comes as a multiplicative term and
@@ -465,11 +476,14 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
 
     # Step 3. Combine these accesses to get the einsum expression.
     from functools import reduce
-    unioned_accesses: Tuple[Tuple[str, ...]] = tuple(
-        reduce(frozenset.union,
-               (frozenset(access_to_operands)
-                for access_operands in batched_access_to_operands),
-               frozenset())
+    # type-ignore-reason: looks like mypy is not able to deduce that frozenset is an
+    # iterable.
+    # TODO: open an issue and link it here.
+    unioned_accesses: Tuple[Tuple[str, ...], ...] = tuple(
+        reduce(frozenset.union,  # type: ignore[arg-type]
+               (frozenset(acc_to_operands)
+                for acc_to_operands in batched_access_to_operands),
+               cast(FrozenSet[Tuple[str, ...]], frozenset()))
     )
     einsum_subscripts = (",".join(["".join(ensm_iname_to_index[iname]
                                            for iname in accesses)
@@ -478,8 +492,8 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
                          + "".join(ensm_iname_to_index[iname]
                                    for iname in free_indices))
     use_matrix: List[List[FrozenSet[str]]] = []
-    for access_to_operands in batched_access_to_operands:
-        use_row = [frozenset(access_to_operands.get(accesses, set()))
+    for acc_to_operands in batched_access_to_operands:
+        use_row = [acc_to_operands.get(accesses, frozenset())
                    for accesses in unioned_accesses]
         use_matrix.append(use_row)
 
@@ -496,10 +510,10 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
                         use)
 
     # Step 5. Get arg_shapes from $L$'s.
-    arg_shapes: List[Tuple[Union[np.floating, np.integer], ...]] = []
+    arg_shapes: List[Tuple[Union[float, IntegralT], ...]] = []
     for accesses in unioned_accesses:
-        arg_shapes.append([iname_to_len[iname]
-                           for iname in accesses])
+        arg_shapes.append(tuple(iname_to_len[iname]
+                                for iname in accesses))
 
     # Step 6. Construct the batched einsum.
     from feinsum.make_einsum import fused_einsum
