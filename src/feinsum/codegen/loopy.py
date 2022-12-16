@@ -273,6 +273,21 @@ def generate_loopy(einsum: FusedEinsum,
                       for idim in range(val_ndim))]
         )
 
+    for i_output in range(einsum.noutputs):
+        for istep in range(schedule.nsteps-1):
+            val = result_name_in_lpy_knl[i_output][istep]
+            subst_name = _get_input_subst_name(val)
+            val_ndim = len(schedule.subscripts[istep].split("->")[-1].strip())
+
+            substitutions[subst_name] = lp.SubstitutionRule(
+                subst_name,
+                tuple(f"_{idim}"
+                      for idim in range(val_ndim)),
+                p.Variable(val)[
+                    tuple(p.Variable(f"_{idim}")
+                          for idim in range(val_ndim))]
+            )
+
     t_unit = lp.make_kernel(
         domains, statements,
         kernel_data=kernel_data+[...],
