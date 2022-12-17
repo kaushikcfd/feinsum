@@ -401,22 +401,23 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit,
 
 # {{{ get_call_ids
 
-class CallCollector(CombineMapper):
-    def combine(self, values):
+# type-ignore-reason: deriving from CombineMapper (i.e. Any)
+class CallCollector(CombineMapper):  # type: ignore[misc]
+    def combine(self, values: Iterable[FrozenSet[str]]) -> FrozenSet[str]:
         from functools import reduce
         return reduce(frozenset.union, values, frozenset())
 
-    def map_call(self, expr):
-        import pymbolic.primitives as p
+    def map_call(self, expr: p.Call) -> FrozenSet[str]:
         if isinstance(expr.function, p.Variable):
-            return frozenset([expr.function.name]) | super().map_call(expr)
+            return (frozenset([expr.function.name])  # type: ignore[no-any-return]
+                    | super().map_call(expr))
         else:
-            return super().map_call(expr)
+            return super().map_call(expr)  # type: ignore[no-any-return]
 
-    def map_constant(self, expr):
+    def map_constant(self, expr: Any) -> FrozenSet[str]:
         return frozenset()
 
-    def map_algebraic_leaf(self, expr):
+    def map_algebraic_leaf(self, expr: Any) -> FrozenSet[str]:
         return frozenset()
 
 
@@ -424,7 +425,7 @@ def get_call_ids(expr: p.Expression) -> FrozenSet[str]:
     """
     Returns the identifiers of the invoked functions in *expr*.
     """
-    return CallCollector()(expr)
+    return CallCollector()(expr)  # type: ignore[no-any-return]
 
 # }}}
 
