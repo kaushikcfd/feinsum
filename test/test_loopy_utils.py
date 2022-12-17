@@ -49,15 +49,19 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
 
     # {{{ prefetch 'J * vec'
 
+    from pymbolic import variables
+    from loopy.symbolic import get_dependencies
+
     knl = t_unit.default_entrypoint
 
     for i in range(4):
-        knl = f.extract_einsum_terms_as_subst(
+        knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
             knl,
-            "ef,fij,fej->ei",
-            f"writes:{output_names[i]}",
-            "ef,fej->fej"
-            f"subst_{i}",
+            within=f"writes:{output_names[i]}",
+            subst_name=f"subst_{i}",
+            arguments=variables("f e j"),
+            terms_filter=lambda x: (get_dependencies(x)
+                                    & knl.all_inames()) <= set("fej")
         )
 
     t_unit = t_unit.with_kernel(knl)
@@ -82,6 +86,9 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
 
 
 def test_hoist_reduction_invariant_terms(ctx_factory):
+    from pymbolic import variables
+    from loopy.symbolic import Reduction
+
     cl_ctx = ctx_factory()
     nel = 1
     ndim = 3
@@ -98,14 +105,22 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
 
     # {{{ hoist the "j" redn-loop over "x" loop
 
-    hoisted_t_unit = lp.split_reduction_inward(t_unit, "j")
-    hoisted_t_unit = f.hoist_reduction_invariant_terms(hoisted_t_unit, "j")
-    hoisted_t_unit = f.extract_einsum_terms_as_subst(hoisted_t_unit,
-                                                     "subst(r, e, i)",
-                                                     "sum(j, R[r, i, j]*u[e, j])")
+    knl = t_unit.default_entrypoint
+    knl = lp.split_reduction_inward(knl, "j")
+
+    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, "j")
+    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+        knl,
+        within=None,
+        subst_name="grad_without_jacobi_subst",
+        arguments=variables("r i e"),
+        terms_filter=lambda x: isinstance(x, Reduction)
+    )
+
+    hoisted_t_unit = t_unit.with_kernel(knl)
 
     hoisted_t_unit = lp.precompute(hoisted_t_unit,
-                                   "subst",
+                                   "grad_without_jacobi_subst",
                                    sweep_inames=["r", "i"],
                                    precompute_outer_inames=frozenset("e"))
 
@@ -140,7 +155,6 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
     ref_t_unit = t_unit
     t_unit = transform_3d_p4_grad(t_unit, "writes:grad_out")
     lp.auto_test_vs_ref(ref_t_unit, cl_ctx, t_unit, parameters={"Nel": 100})
-    return t_unit
 
 
 def test_einsum_matching():
