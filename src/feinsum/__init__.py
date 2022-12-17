@@ -13,9 +13,8 @@ from feinsum.measure import (timeit, measure_giga_op_rate,
 from feinsum.diagnostics import InvalidParameterError
 from feinsum.sql_utils import query
 from feinsum.loopy_utils import (match_t_unit_to_einsum,
-                                 extract_einsum_terms_as_subst,
-                                 hoist_reduction_invariant_terms,
-                                 get_a_matched_einsum)
+                                 get_a_matched_einsum,
+                                 get_call_ids)
 from feinsum.canonicalization import canonicalize_einsum
 from feinsum.cl_utils import make_fake_cl_context
 from feinsum.tuning import autotune
@@ -37,8 +36,8 @@ __all__ = (
 
     "query",
 
-    "match_t_unit_to_einsum", "hoist_reduction_invariant_terms",
-    "extract_einsum_terms_as_subst", "get_a_matched_einsum",
+    "match_t_unit_to_einsum", "get_call_ids",
+    "get_a_matched_einsum",
 
     "canonicalize_einsum",
 

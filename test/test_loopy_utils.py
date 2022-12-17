@@ -30,8 +30,6 @@ import numpy as np
 
 
 def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
-    from feinsum.loopy_utils import extract_subexpr_of_associative_op_as_subst
-
     nface = 4
     nvoldofs = 35
     nfacedofs = 15
@@ -47,16 +45,20 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
                                    [{"J"}, {"R"}, {"v3"}],
                                ])
     t_unit = f.generate_loopy(face_mass)
+    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(3)]
 
-    # {{{ prefetch 'J @ vec'
+    # {{{ prefetch 'J * vec'
 
     knl = t_unit.default_entrypoint
 
     for i in range(4):
-        knl = extract_subexpr_of_associative_op_as_subst(
+        knl = f.extract_einsum_terms_as_subst(
             knl,
-            f"subst_{i}(f, e, j)",
-            f"J[e, f] * v{i}[f, e, j]")
+            "ef,fij,fej->ei",
+            f"writes:{output_names[i]}",
+            "ef,fej->fej"
+            f"subst_{i}",
+        )
 
     t_unit = t_unit.with_kernel(knl)
 
@@ -123,8 +125,12 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
         "{[iel_1, idof_1, jdof_1, r_1, x_1]:"
         " 0<=iel_1<Nel and 0<=idof_1,jdof_1<35 and 0<=r_1,x_1<3}",
         """
+        jac_subst(_0, _1, _2) := J[_0, _1, _2]
+        D_subst(_0, _1, _2) := D[_0, _1, _2]
+        u_subst(_0, _1) := u[_0, _1]
+
         grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
-                                           J[x_1, iel_1, r_1]*R[r_1, idof_1, jdof_1]*u[iel_1, jdof_1])
+                                           jac_subst(x_1, iel_1, r_1)*D_subst(r_1, idof_1, jdof_1)*u_subst(iel_1, jdof_1))
         """  # noqa: E501
     )
     t_unit = lp.add_dtypes(t_unit,

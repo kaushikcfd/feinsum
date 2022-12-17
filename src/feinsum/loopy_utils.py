@@ -2,191 +2,23 @@
 :mod:`loopy` helpers. The aim is to keep this module as lean as possible by
 upstreaming the heavy lifting parts to :mod:`loopy` itself.
 
-.. autofunction:: extract_subexpr_of_associative_op_as_subst
 .. autofunction:: get_a_matched_einsum
 .. autofunction:: match_t_unit_to_einsum
+.. autofunciton:: get_call_ids
 """
 
 import numpy as np
 import loopy as lp
-import pymbolic.interop.matchpy as m
 import pymbolic.primitives as p
 
-from multiset import Multiset
-from typing import (Union, ClassVar, Optional, Tuple, FrozenSet, Any, Dict,
-                    List, Iterable, Set, Mapping, cast)
+from typing import (Union, Optional, Tuple, FrozenSet, Any, Dict, List, Iterable,
+                    Set, Mapping, cast)
 from immutables import Map
 from bidict import frozenbidict
-from dataclasses import dataclass
-from pymbolic.interop.matchpy.tofrom import (
-    ToMatchpyExpressionMapper as BaseToMatchpyExpressionMapper,
-    FromMatchpyExpressionMapper as BaseFromMatchpyExpressionMapper)
-from matchpy import Arity
 from feinsum.einsum import FusedEinsum, IntegralT
 from feinsum.diagnostics import EinsumTunitMatchError
-from loopy.symbolic import (IdentityMapper as BaseIdentityMapper,
-                            CombineMapper, Reduction)
-from more_itertools import partition, zip_equal as szip
-
-PYMBOLIC_ASSOC_OPS = (p.Product, p.Sum, p.BitwiseOr, p.BitwiseXor,
-                      p.BitwiseAnd, p.LogicalAnd, p.LogicalOr)
-
-
-# {{{ loopy <-> matchpy interop
-
-# type-ignore reason: cannot subclass from PymbolicOp (inferred to be of type Any)
-@m.op_dataclass
-class MatchableReductionOp(m.PymbolicOp):  # type: ignore[misc]
-    inner_expr: m.ExprT
-    operation: m.Id
-    inames: m.TupleOp
-    variable_name: Optional[str] = m.non_operand_field(default=None)
-
-    arity: ClassVar[Arity] = Arity.ternary
-    _mapper_method: ClassVar[str] = "map_reduction"
-
-
-# type-ignore reason: cannot subclass from
-# BaseToMatchpyExpressionMapper (inferred to be of type Any)
-class ToMatchpyExpressionMapper(BaseToMatchpyExpressionMapper):  # type: ignore[misc]
-    def map_reduction(self, expr: lp.Reduction) -> MatchableReductionOp:
-        assert str(expr.operation) in ["sum", "product", "any", "all"]
-        # pylint: disable=too-many-function-args
-        return MatchableReductionOp(self.rec(expr.expr),
-                                    m.Id(str(expr.operation)),
-                                    m.TupleOp(tuple(m.Id(iname)
-                                                    for iname in expr.inames))
-                                    )
-
-
-# type-ignore reason: cannot subclass from
-# BaseFromMatchpyExpressionMapper (inferred to be of type Any)
-class FromMatchpyExpressionMapper(
-        BaseFromMatchpyExpressionMapper):  # type: ignore[misc]
-    def map_reduction(self, expr: MatchableReductionOp) -> lp.Reduction:
-        return lp.Reduction(expr.operation.value,
-                            inames=tuple(iname.value
-                                         for iname in expr.inames._operands),
-                            expr=self.rec(expr.inner_expr),
-                            )
-
-# }}}
-
-
-@dataclass
-class TemplateReplacer:
-    rule_lhs: p.Expression
-    rule_rhs: p.Expression
-    op_extra_arg_wildcard_name: str
-
-    def __call__(self, **kwargs: Multiset) -> p.Expression:
-        assert len(kwargs) == 1
-        assert isinstance(self.rule_rhs, PYMBOLIC_ASSOC_OPS)
-        star_wildcard_operands = kwargs[self.op_extra_arg_wildcard_name]
-        leftover_args = []
-        for subexpr, count in star_wildcard_operands.items():
-            leftover_args.extend([subexpr] * count)
-
-        return type(self.rule_rhs)(  # pylint: disable=abstract-class-instantiated
-            (self.rule_lhs, *leftover_args))
-
-
-# {{{ extract_subst
-
-def extract_subexpr_of_associative_op_as_subst(
-        kernel: lp.LoopKernel,
-        rule_lhs: Union[p.Call, p.Variable, str],
-        rule_rhs: Union[p.Expression, str],
-        insn_match: Any = None,
-) -> lp.LoopKernel:
-    from loopy.symbolic import parse, get_dependencies
-    from loopy.match import parse_match
-
-    insn_match = parse_match(insn_match)
-    vng = kernel.get_var_name_generator()
-    to_matchpy_expr = ToMatchpyExpressionMapper()
-    from_matchpy_expr = FromMatchpyExpressionMapper()
-
-    # {{{ sanity checks
-
-    if not isinstance(kernel, lp.LoopKernel):
-        raise TypeError("`kernel` expected to be a `LoopKernel`, "
-                        f"got '{type(kernel)}'")
-
-    if isinstance(rule_lhs, str):
-        rule_lhs = parse(rule_lhs)
-
-    if isinstance(rule_rhs, str):
-        rule_rhs = parse(rule_rhs)
-
-    if isinstance(rule_lhs, p.Variable):
-        rule_lhs = p.Call(rule_lhs, parameters=())
-
-    if not isinstance(rule_lhs, p.Call):
-        raise ValueError("rule_lhs must be either a Call or a Variable,"
-                         f" got '{rule_lhs}'")
-
-    if any(not isinstance(param, (p.Variable, p.DotWildcard))
-           for param in rule_lhs.parameters):
-        raise ValueError(f"Arguments to rule_lhs ({rule_lhs.parameters})"
-                         " must be variables or wildcards.")
-
-    if not (get_dependencies(rule_rhs) <= (get_dependencies(rule_lhs)
-                                           | kernel.all_variable_names())):
-        # FIXME: consider mangled symbols as well.
-        raise ValueError(f"rule_rhs ({rule_rhs}) contains variables"
-                         " not defined in the kernel's namespace.")
-
-    if rule_lhs.function.name in kernel.substitutions:
-        raise ValueError(f"Kernel {kernel.name} already has a substitution"
-                         f" named '{rule_lhs.name}'")
-
-    # }}}
-
-    # Substitutions with wildcards: tricky, handle them when needed.
-    if any(isinstance(param, p.DotWildcard) for param in rule_lhs.parameters):
-        raise NotImplementedError("substitutions with wildcards not "
-                                  "yet implemented")
-
-    if not isinstance(rule_rhs, PYMBOLIC_ASSOC_OPS):
-        raise TypeError(f"rule_rhs ({rule_rhs}) does not represent an"
-                        " associative op.")
-
-    extra_wildcard_name = vng("_lpy_w_star")
-
-    replacement_rule = m.make_replacement_rule(
-        pattern=type(rule_rhs)(rule_rhs.children +
-                               (p.StarWildcard(extra_wildcard_name),)),
-        replacement=TemplateReplacer(rule_lhs, rule_rhs, extra_wildcard_name),
-        to_matchpy_expr=to_matchpy_expr,
-        from_matchpy_expr=from_matchpy_expr,
-    )
-
-    new_insns = [
-        insn.with_transformed_expressions(
-            lambda expr: m.replace_all(expr, [replacement_rule],
-                                       to_matchpy_expr, from_matchpy_expr))
-        if insn_match(kernel, insn)
-        else insn
-        for insn in kernel.instructions
-    ]
-
-    if new_insns == kernel.instructions:
-        raise RuntimeError(f"Did not find a match for `{rule_lhs} := {rule_rhs}`"
-                           " in the kernel.")
-    else:
-        kernel = kernel.copy(instructions=new_insns)
-
-    new_substitutions = kernel.substitutions.copy()
-    new_substitutions[rule_lhs.function.name] = lp.SubstitutionRule(
-        rule_lhs.function.name,
-        tuple(param.name for param in rule_lhs.parameters),
-        rule_rhs)
-
-    kernel = kernel.copy(substitutions=new_substitutions)
-    return kernel
-
-# }}}
+from loopy.symbolic import CombineMapper, Reduction
+from more_itertools import zip_equal as szip
 
 
 # {{{ matching loopy kernel against a ref. einsum
@@ -534,96 +366,9 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
     return batched_einsum, subst_map
 
 
-def extract_einsum_terms_as_subst(t_unit: lp.TranslationUnit,
-                                  rule_lhs: Union[str, p.Expression],
-                                  rule_rhs: Union[str, p.Expression],
-                                  insn_match: Any = None,
-                                  ) -> lp.TranslationUnit:
-    from loopy.symbolic import parse
-    knl = t_unit.default_entrypoint
-
-    if isinstance(rule_rhs, str):
-        rule_rhs = parse(rule_rhs)
-
-    if not isinstance(rule_rhs, p.Product):
-        rule_rhs = p.Product((rule_rhs,))
-
-    return t_unit.with_kernel(extract_subexpr_of_associative_op_as_subst(knl,
-                                                                         rule_lhs,
-                                                                         rule_rhs,
-                                                                         insn_match
-                                                                         ))
-# }}}
-
-
-# {{{ pull_out_subproduct
-
-# type-ignore-reason:  cannot subclass from BaseIdentityMapper (inferred as type Any)
-class EinsumTermsHoister(BaseIdentityMapper):  # type: ignore[misc]
-    """
-    Mapper to hoist products out of a sum-reduction.
-    """
-    def __init__(self, reduction_inames: FrozenSet[str]):
-        super().__init__()
-        self.reduction_inames = reduction_inames
-
-    def map_reduction(self, expr: lp.Reduction) -> p.Expression:
-        if frozenset(expr.inames) != self.reduction_inames:
-            return super().map_reduction(expr)
-
-        from loopy.library.reduction import SumReductionOperation
-        from loopy.symbolic import get_dependencies
-        if isinstance(expr.expr, p.Product) and isinstance(expr.operation,
-                                                           SumReductionOperation):
-            from pymbolic.primitives import flattened_product
-            inner_expr = flattened_product(self.rec(expr.expr).children)
-            assert isinstance(inner_expr, p.Product)
-            invariants, variants = partition(lambda x: (get_dependencies(x)
-                                                        & self.reduction_inames),
-                                             inner_expr.children)
-
-            return p.Product(tuple(invariants)) * lp.Reduction(
-                expr.operation,
-                inames=expr.inames,
-                expr=p.Product(tuple(variants)),
-                allow_simultaneous=expr.allow_simultaneous)
-        else:
-            raise NotImplementedError(expr.expr)
-
-
-def hoist_reduction_invariant_terms(t_unit: lp.TranslationUnit,
-                                    reduction_inames: Union[str, FrozenSet[str]],
-                                    ) -> lp.TranslationUnit:
-    """
-    Hoists loop-invariant terms in a sum reduction expression with a product
-    inner expression.
-
-    .. note::
-
-        Placeholder until
-        `Loopy-541 <https://github.com/inducer/loopy/issues/541>`_
-        is fixed.
-    """
-    if isinstance(reduction_inames, str):
-        reduction_inames = frozenset([reduction_inames])
-
-    if not (reduction_inames <= t_unit.default_entrypoint.all_inames()):
-        raise ValueError(f"Some inames in '{reduction_inames}' not a part of"
-                         " the kernel")
-
-    term_hoister = EinsumTermsHoister(reduction_inames)
-
-    return t_unit.with_kernel(
-        lp.map_instructions(t_unit.default_entrypoint,
-                            insn_match=None,
-                            f=lambda x: x.with_transformed_expressions(term_hoister)
-                            ))
-
-# }}}
-
-
 def match_t_unit_to_einsum(t_unit: lp.TranslationUnit,
                            einsum: FusedEinsum,
+                           *,
                            kernel_name: Optional[str] = None,
                            insn_match: Any = None,
                            argument_substitutions: Optional[FrozenSet[str]] = None,
@@ -650,5 +395,37 @@ def match_t_unit_to_einsum(t_unit: lp.TranslationUnit,
         var_in_ensm: var_in_tunit_to_var_in_matched_ensm.inv[var_in_matched_ensm]
         for var_in_ensm, var_in_matched_ensm in isomorph_subst.items()
     })
+
+# }}}
+
+
+# {{{ get_call_ids
+
+class CallCollector(CombineMapper):
+    def combine(self, values):
+        from functools import reduce
+        return reduce(frozenset.union, values, frozenset())
+
+    def map_call(self, expr):
+        import pymbolic.primitives as p
+        if isinstance(expr.function, p.Variable):
+            return frozenset([expr.function.name]) | super().map_call(expr)
+        else:
+            return super().map_call(expr)
+
+    def map_constant(self, expr):
+        return frozenset()
+
+    def map_algebraic_leaf(self, expr):
+        return frozenset()
+
+
+def get_call_ids(expr: p.Expression) -> FrozenSet[str]:
+    """
+    Returns the identifiers of the invoked functions in *expr*.
+    """
+    return CallCollector()(expr)
+
+# }}}
 
 # vim: foldmethod=marker
