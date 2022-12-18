@@ -132,12 +132,13 @@ def variant_3(t_unit):
     knl = t_unit.default_entrypoint
 
     knl = lp.split_reduction_inward(knl, j)
-    knl = f.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
-    knl = f.extract_multiplicative_terms_in_sum_reduction_as_subst(
+    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
+    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
         knl,
-        "subst",
-        [r, e, i],
-        lambda x_: isinstance(x_, Reduction),
+        within=None,
+        subst_name="subst",
+        arguments=[r, e, i],
+        terms_filter=lambda x_: isinstance(x_, Reduction),
     )
 
     t_unit = t_unit.with_kernel(knl)
