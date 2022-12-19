@@ -4,7 +4,7 @@ upstreaming the heavy lifting parts to :mod:`loopy` itself.
 
 .. autofunction:: get_a_matched_einsum
 .. autofunction:: match_t_unit_to_einsum
-.. autofunciton:: get_call_ids
+.. autofunction:: get_call_ids
 """
 
 import numpy as np

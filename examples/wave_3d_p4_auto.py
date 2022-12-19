@@ -27,7 +27,7 @@ def main(cl_ctx):
         f_3_subst(_0, _1, _2) := F_3[_0, _1, _2]
         jac_subst(_0, _1, _2) := J[_0, _1, _2]
         D_subst(_0, _1, _2) := D[_0, _1, _2]
-        jac_face_subst(_0, _1, _2) := Jface[_0, _1, _2]
+        jac_face_subst(_0, _1) := Jface[_0, _1]
         L_subst(_0, _1, _2) := L[_0, _1, _2]
 
         # ----- Div(v)
