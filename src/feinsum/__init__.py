@@ -9,7 +9,8 @@ from feinsum.codegen.loopy import (generate_loopy,
                                    generate_loopy_with_opt_einsum_schedule)
 from feinsum.measure import (timeit, measure_giga_op_rate,
                              stringify_comparison_vs_roofline,
-                             get_roofline_flop_rate)
+                             get_roofline_flop_rate,
+                             validate_fused_einsum_transform)
 from feinsum.diagnostics import InvalidParameterError
 from feinsum.sql_utils import query
 from feinsum.loopy_utils import (match_t_unit_to_einsum,
@@ -29,7 +30,7 @@ __all__ = (
     "generate_loopy", "generate_loopy_with_opt_einsum_schedule",
 
     "timeit", "measure_giga_op_rate", "stringify_comparison_vs_roofline",
-    "get_roofline_flop_rate",
+    "get_roofline_flop_rate", "validate_fused_einsum_transform",
 
     "get_opt_einsum_contraction_schedule", "get_trivial_contraction_schedule",
     "InvalidParameterError",

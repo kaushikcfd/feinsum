@@ -44,7 +44,7 @@ def generate_out_arrays(queue: cl.CommandQueue,
     for arg in knl.args:
         if arg.is_output:
             assert all(isinstance(dim, INT_CLASSES) for dim in arg.shape)
-            out_buffers[arg.name] = cla.empty(queue,
+            out_buffers[arg.name] = cla.zeros(queue,
                                               shape=arg.shape,
                                               dtype=arg.dtype)
 
@@ -117,21 +117,29 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
 
     ref_t_unit = generate_loopy(einsum, schedule=schedule)
     ref_t_unit = lp.set_options(ref_t_unit, no_numpy=True, return_dict=True)
-    long_dim_length = 30
+    long_dim_length = 1_000
 
-    param_dict = generate_input_arrays(cq, einsum, long_dim_length)
-    out_dict = generate_out_arrays(
-        cq,
-        lp.fix_parameters(ref_t_unit, **{name: long_dim_length
-                                         for name in (ref_t_unit
-                                                      .default_entrypoint
-                                                      .all_params())}))
+    arg_dict = (generate_input_arrays(cq, einsum, long_dim_length)
+                .update({p: long_dim_length
+                         for p in ref_t_unit.default_entrypoint.all_params()}))
 
     t_unit = transform(ref_t_unit, insn_match=None, kernel_name=None)
-    arg_dict = param_dict.update(out_dict)
 
-    _, ref_outs = t_unit(cq, **arg_dict)
-    _, transform_outs = t_unit(cq, **arg_dict)
+    # {{{ get output buffers
+
+    ref_outs = generate_out_arrays(
+        cq,
+        lp.fix_parameters(t_unit, **{name: long_dim_length
+                                     for name in (t_unit
+                                                  .default_entrypoint
+                                                  .all_params())}))
+    transform_outs = Map({name: cla.zeros_like(ary)
+                          for name, ary in ref_outs.items()})
+
+    # }}}
+
+    _, ref_outs = ref_t_unit(cq, **arg_dict, **ref_outs)
+    _, transform_outs = t_unit(cq, **arg_dict, **transform_outs)
 
     if frozenset(ref_outs.keys()) != frozenset(transform_outs.keys()):
         raise RuntimeError("Output names mismatch")
@@ -154,8 +162,21 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
         else:
             raise NotImplementedError(real_dtype)
 
-        np.testing.assert_allclose(ref_out_np, transform_out_np,
-                                   atol=atol, rtol=rtol)
+        try:
+            np.testing.assert_allclose(transform_out_np, ref_out_np,
+                                       atol=atol, rtol=rtol)
+        except AssertionError:
+            for idx, ref_v in np.ndenumerate(ref_out_np):
+                v = transform_out_np[idx]
+                if not np.isclose(ref_v, v):
+                    print(idx)
+            exit()
+            # import pudb; pu.db
+            l2 = np.linalg.norm((ref_out_np-transform_out_np)/ref_out_np)
+            linf = np.linalg.norm(np.ravel((ref_out_np-transform_out_np)/ref_out_np),
+                                  np.inf)
+            print(f"rel. l2 err: {l2}, rel. linf err: {linf}")
+            raise
 
     logger.info("Statistically verified the soundness of the transformation")
 
