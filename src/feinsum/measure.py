@@ -162,21 +162,8 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
         else:
             raise NotImplementedError(real_dtype)
 
-        try:
-            np.testing.assert_allclose(transform_out_np, ref_out_np,
-                                       atol=atol, rtol=rtol)
-        except AssertionError:
-            for idx, ref_v in np.ndenumerate(ref_out_np):
-                v = transform_out_np[idx]
-                if not np.isclose(ref_v, v):
-                    print(idx)
-            exit()
-            # import pudb; pu.db
-            l2 = np.linalg.norm((ref_out_np-transform_out_np)/ref_out_np)
-            linf = np.linalg.norm(np.ravel((ref_out_np-transform_out_np)/ref_out_np),
-                                  np.inf)
-            print(f"rel. l2 err: {l2}, rel. linf err: {linf}")
-            raise
+        np.testing.assert_allclose(transform_out_np, ref_out_np,
+                                   atol=atol, rtol=rtol)
 
     logger.info("Statistically verified the soundness of the transformation")
 

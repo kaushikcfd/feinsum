@@ -142,7 +142,7 @@ def transform(t_unit: lp.TranslationUnit,
                                temporary_address_space=lp.AddressSpace.PRIVATE,
                                temporary_name=u_fetch,
                                default_tag="unr",
-                               precompute_inames=(jprftch_u,),
+                               precompute_inames=(None, jprftch_u,),
                                within=within
                                )
 

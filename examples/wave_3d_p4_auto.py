@@ -62,6 +62,7 @@ def main(cl_ctx):
                            {arg.name: np.float64
                             for arg in t_unit.default_entrypoint.args
                             if arg.is_input})
+    ref_t_unit = t_unit.copy()
 
     # {{{ feinsum transformations
 
@@ -103,12 +104,12 @@ def main(cl_ctx):
         key=lambda q: q.giga_op_rate(np.float64))
 
     t_unit = fast_grad_einsum.transform(t_unit, insn_match=Tagged("grad"))
-    t_unit = fast_div_einsum.transform(t_unit, insn_match=Tagged("div"))
     t_unit = fast_lift_einsum.transform(t_unit, insn_match=Tagged("lift"))
+    t_unit = fast_div_einsum.transform(t_unit, insn_match=Tagged("div"))
 
     # }}}
 
-    print(lp.generate_code_v2(t_unit).device_code())
+    lp.auto_test_vs_ref(ref_t_unit, cl_ctx, t_unit)
 
 
 if __name__ == "__main__":

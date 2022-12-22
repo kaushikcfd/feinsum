@@ -62,7 +62,6 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
 
     j_inner, j_tile = vng(f"{j}_inner"), vng(f"{j}_tile")
     e_inner, e_outer = vng(f"{e}_inner"), vng(f"{e}_outer")
-    u_fetch = vng(f"{u}_fetch")
     i_inner, i_tile = vng(f"{i}_inner"), vng(f"{i}_tile")
     i_inner_inner, i_inner_outer = (vng(f"{i_inner}_inner"),
                                     vng(f"{i_inner}_outer"))
@@ -132,8 +131,8 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                            temporary_name=D_fetch,
                            within=within,
                            default_tag=None)
-    t_unit = lp.split_iname(t_unit, iprftchD, n_e_per_wg, inner_tag="l.1")
-    t_unit = lp.split_iname(t_unit, jprftchD, nwork_items_per_e, inner_tag="l.0")
+    t_unit = lp.split_iname(t_unit, iprftchD, nwork_items_per_e, inner_tag="l.0")
+    t_unit = lp.split_iname(t_unit, jprftchD, n_e_per_wg, inner_tag="l.1")
 
     # }}}
 
@@ -144,9 +143,7 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                            precompute_inames=[e_prcmpt_subst,
                                               j_prcmpt_subst,
                                               r_prcmpt_subst],
-                           precompute_outer_inames=frozenset({e_outer,
-                                                              i_tile,
-                                                              j_tile}),
+                           precompute_outer_inames=frozenset({e_outer, j_tile}),
                            default_tag=None,
                            compute_insn_id=prcmpt_x_redn,
                            temporary_address_space=lp.AddressSpace.LOCAL)
@@ -170,17 +167,21 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                             inner_tag="l.0",
                             outer_tag="unr",
                             )
-    t_unit = lp.precompute(
-        t_unit, u,
-        sweep_inames=[x, j_prcmpt_subst_outer],
-        precompute_outer_inames=frozenset([j_prcmpt_subst_inner,
-                                           e_prcmpt_subst, e_outer,
-                                           j_tile]),
-        temporary_address_space=lp.AddressSpace.PRIVATE,
-        temporary_name=u_fetch,
-        # default_tag=None,
-        default_tag="unr",
-    )
+
+    if 0:
+        # FIXME: Verify if this branch will ever be profitable?!
+        u_fetch = vng(f"{u}_fetch")
+        t_unit = lp.precompute(
+            t_unit, u,
+            sweep_inames=[x, j_prcmpt_subst_outer],
+            precompute_outer_inames=frozenset([j_prcmpt_subst_inner,
+                                               e_prcmpt_subst, e_outer,
+                                               j_tile]),
+            precompute_inames=[vng("prftch_u_x"), vng("prftch_u_j")],
+            temporary_address_space=lp.AddressSpace.PRIVATE,
+            temporary_name=u_fetch,
+            default_tag="unr",
+        )
 
     # {{{ TODO: remove once github.com/inducer/loopy/issues/666 is resolved.
 
