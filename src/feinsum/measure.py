@@ -138,7 +138,9 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
 
     # }}}
 
-    _, ref_outs = ref_t_unit(cq, **arg_dict, **ref_outs)
+    # pylint-disable-reason: for some reason pylint thinks ref_t_unit is not callable
+    _, ref_outs = ref_t_unit(cq, **arg_dict,  # pylint: disable=not-callable
+                             **ref_outs)
     _, transform_outs = t_unit(cq, **arg_dict, **transform_outs)
 
     if frozenset(ref_outs.keys()) != frozenset(transform_outs.keys()):
