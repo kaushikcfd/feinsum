@@ -272,14 +272,14 @@ def transform(t_unit: lp.TranslationUnit,
                                             kernel_name=kernel_name)
     i = subst_map["i"]
     j = subst_map["j"]
-    J = subst_map["J"]
+    # J = subst_map["J"]
     e = subst_map["e"]
     f = subst_map["f"]
     L = subst_map["L"]
     fields = [subst_map[f"v{i}"] for i in range(nfields)]
     outputs = [subst_map["_fe_out"]] + [subst_map[f"_fe_out_{i}"]
                                         for i in range(nfields-1)]
-    J_fetch = vng(f"{J}_fetch")
+    # J_fetch = vng(f"{J}_fetch")
     subst_names = {field: vng("subst_hoist") for field in fields}
     e_s = [vng(e) for _ in range(n_stmt_tile)]
     i_s = [vng(i) for _ in range(n_stmt_tile)]
@@ -316,15 +316,16 @@ def transform(t_unit: lp.TranslationUnit,
 
     # }}}
 
-    t_unit = lp.precompute(t_unit,
-                           J, sweep_inames=[f],
-                           precompute_outer_inames=frozenset({e}),
-                           temporary_address_space=lp.AddressSpace.PRIVATE,
-                           default_tag="unr",
-                           within=within,
-                           temporary_name=J_fetch,
-                           precompute_inames=(vng(f"{J}_prftch_f"),),
-                           )
+    # FIXME: analyze this path's profitability.
+    # t_unit = lp.precompute(t_unit,
+    #                        J, sweep_inames=[f],
+    #                        precompute_outer_inames=frozenset({e}),
+    #                        temporary_address_space=lp.AddressSpace.PRIVATE,
+    #                        default_tag="unr",
+    #                        within=within,
+    #                        temporary_name=J_fetch,
+    #                        precompute_inames=(vng(f"{J}_prftch_f"),),
+    #                        )
 
     # {{{ splitting fields across outer_statement_tiles
 
@@ -514,11 +515,11 @@ def transform(t_unit: lp.TranslationUnit,
         successor = lp_match.Iname(j_tile_names[i_stmt_tile])
         t_unit = lp.add_dependency(t_unit, successor, predecessor)
 
-    t_unit = lp.add_inames_to_insn(t_unit,
-                                   frozenset({i_inner_inner_names[0]}),
-                                   f"writes:{J_fetch}")
-    t_unit = lp.split_iname(t_unit, e, n_e_per_wg, inner_tag="l.1",
-                            outer_tag="g.0", within=f"writes:{J_fetch}")
+    # t_unit = lp.add_inames_to_insn(t_unit,
+    #                                frozenset({i_inner_inner_names[0]}),
+    #                                f"writes:{J_fetch}")
+    # t_unit = lp.split_iname(t_unit, e, n_e_per_wg, inner_tag="l.1",
+    #                         outer_tag="g.0", within=f"writes:{J_fetch}")
 
     return t_unit
 
