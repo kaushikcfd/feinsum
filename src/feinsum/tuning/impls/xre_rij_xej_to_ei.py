@@ -53,7 +53,6 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                                             kernel_name=kernel_name)
     i = subst_map["i"]
     j = subst_map["j"]
-    J = subst_map["J"]
     e = subst_map["e"]
     D = subst_map["D"]
     u = subst_map["u"]
@@ -108,13 +107,17 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                             inner_iname=e_inner, outer_iname=e_outer,
                             inner_tag="l.1", outer_tag="g.0")
 
-    t_unit = lp.precompute(t_unit, J,
-                           sweep_inames=[x, r],
-                           precompute_outer_inames=frozenset({e_outer, e_inner,
-                                                              i_inner_inner}),
-                           temporary_address_space=lp.AddressSpace.PRIVATE,
-                           default_tag="unr",
-                           within=within)
+    if 0:
+        # FIXME: Analyze the profitability of this transformation
+        J = subst_map["J"]
+        t_unit = lp.precompute(t_unit, J,
+                               sweep_inames=[x, r],
+                               precompute_outer_inames=frozenset({e_outer, e_inner,
+                                                                  i_inner_inner}),
+                               temporary_address_space=lp.AddressSpace.PRIVATE,
+                               # default_tag="unr",
+                               default_tag=None,
+                               within=within)
 
     # {{{ tile and prefetch D
 
@@ -131,8 +134,8 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                            temporary_name=D_fetch,
                            within=within,
                            default_tag=None)
-    t_unit = lp.split_iname(t_unit, iprftchD, nwork_items_per_e, inner_tag="l.0")
     t_unit = lp.split_iname(t_unit, jprftchD, n_e_per_wg, inner_tag="l.1")
+    t_unit = lp.split_iname(t_unit, iprftchD, nwork_items_per_e, inner_tag="l.0")
 
     # }}}
 
