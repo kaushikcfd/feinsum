@@ -117,7 +117,7 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
 
     ref_t_unit = generate_loopy(einsum, schedule=schedule)
     ref_t_unit = lp.set_options(ref_t_unit, no_numpy=True, return_dict=True)
-    long_dim_length = 1_000
+    long_dim_length = 100
 
     arg_dict = (generate_input_arrays(cq, einsum, long_dim_length)
                 .update({p: long_dim_length
@@ -139,9 +139,11 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
     # }}}
 
     # pylint-disable-reason: for some reason pylint thinks ref_t_unit is not callable
-    _, ref_outs = ref_t_unit(cq, **arg_dict,  # pylint: disable=not-callable
+    evt, ref_outs = ref_t_unit(cq, **arg_dict,  # pylint: disable=not-callable
                              **ref_outs)
-    _, transform_outs = t_unit(cq, **arg_dict, **transform_outs)
+    evt.wait()
+    evt, transform_outs = t_unit(cq, **arg_dict, **transform_outs)
+    evt.wait()
 
     if frozenset(ref_outs.keys()) != frozenset(transform_outs.keys()):
         raise RuntimeError("Output names mismatch")
