@@ -1,4 +1,4 @@
-from feinsum.tuning import IntParameter, BoolParameter
+from feinsum.tuning import IntParameter
 from typing import Optional, Any
 
 import feinsum as fnsm
@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
     "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2)))
 @fnsm.tuning.transform_param(
     "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2)))
-@fnsm.tuning.transform_param(
-    "prftch_u_to_local", lambda e: BoolParameter())
 def transform(t_unit: lp.TranslationUnit,
               ndim: int, ndof: int,
               n_e_per_wg: int, nwork_items_per_e: int,
-              prftch_u_to_local: bool, i_tiles: int, j_tiles: int,
+              i_tiles: int, j_tiles: int,
+              # FIXME: Making this is BoolParameters leads to an error in validation.
+              prftch_u_to_local: bool = False,
               insn_match: Optional[Any] = None,
               kernel_name: Optional[str] = None) -> lp.TranslationUnit:
 
