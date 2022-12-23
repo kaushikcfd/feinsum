@@ -133,6 +133,10 @@ def _get_dtype_for_subst_argument(t_unit: lp.LoopKernel,
 class SubstitutionInvocationGetter(CombineMapper):  # type: ignore[misc]
     """
     Mapper to collect all the substitution invocations in an expression.
+
+    .. attribute:: argument_substs
+
+        The substitutions that are to be treated as arguments.
     """
     def __init__(self, argument_substs: FrozenSet[str]):
         self.argument_substs = argument_substs
