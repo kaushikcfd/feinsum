@@ -11,6 +11,8 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
     A transformation that performs ~1.8 TFlOps/s on a TitanV.
     """
     from loopy.match import parse_match
+    from pymbolic import variables
+
     insn_match = parse_match(insn_match)
 
     # {{{ define ref_einsum; get subst_map
@@ -19,15 +21,16 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
     ndofs = 35
 
     ref_einsum = fnsm.einsum("xer,rij,ej->xei",
-                    fnsm.array((ndim, np.inf, ndim,),
-                            "float64"),
-                    fnsm.array((ndim, ndofs, ndofs),
-                            "float64"),
-                    fnsm.array((np.inf, ndofs),
-                            "float64"),
-                    arg_names=["J", "R", "u"])
+                             fnsm.array((ndim, np.inf, ndim,),
+                                        "float64"),
+                             fnsm.array((ndim, ndofs, ndofs),
+                                        "float64"),
+                             fnsm.array((np.inf, ndofs),
+                                        "float64"),
+                             arg_names=["J", "R", "u"])
 
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
+                                            insn_match=insn_match)
 
     # }}}
 
@@ -66,12 +69,21 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
 
     # {{{ term hoisting to match the flop count of opt_einsum
 
-    t_unit = lp.split_reduction_inward(t_unit, j)
-    t_unit = fnsm.hoist_reduction_invariant_terms(t_unit, j)
-    t_unit = fnsm.extract_einsum_terms_as_subst(
-        t_unit,
-        f"subst({r}, {e}, {i})",
-        f"sum({j}, {R}[{r}, {i}, {j}]*{u}[{e}, {j}])")
+    from loopy.symbolic import Reduction
+
+    knl = t_unit.default_entrypoint
+
+    knl = lp.split_reduction_inward(knl, j)
+    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
+    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+        knl,
+        within=None,
+        subst_name="subst",
+        arguments=variables(f"{r} {i} {e}"),
+        terms_filter=lambda x: isinstance(x, Reduction)
+    )
+
+    t_unit = t_unit.with_kernel(knl)
 
     # }}}
 
@@ -85,15 +97,15 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
     t_unit = lp.split_iname(t_unit, i, nworkitems_per_cell,
                             inner_tag="l.0")
 
-    t_unit = lp.add_prefetch(t_unit,
-                             J,
-                             sweep_inames=[r, x],
-                             fetch_outer_inames=frozenset([e_inner,
-                                                           e_outer,
-                                                           i_inner]),
-                             temporary_address_space=lp.AddressSpace.PRIVATE,
-                             temporary_name=J_prftch,
-                             )
+    t_unit = lp.precompute(t_unit,
+                           J,
+                           sweep_inames=[r, x],
+                           precompute_outer_inames=frozenset([e_inner,
+                                                              e_outer,
+                                                              i_inner]),
+                           temporary_address_space=lp.AddressSpace.PRIVATE,
+                           temporary_name=J_prftch,
+                           )
 
     # {{{ TODO: Make precompute smarter (should be a single precompute call)
 
@@ -121,15 +133,15 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
     # {{{ Move 'u ' to shared.
 
     # Prefetch 'u' within the tile
-    t_unit = lp.add_prefetch(t_unit, u,
-                             sweep_inames=[e_inner, j],
-                             fetch_outer_inames=frozenset([e_outer,
-                                                           i_tile,
-                                                           j_tile]),
-                             temporary_address_space=lp.AddressSpace.LOCAL,
-                             dim_arg_names=[e_prftch, j_prftch],
-                             default_tag=None,
-                             )
+    t_unit = lp.precompute(t_unit, u,
+                           sweep_inames=[e_inner, j],
+                           precompute_outer_inames=frozenset([e_outer,
+                                                              i_tile,
+                                                              j_tile]),
+                           temporary_address_space=lp.AddressSpace.LOCAL,
+                           precompute_inames=[e_prftch, j_prftch],
+                           default_tag=None,
+                           )
 
     t_unit = lp.split_iname(t_unit, e_prftch, ncells_per_workgroup,
                             inner_tag="l.1", outer_tag="unr")
@@ -140,16 +152,16 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
 
     # {{{ Move 'R' to shared.
 
-    t_unit = lp.add_prefetch(t_unit, R,
-                             sweep_inames=[r_prcmpt, i_inner, "i_outer_hoist", j],
-                             fetch_outer_inames=frozenset([e_outer,
-                                                           i_tile,
-                                                           j_tile]),
-                             temporary_address_space=lp.AddressSpace.LOCAL,
-                             dim_arg_names=[r_prftch, i_prftch, j_prftch],
-                             default_tag=None,
-                             within="id:insn_hoist",
-                             )
+    t_unit = lp.precompute(t_unit, R,
+                           sweep_inames=[r_prcmpt, i_inner, "i_outer_hoist", j],
+                           precompute_outer_inames=frozenset([e_outer,
+                                                         i_tile,
+                                                         j_tile]),
+                           temporary_address_space=lp.AddressSpace.LOCAL,
+                           precompute_inames=[r_prftch, i_prftch, j_prftch],
+                           default_tag=None,
+                           within="id:insn_hoist",
+                           )
 
     if 0:
         # This branch improves perf. by 20% but, something in loopy

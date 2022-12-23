@@ -48,10 +48,11 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
 
     vng = t_unit.default_entrypoint.get_var_name_generator()
     ing = t_unit.default_entrypoint.get_var_name_generator()
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
+                                            insn_match=insn_match,
+                                            kernel_name=kernel_name)
     i = subst_map["i"]
     j = subst_map["j"]
-    J = subst_map["J"]
     e = subst_map["e"]
     D = subst_map["D"]
     u = subst_map["u"]
@@ -60,7 +61,6 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
 
     j_inner, j_tile = vng(f"{j}_inner"), vng(f"{j}_tile")
     e_inner, e_outer = vng(f"{e}_inner"), vng(f"{e}_outer")
-    u_fetch = vng(f"{u}_fetch")
     i_inner, i_tile = vng(f"{i}_inner"), vng(f"{i}_tile")
     i_inner_inner, i_inner_outer = (vng(f"{i_inner}_inner"),
                                     vng(f"{i_inner}_outer"))
@@ -80,17 +80,26 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
 
     # {{{ term hoisting to match the flop count of opt_einsum
 
-    t_unit = lp.split_reduction_inward(t_unit, x)
-    t_unit = fnsm.hoist_reduction_invariant_terms(t_unit, x)
-    t_unit = fnsm.extract_einsum_terms_as_subst(
-        t_unit,
-        f"subst({e}, {j}, {r})",
-        f"sum({x}, {J}[{x}, {r}, {e}]*{u}[{x}, {e}, {j}])",
-        insn_match=insn_match
+    from pymbolic import variables
+    from loopy.symbolic import get_dependencies
+
+    knl = t_unit[kernel_name]
+
+    knl = lp.split_reduction_inward(knl, x)
+    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, x)
+    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+        knl,
+        subst_name="subst",
+        arguments=variables(f"{e} {j} {r}"),
+        within=insn_match,
+        terms_filter=lambda x: ((get_dependencies(x) & knl.all_inames())
+                                <= {r, e, j})
     )
 
-    t_unit = lp.split_iname(t_unit, j, math.ceil(ndof/j_tiles),
-                            outer_iname=j_tile, inner_iname=j_inner)
+    knl = lp.split_iname(knl, j, math.ceil(ndof/j_tiles),
+                         outer_iname=j_tile, inner_iname=j_inner)
+
+    t_unit = t_unit.with_kernel(knl)
 
     # }}}
 
@@ -98,13 +107,17 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                             inner_iname=e_inner, outer_iname=e_outer,
                             inner_tag="l.1", outer_tag="g.0")
 
-    t_unit = lp.add_prefetch(t_unit, J,
-                             sweep_inames=[x, r],
-                             fetch_outer_inames=frozenset({e_outer, e_inner,
-                                                           i_inner_inner}),
-                             temporary_address_space=lp.AddressSpace.PRIVATE,
-                             default_tag="unr",
-                             within=within)
+    if 0:
+        # FIXME: Analyze the profitability of this transformation
+        J = subst_map["J"]
+        t_unit = lp.precompute(t_unit, J,
+                               sweep_inames=[x, r],
+                               precompute_outer_inames=frozenset({e_outer, e_inner,
+                                                                  i_inner_inner}),
+                               temporary_address_space=lp.AddressSpace.PRIVATE,
+                               # default_tag="unr",
+                               default_tag=None,
+                               within=within)
 
     # {{{ tile and prefetch D
 
@@ -112,17 +125,17 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                             inner_iname=i_inner, outer_iname=i_tile,
                             outer_tag="unr"
                             )
-    t_unit = lp.add_prefetch(t_unit, D, [i_inner, r, j_inner],
-                             fetch_outer_inames=frozenset([e_outer,
-                                                           i_tile,
-                                                           j_tile]),
-                             dim_arg_names=[rprftchD, iprftchD, jprftchD],
-                             temporary_address_space=lp.AddressSpace.LOCAL,
-                             temporary_name=D_fetch,
-                             within=within,
-                             default_tag=None)
-    t_unit = lp.split_iname(t_unit, iprftchD, n_e_per_wg, inner_tag="l.1")
-    t_unit = lp.split_iname(t_unit, jprftchD, nwork_items_per_e, inner_tag="l.0")
+    t_unit = lp.precompute(t_unit, D, [i_inner, r, j_inner],
+                           precompute_outer_inames=frozenset([e_outer,
+                                                              i_tile,
+                                                              j_tile]),
+                           precompute_inames=[rprftchD, iprftchD, jprftchD],
+                           temporary_address_space=lp.AddressSpace.LOCAL,
+                           temporary_name=D_fetch,
+                           within=within,
+                           default_tag=None)
+    t_unit = lp.split_iname(t_unit, jprftchD, n_e_per_wg, inner_tag="l.1")
+    t_unit = lp.split_iname(t_unit, iprftchD, nwork_items_per_e, inner_tag="l.0")
 
     # }}}
 
@@ -133,9 +146,7 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                            precompute_inames=[e_prcmpt_subst,
                                               j_prcmpt_subst,
                                               r_prcmpt_subst],
-                           precompute_outer_inames=frozenset({e_outer,
-                                                              i_tile,
-                                                              j_tile}),
+                           precompute_outer_inames=frozenset({e_outer, j_tile}),
                            default_tag=None,
                            compute_insn_id=prcmpt_x_redn,
                            temporary_address_space=lp.AddressSpace.LOCAL)
@@ -159,16 +170,21 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                             inner_tag="l.0",
                             outer_tag="unr",
                             )
-    t_unit = lp.add_prefetch(t_unit, u,
-                             sweep_inames=[x, j_prcmpt_subst_outer],
-                             fetch_outer_inames=frozenset([j_prcmpt_subst_inner,
-                                                           e_prcmpt_subst, e_outer,
-                                                           j_tile]),
-                             temporary_address_space=lp.AddressSpace.PRIVATE,
-                             temporary_name=u_fetch,
-                             # default_tag=None,
-                             default_tag="unr",
-                             )
+
+    if 0:
+        # FIXME: Verify if this branch will ever be profitable?!
+        u_fetch = vng(f"{u}_fetch")
+        t_unit = lp.precompute(
+            t_unit, u,
+            sweep_inames=[x, j_prcmpt_subst_outer],
+            precompute_outer_inames=frozenset([j_prcmpt_subst_inner,
+                                               e_prcmpt_subst, e_outer,
+                                               j_tile]),
+            precompute_inames=[vng("prftch_u_x"), vng("prftch_u_j")],
+            temporary_address_space=lp.AddressSpace.PRIVATE,
+            temporary_name=u_fetch,
+            default_tag="unr",
+        )
 
     # {{{ TODO: remove once github.com/inducer/loopy/issues/666 is resolved.
 

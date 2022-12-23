@@ -20,7 +20,9 @@ def transform_div(t_unit, insn_match=None, kernel_name=None):
                                     [{"Jy"}, {"R"}, {"uy"}],
                                     [{"Jz"}, {"R"}, {"uz"}],
                                 ])
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
+                                            insn_match=insn_match,
+                                            kernel_name=kernel_name)
     t_unit = lp.tag_inames(t_unit, {subst_map["s"]: "unr"})
     t_unit = lp.split_iname(t_unit, subst_map["e"], 8,
                             outer_tag="g.0", inner_tag="l.1")
@@ -32,6 +34,7 @@ def transform_div(t_unit, insn_match=None, kernel_name=None):
 
 def transform_grad(t_unit, insn_match=None, kernel_name=None):
     from loopy.match import parse_match
+    kernel_name = kernel_name or t_unit.default_entrypoint.name
     insn_match = parse_match(insn_match)
 
     # {{{ define ref_einsum; get subst_map
@@ -48,7 +51,9 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
                             "float64"),
                     arg_names=["J", "R", "u"])
 
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
+                                            insn_match=insn_match,
+                                            kernel_name=kernel_name)
 
     # }}}
 
@@ -67,7 +72,6 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
     j = subst_map["j"]
     e = subst_map["e"]
     R = subst_map["R"]
-    J = subst_map["J"]
     u = subst_map["u"]
     x = subst_map["x"]
     r = subst_map["r"]
@@ -76,7 +80,6 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
     i_inner, i_outer = f"{i}_inner", f"{i}_outer"
     j_inner = f"{j}_inner"
     i_tile, j_tile = f"{i}_tile", f"{j}_tile"
-    J_prftch = f"{J}_prftch"
     e_prftch = f"{e}_prftch"
     j_prftch = f"{j}_prftch"
     i_prftch = f"{i}_prftch"
@@ -87,12 +90,23 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
 
     # {{{ term hoisting to match the flop count of opt_einsum
 
-    t_unit = lp.split_reduction_inward(t_unit, j)
-    t_unit = fnsm.hoist_reduction_invariant_terms(t_unit, j)
-    t_unit = fnsm.extract_einsum_terms_as_subst(
-        t_unit,
-        f"subst({r}, {e}, {i})",
-        f"sum({j}, {R}[{r}, {i}, {j}]*{u}[{e}, {j}])")
+    from pymbolic import variables
+    from loopy.symbolic import get_dependencies
+
+    knl = t_unit[kernel_name]
+
+    knl = lp.split_reduction_inward(knl, j)
+    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
+
+    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+        knl,
+        within=insn_match,
+        subst_name="subst",
+        arguments=variables(f"{r} {e} {i}"),
+        terms_filter=lambda x: (get_dependencies(x) & knl.all_inames()) <= {r, e, i}
+    )
+
+    t_unit = t_unit.with_kernel(knl)
 
     # }}}
 
@@ -105,16 +119,6 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
                             outer_tag="g.0", inner_tag="l.1")
     t_unit = lp.split_iname(t_unit, i, nworkitems_per_cell,
                             inner_tag="l.0")
-
-    t_unit = lp.add_prefetch(t_unit,
-                             J,
-                             sweep_inames=[r, x],
-                             fetch_outer_inames=frozenset([e_inner,
-                                                           e_outer,
-                                                           i_inner]),
-                             temporary_address_space=lp.AddressSpace.PRIVATE,
-                             temporary_name=J_prftch,
-                             )
 
     # {{{ TODO: Make precompute smarter (should be a single precompute call)
 
@@ -142,15 +146,15 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
     # {{{ Move 'u ' to shared.
 
     # Prefetch 'u' within the tile
-    t_unit = lp.add_prefetch(t_unit, u,
-                             sweep_inames=[e_inner, j],
-                             fetch_outer_inames=frozenset([e_outer,
-                                                           i_tile,
-                                                           j_tile]),
-                             temporary_address_space=lp.AddressSpace.LOCAL,
-                             dim_arg_names=[e_prftch, j_prftch],
-                             default_tag=None,
-                             )
+    t_unit = lp.precompute(t_unit, u,
+                           sweep_inames=[e_inner, j],
+                           precompute_outer_inames=frozenset([e_outer,
+                                                              i_tile,
+                                                              j_tile]),
+                           temporary_address_space=lp.AddressSpace.LOCAL,
+                           precompute_inames=[e_prftch, j_prftch],
+                           default_tag=None,
+                           )
     t_unit = lp.split_iname(t_unit, e_prftch, ncells_per_workgroup,
                             inner_tag="l.1", outer_tag="unr")
     t_unit = lp.split_iname(t_unit, j_prftch, nworkitems_per_cell,
@@ -160,16 +164,16 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
 
     # {{{ Move 'R' to shared.
 
-    t_unit = lp.add_prefetch(t_unit, R,
-                             sweep_inames=[r_prcmpt, i_inner, "i_outer_hoist", j],
-                             fetch_outer_inames=frozenset([e_outer,
-                                                           i_tile,
-                                                           j_tile]),
-                             temporary_address_space=lp.AddressSpace.LOCAL,
-                             dim_arg_names=[r_prftch, i_prftch, j_prftch],
-                             default_tag=None,
-                             within="id:insn_hoist",
-                             )
+    t_unit = lp.precompute(t_unit, R,
+                           sweep_inames=[r_prcmpt, i_inner, "i_outer_hoist", j],
+                           precompute_outer_inames=frozenset([e_outer,
+                                                              i_tile,
+                                                              j_tile]),
+                           temporary_address_space=lp.AddressSpace.LOCAL,
+                           precompute_inames=[r_prftch, i_prftch, j_prftch],
+                           default_tag=None,
+                           within="id:insn_hoist",
+                           )
     if 0:
         # This branch improves perf. by 20% but, something in loopy
         # non-deterministically leads to very ugly domains.
@@ -240,6 +244,8 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
 
 
 def transform_face_mass(t_unit, insn_match=None, kernel_name=None):
+    kernel_name = kernel_name or t_unit.default_entrypoint.name
+
     # {{{ define ref_einsum; get subst_map
 
     nvoldofs = 35
@@ -256,7 +262,9 @@ def transform_face_mass(t_unit, insn_match=None, kernel_name=None):
                                        [{"J"}, {"R"}, {"v2"}],
                                        [{"J"}, {"R"}, {"v3"}],
                                    ])
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
+                                            insn_match=insn_match,
+                                            kernel_name=kernel_name)
 
     # }}}
 
@@ -267,14 +275,15 @@ def transform_face_mass(t_unit, insn_match=None, kernel_name=None):
     f = subst_map["f"]
     i = subst_map["i"]
     j = subst_map["j"]
-    J = subst_map["J"]
+    # J = subst_map["J"]
     R = subst_map["R"]
     i_0, i_1 = f"{i}_0", f"{i}_1"
     j_0, j_1 = f"{j}_0", f"{j}_1"
     f_0, f_1 = f"{f}_0", f"{f}_1"
     out0, out1, out2, out3 = (subst_map["_fe_out"], subst_map["_fe_out_0"],
                               subst_map["_fe_out_1"], subst_map["_fe_out_2"])
-    v = [subst_map[f"v{i}"] for i in range(4)]
+    outputs = [out0, out1, out2, out3]
+    # v = [subst_map[f"v{i}"] for i in range(4)]
 
     # }}}
 
@@ -285,27 +294,39 @@ def transform_face_mass(t_unit, insn_match=None, kernel_name=None):
 
     # }}}
 
+    from pymbolic import variables
+    from loopy.symbolic import get_dependencies
+
+    knl = t_unit[kernel_name]
+
     for k in range(4):
-        t_unit = fnsm.extract_einsum_terms_as_subst(
-            t_unit,
-            f"subst{k}({f},{e},{j})",
-            f"{v[k]}[{f},{e},{j}]*{J}[{e},{f}]")
+        knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+            knl,
+            subst_name=f"subst{k}",
+            arguments=variables(f"{f} {e} {j}"),
+            within=f"writes:{outputs[k]}",
+            terms_filter=lambda x: get_dependencies(x) & knl.all_inames() <= {f,
+                                                                              e,
+                                                                              j}
+        )
+
+    t_unit = t_unit.with_kernel(knl)
 
     t_unit = lp.split_iname(t_unit, e, ncells_per_group,
                             outer_tag="g.0", inner_tag="l.1")
 
     # {{{ fetch 'R'
 
-    t_unit = lp.add_prefetch(t_unit,
-                             R,
-                             [f, i, j],
-                             fetch_outer_inames=frozenset([e_outer]),
-                             temporary_address_space=lp.AddressSpace.LOCAL,
-                             default_tag=None,
-                             dim_arg_names=["f_Rprftch",
-                                            "i_Rprftch",
-                                            "j_Rprftch"],
-                             )
+    t_unit = lp.precompute(t_unit,
+                           R,
+                           [f, i, j],
+                           precompute_outer_inames=frozenset([e_outer]),
+                           temporary_address_space=lp.AddressSpace.LOCAL,
+                           default_tag=None,
+                           precompute_inames=["f_Rprftch",
+                                              "i_Rprftch",
+                                              "j_Rprftch"],
+                           )
 
     t_unit = lp.split_iname(t_unit, "i_Rprftch", ncells_per_group,
                             inner_tag="l.1", outer_tag="unr")
@@ -450,32 +471,50 @@ def match_and_transfer_tranform():
          "{[iel_2, idof_2, ifacedof, iface]:"
          " 0<=iel_2<10000 and 0<=idof_2<35 and 0<=ifacedof<15 and 0<=iface<4}"],
         """
+        # ----- Substitutions
+        s_jac_x(_0, _1)       := J[0, _0, _1]
+        s_jac_y(_0, _1)       := J[1, _0, _1]
+        s_jac_z(_0, _1)       := J[2, _0, _1]
+        s_vx(_0, _1)          := vx[_0, _1]
+        s_vy(_0, _1)          := vy[_0, _1]
+        s_vz(_0, _1)          := vz[_0, _1]
+        s_D(_0, _1, _2)       := D[_0, _1, _2]
+        s_J(_0, _1, _2)       := J[_0, _1, _2]
+        s_u(_0, _1)           := u[_0, _1]
+        s_Jface(_0, _1)       := Jface[_0, _1]
+        s_Rlift(_0, _1, _2)   := Rlift[_0, _1, _2]
+        s_flux_u(_0, _1, _2)  := F_0[_0, _1, _2]
+        s_flux_vx(_0, _1, _2) := F_1[_0, _1, _2]
+        s_flux_vy(_0, _1, _2) := F_2[_0, _1, _2]
+        s_flux_vz(_0, _1, _2) := F_3[_0, _1, _2]
+        # ----
+
         # ----- Div(v)
         div_out_x[iel_0,idof_0] = sum([jdof_0,r_0], \
-                                      Jx[iel_0,r_0]*R[r_0,idof_0,jdof_0]*vx[iel_0,jdof_0])
+                                      s_jac_x(iel_0,r_0)*s_D(r_0,idof_0,jdof_0)*s_vx(iel_0,jdof_0))
         div_out_y[iel_0,idof_0] = sum([jdof_0,r_0], \
-                                      Jy[iel_0,r_0]*R[r_0,idof_0,jdof_0]*vy[iel_0,jdof_0])
+                                      s_jac_y(iel_0,r_0)*s_D(r_0,idof_0,jdof_0)*s_vy(iel_0,jdof_0))
         div_out_z[iel_0,idof_0] = sum([jdof_0,r_0], \
-                                      Jz[iel_0,r_0]*R[r_0,idof_0,jdof_0]*vz[iel_0,jdof_0])
+                                      s_jac_z(iel_0,r_0)*s_D(r_0,idof_0,jdof_0)*s_vz(iel_0,jdof_0))
 
         ... gbarrier {id=g_barrier_0, dep_query=(writes:div_out_*)}
         # ----- Grad(u)
         with {dep=g_barrier_0}
             grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
-                                               J[x_1, iel_1, r_1]*R[r_1, idof_1, jdof_1]*u[iel_1, jdof_1])
+                                               s_J(x_1, iel_1, r_1)*s_D(r_1, idof_1, jdof_1)*s_u(iel_1, jdof_1))
         end
 
         ... gbarrier {id=g_barrier_1, dep_query=(writes:grad_out)}
         # ----- Lift(f*)
         with {dep=g_barrier_1}
             lift_0[iel_2, idof_2] = sum([iface, ifacedof], \
-                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_0[iface, iel_2, ifacedof])
+                                        s_Jface(iel_2, iface)*s_Rlift(iface, idof_2, ifacedof)*s_flux_u(iface, iel_2, ifacedof))
             lift_1[iel_2, idof_2] = sum([iface, ifacedof], \
-                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_1[iface, iel_2, ifacedof])
+                                        s_Jface(iel_2, iface)*s_Rlift(iface, idof_2, ifacedof)*s_flux_vx(iface, iel_2, ifacedof))
             lift_2[iel_2, idof_2] = sum([iface, ifacedof], \
-                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_2[iface, iel_2, ifacedof])
+                                        s_Jface(iel_2, iface)*s_Rlift(iface, idof_2, ifacedof)*s_flux_vy(iface, iel_2, ifacedof))
             lift_3[iel_2, idof_2] = sum([iface, ifacedof], \
-                                        Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_3[iface, iel_2, ifacedof])
+                                        s_Jface(iel_2, iface)*s_Rlift(iface, idof_2, ifacedof)*s_flux_vz(iface, iel_2, ifacedof))
         end
         """  # noqa: E501
     )
@@ -488,6 +527,7 @@ def match_and_transfer_tranform():
     t_unit = transform_div(t_unit, "writes:div_out_*")
     t_unit = transform_grad(t_unit, "writes:grad_out")
     t_unit = transform_face_mass(t_unit, "writes:lift_*")
+
     print(lp.generate_code_v2(t_unit).device_code())
 
     return t_unit
@@ -496,7 +536,7 @@ def match_and_transfer_tranform():
 if __name__ == "__main__":
     cl_ctx = cl.create_some_context()
 
-    report_div_performance(cl_ctx)
-    report_grad_performance(cl_ctx)
-    report_face_mass_performance(cl_ctx)
+    # report_div_performance(cl_ctx)
+    # report_grad_performance(cl_ctx)
+    # report_face_mass_performance(cl_ctx)
     match_and_transfer_tranform()

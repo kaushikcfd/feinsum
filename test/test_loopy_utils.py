@@ -30,8 +30,6 @@ import numpy as np
 
 
 def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
-    from feinsum.loopy_utils import extract_subexpr_of_associative_op_as_subst
-
     nface = 4
     nvoldofs = 35
     nfacedofs = 15
@@ -47,16 +45,24 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
                                    [{"J"}, {"R"}, {"v3"}],
                                ])
     t_unit = f.generate_loopy(face_mass)
+    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(3)]
 
-    # {{{ prefetch 'J @ vec'
+    # {{{ prefetch 'J * vec'
+
+    from pymbolic import variables
+    from loopy.symbolic import get_dependencies
 
     knl = t_unit.default_entrypoint
 
     for i in range(4):
-        knl = extract_subexpr_of_associative_op_as_subst(
+        knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
             knl,
-            f"subst_{i}(f, e, j)",
-            f"J[e, f] * v{i}[f, e, j]")
+            within=f"writes:{output_names[i]}",
+            subst_name=f"subst_{i}",
+            arguments=variables("f e j"),
+            terms_filter=lambda x: (get_dependencies(x)
+                                    & knl.all_inames()) <= set("fej")
+        )
 
     t_unit = t_unit.with_kernel(knl)
 
@@ -80,6 +86,9 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
 
 
 def test_hoist_reduction_invariant_terms(ctx_factory):
+    from pymbolic import variables
+    from loopy.symbolic import Reduction
+
     cl_ctx = ctx_factory()
     nel = 1
     ndim = 3
@@ -96,14 +105,22 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
 
     # {{{ hoist the "j" redn-loop over "x" loop
 
-    hoisted_t_unit = lp.split_reduction_inward(t_unit, "j")
-    hoisted_t_unit = f.hoist_reduction_invariant_terms(hoisted_t_unit, "j")
-    hoisted_t_unit = f.extract_einsum_terms_as_subst(hoisted_t_unit,
-                                                     "subst(r, e, i)",
-                                                     "sum(j, R[r, i, j]*u[e, j])")
+    knl = t_unit.default_entrypoint
+    knl = lp.split_reduction_inward(knl, "j")
+
+    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, "j")
+    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+        knl,
+        within=None,
+        subst_name="grad_without_jacobi_subst",
+        arguments=variables("r i e"),
+        terms_filter=lambda x: isinstance(x, Reduction)
+    )
+
+    hoisted_t_unit = t_unit.with_kernel(knl)
 
     hoisted_t_unit = lp.precompute(hoisted_t_unit,
-                                   "subst",
+                                   "grad_without_jacobi_subst",
                                    sweep_inames=["r", "i"],
                                    precompute_outer_inames=frozenset("e"))
 
@@ -123,8 +140,12 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
         "{[iel_1, idof_1, jdof_1, r_1, x_1]:"
         " 0<=iel_1<Nel and 0<=idof_1,jdof_1<35 and 0<=r_1,x_1<3}",
         """
+        jac_subst(_0, _1, _2) := J[_0, _1, _2]
+        D_subst(_0, _1, _2) := D[_0, _1, _2]
+        u_subst(_0, _1) := u[_0, _1]
+
         grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
-                                           J[x_1, iel_1, r_1]*R[r_1, idof_1, jdof_1]*u[iel_1, jdof_1])
+                                           jac_subst(x_1, iel_1, r_1)*D_subst(r_1, idof_1, jdof_1)*u_subst(iel_1, jdof_1))
         """  # noqa: E501
     )
     t_unit = lp.add_dtypes(t_unit,
@@ -134,22 +155,28 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
     ref_t_unit = t_unit
     t_unit = transform_3d_p4_grad(t_unit, "writes:grad_out")
     lp.auto_test_vs_ref(ref_t_unit, cl_ctx, t_unit, parameters={"Nel": 100})
-    return t_unit
 
 
-def test_match_einsum():
+def test_einsum_matching():
     t_unit = lp.make_kernel(
         "{[iel_2, idof_2, ifacedof, iface]:"
         " 0<=iel_2<10000 and 0<=idof_2<35 and 0<=ifacedof<15 and 0<=iface<4}",
         """
+        flux_subst_0(_0, _1, _2) := F_0[_0, _1, _2]
+        flux_subst_1(_0, _1, _2) := F_1[_0, _1, _2]
+        flux_subst_2(_0, _1, _2) := F_2[_0, _1, _2]
+        flux_subst_3(_0, _1, _2) := F_3[_0, _1, _2]
+        lift_subst(_0, _1, _2) := Rlift[_0, _1, _2]
+        face_jac_subst(_0, _1) := Jface[_0, _1]
+
         lift_0[iel_2, idof_2] = sum([iface, ifacedof],
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_0[iface, iel_2, ifacedof])
+                                    face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_0(iface, iel_2, ifacedof))
         lift_1[iel_2, idof_2] = sum([iface, ifacedof],
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_1[iface, iel_2, ifacedof])
+                                    face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_1(iface, iel_2, ifacedof))
         lift_2[iel_2, idof_2] = sum([iface, ifacedof],
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_2[iface, iel_2, ifacedof])
+                                    face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_2(iface, iel_2, ifacedof))
         lift_3[iel_2, idof_2] = sum([iface, ifacedof],
-                                    Jface[iel_2, iface]*Rlift[iface, idof_2, ifacedof]*F_3[iface, iel_2, ifacedof])
+                                    face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_3(iface, iel_2, ifacedof))
         """  # noqa: E501
     )
 
@@ -173,6 +200,6 @@ def test_match_einsum():
                                     [{"J"}, {"R"}, {"v3"}],
                                 ])
 
-    inferred_einsum = f.match_einsum(t_unit)
+    inferred_einsum, _ = f.get_a_matched_einsum(t_unit)
     assert (f.canonicalize_einsum(inferred_einsum)
             == f.canonicalize_einsum(ref_einsum))

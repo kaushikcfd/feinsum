@@ -1,5 +1,6 @@
 from feinsum.tuning import IntParameter
 from typing import Optional, Any
+from more_itertools import zip_equal as szip
 
 import feinsum as fnsm
 import numpy as np
@@ -20,6 +21,8 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
                                         ) -> lp.TranslationUnit:
     import loopy.match as lp_match
     from more_itertools import distribute
+    from pymbolic import variables
+    from loopy.symbolic import get_dependencies
 
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
@@ -38,8 +41,11 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
 
     # {{{ get corresponding variables in t_unit
 
-    vng = t_unit.default_entrypoint.get_var_name_generator()
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
+    vng = t_unit[kernel_name].get_var_name_generator()
+    ing = t_unit[kernel_name].get_insn_id_generator()
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
+                                            insn_match=insn_match,
+                                            kernel_name=kernel_name)
     i = subst_map["i"]
     j = subst_map["j"]
     J = subst_map["J"]
@@ -67,17 +73,20 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
                                       for _ in range(n_stmt_tile)]
     i_stmt_tile_to_j_prcmpt_stage1 = [vng(f"{j}_prcmpt_stage1")
                                       for _ in range(n_stmt_tile)]
+    compute_fxj_id = {field: ing(f"compute_fxj_{field}") for field in fields}
 
     # }}}
 
-    t_unit = lp.add_prefetch(t_unit,
-                             J, sweep_inames=[f],
-                             fetch_outer_inames=frozenset({e}),
-                             temporary_address_space=lp.AddressSpace.PRIVATE,
-                             # default_tag=None,
-                             default_tag="unr",
-                             within=within,
-                             temporary_name=J_fetch)
+    t_unit = lp.precompute(t_unit,
+                           J, sweep_inames=[f],
+                           precompute_outer_inames=frozenset({e}),
+                           temporary_address_space=lp.AddressSpace.PRIVATE,
+                           # default_tag=None,
+                           default_tag="unr",
+                           within=within,
+                           temporary_name=J_fetch,
+                           precompute_inames=(vng(f"{J}_prftch_f"),),
+                           )
 
     # {{{ splitting fields across outer_statement_tiles
 
@@ -85,27 +94,28 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
     i_stmt_tile_to_outputs = [list(el) for el in distribute(n_stmt_tile, outputs)]
     assert all(len(el) <= len_stmt_tile for el in i_stmt_tile_to_fields)
     assert all(len(el1) == len(el2)
-               for el1, el2 in zip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs))
+               for el1, el2 in szip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs))
 
     # }}}
 
-    for fields_in_tile in i_stmt_tile_to_fields:
-        for field in fields_in_tile:
+    knl = t_unit[kernel_name]
+    for fields_in_tile, outputs_in_tile in szip(i_stmt_tile_to_fields,
+                                                i_stmt_tile_to_outputs):
+        for field, output in szip(fields_in_tile, outputs_in_tile):
             subst_name = subst_names[field]
-            # FIXME: use precompute inames based on which inner statement tile
-            # does the field belong to.
-
             insn_match = lp_match.And((
                 within,
-                lp_match.Reads(field)
+                lp_match.Writes(output)
             ))
-
-            t_unit = fnsm.extract_einsum_terms_as_subst(
-                t_unit,
-                f"{subst_name}({f}, {e}, {j})",
-                f"{J_fetch}[{f}]*{field}[{f}, {e}, {j}]",
-                insn_match=insn_match
+            knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+                knl,
+                within=insn_match,
+                subst_name=subst_name,
+                arguments=variables(f"{f} {e} {j}"),
+                terms_filter=lambda x: (get_dependencies(x)
+                                        & knl.all_inames()) <= {f, e, j}
             )
+    t_unit = t_unit.with_kernel(knl)
 
     t_unit = lp.split_iname(t_unit, e, n_e_per_wg,
                             inner_iname=e_inner, outer_iname=e_outer,
@@ -115,14 +125,14 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
                                        vng(f"{i}prftch{L}"),
                                        vng(f"{j}prftch{L}"))
 
-    t_unit = lp.add_prefetch(t_unit, L,
-                             sweep_inames=[f, i, j],
-                             fetch_outer_inames=frozenset([e_outer]),
-                             dim_arg_names=[i_prftchL, f_prftchL, j_prftchL],
-                             default_tag=None,
-                             within=within,
-                             temporary_name=L_fetch,
-                             )
+    t_unit = lp.precompute(t_unit, L,
+                           sweep_inames=[f, i, j],
+                           precompute_outer_inames=frozenset([e_outer]),
+                           precompute_inames=[i_prftchL, f_prftchL, j_prftchL],
+                           default_tag=None,
+                           within=within,
+                           temporary_name=L_fetch,
+                           )
 
     t_unit = lp.split_iname(t_unit, i_prftchL, n_e_per_wg,
                             inner_tag="l.1",
@@ -161,6 +171,7 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
                     i_stmt_tile_to_f_prcmpt_stage1[i_stmt_tile],
                     i_stmt_tile_to_e_prcmpt_stage1[i_stmt_tile],
                     i_stmt_tile_to_j_prcmpt_stage1[i_stmt_tile]],
+                compute_insn_id=compute_fxj_id[field],
                 default_tag=None)
 
         t_unit = lp.tag_inames(
@@ -186,8 +197,9 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
             within,
             lp_match.Or(tuple(lp_match.Writes(output)
                               for output in i_stmt_tile_to_outputs[i_stmt_tile-1]))))
-        successors = lp_match.And((within,
-            lp_match.Or(tuple(lp_match.Reads(field)
+        successors = lp_match.And((
+            within,
+            lp_match.Or(tuple(lp_match.Id(compute_fxj_id[field])
                               for field in i_stmt_tile_to_fields[i_stmt_tile]))))
         t_unit = lp.add_dependency(t_unit, successors, predecessors)
 
@@ -224,6 +236,8 @@ def transform(t_unit: lp.TranslationUnit,
               kernel_name: Optional[str] = None) -> lp.TranslationUnit:
     import loopy.match as lp_match
     from more_itertools import distribute
+    from pymbolic import variables
+    from loopy.symbolic import get_dependencies
 
     if n_j_tile == 1 and n_i_tile == 1:
         return transform_with_single_j_tile_i_tile(t_unit,
@@ -233,7 +247,6 @@ def transform(t_unit: lp.TranslationUnit,
                                                    n_stmt_tile,
                                                    insn_match=insn_match,
                                                    kernel_name=kernel_name)
-
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
     within = lp_match.parse_match(insn_match)
@@ -254,17 +267,19 @@ def transform(t_unit: lp.TranslationUnit,
     # {{{ get corresponding variables in t_unit
 
     vng = t_unit.default_entrypoint.get_var_name_generator()
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
+                                            insn_match=insn_match,
+                                            kernel_name=kernel_name)
     i = subst_map["i"]
     j = subst_map["j"]
-    J = subst_map["J"]
+    # J = subst_map["J"]
     e = subst_map["e"]
     f = subst_map["f"]
     L = subst_map["L"]
     fields = [subst_map[f"v{i}"] for i in range(nfields)]
     outputs = [subst_map["_fe_out"]] + [subst_map[f"_fe_out_{i}"]
                                         for i in range(nfields-1)]
-    J_fetch = vng(f"{J}_fetch")
+    # J_fetch = vng(f"{J}_fetch")
     subst_names = {field: vng("subst_hoist") for field in fields}
     e_s = [vng(e) for _ in range(n_stmt_tile)]
     i_s = [vng(i) for _ in range(n_stmt_tile)]
@@ -301,13 +316,16 @@ def transform(t_unit: lp.TranslationUnit,
 
     # }}}
 
-    t_unit = lp.add_prefetch(t_unit,
-                             J, sweep_inames=[f],
-                             fetch_outer_inames=frozenset({e}),
-                             temporary_address_space=lp.AddressSpace.PRIVATE,
-                             default_tag="unr",
-                             within=within,
-                             temporary_name=J_fetch)
+    # FIXME: analyze this path's profitability.
+    # t_unit = lp.precompute(t_unit,
+    #                        J, sweep_inames=[f],
+    #                        precompute_outer_inames=frozenset({e}),
+    #                        temporary_address_space=lp.AddressSpace.PRIVATE,
+    #                        default_tag="unr",
+    #                        within=within,
+    #                        temporary_name=J_fetch,
+    #                        precompute_inames=(vng(f"{J}_prftch_f"),),
+    #                        )
 
     # {{{ splitting fields across outer_statement_tiles
 
@@ -315,29 +333,32 @@ def transform(t_unit: lp.TranslationUnit,
     i_stmt_tile_to_outputs = [list(el) for el in distribute(n_stmt_tile, outputs)]
     assert all(len(el) <= len_stmt_tile for el in i_stmt_tile_to_fields)
     assert all(len(el1) == len(el2)
-               for el1, el2 in zip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs))
+               for el1, el2 in szip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs))
 
     # }}}
 
     # {{{ split the kernel into disparate chunks
 
-    for fields_in_tile, new_i, new_f, new_e, new_j in zip(
-            i_stmt_tile_to_fields,
+    for outputs_in_tile, new_i, new_f, new_e, new_j in szip(
+            i_stmt_tile_to_outputs,
             i_s, f_s, e_s, j_s
     ):
         insn_match = lp_match.And(
             (within,
-             lp_match.Or(tuple(lp_match.Reads(field_name)
-                               for field_name in fields_in_tile))
+             lp_match.Or(tuple(lp_match.Writes(output_name)
+                               for output_name in outputs_in_tile))
              )
         )
+        # FIXME: These should pull the duplicated inames into basic sets of their
+        # own -> brings down the computational time.
         t_unit = lp.duplicate_inames(t_unit, (i, f, e, j),
                                      within=insn_match,
                                      new_inames=[new_i, new_f, new_e, new_j])
 
     # }}}
 
-    for i_stmt_tile, fields_in_tile in enumerate(i_stmt_tile_to_fields):
+    for i_stmt_tile, (fields_in_tile, outputs_in_tile) in enumerate(
+            szip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs)):
         new_i = i_s[i_stmt_tile]
         new_j = j_s[i_stmt_tile]
         new_f = f_s[i_stmt_tile]
@@ -355,22 +376,28 @@ def transform(t_unit: lp.TranslationUnit,
         # There's a problem here. The accumulator names are sort of random
         # here which is obnoxious. We probably need to use some metadata here.
 
-        for field in fields_in_tile:
+        knl = t_unit[kernel_name]
+
+        for field, output in szip(fields_in_tile, outputs_in_tile):
             subst_name = subst_names[field]
             # FIXME: use precompute inames based on which inner statement tile
             # does the field belong to.
 
             insn_match = lp_match.And((
                 within,
-                lp_match.Reads(field)
+                lp_match.Writes(output)
             ))
 
-            t_unit = fnsm.extract_einsum_terms_as_subst(
-                t_unit,
-                f"{subst_name}({new_e}, {new_j}, {new_f})",
-                f"{J_fetch}[{new_f}]*{field}[{new_f}, {new_e}, {new_j}]",
-                insn_match=insn_match
+            knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+                knl,
+                within=insn_match,
+                subst_name=subst_name,
+                arguments=variables(f"{new_e} {new_j} {new_f}"),
+                terms_filter=lambda x: (get_dependencies(x)
+                                        & knl.all_inames()) <= {new_e, new_f, new_j}
             )
+
+        t_unit = t_unit.with_kernel(knl)
 
         t_unit = lp.split_iname(t_unit, new_j, len_j_tile,
                                 outer_iname=j_tile_name,
@@ -382,19 +409,19 @@ def transform(t_unit: lp.TranslationUnit,
                                 inner_iname=e_inner_names[i_stmt_tile],
                                 outer_iname=e_outer_names[i_stmt_tile],
                                 outer_tag="g.0", inner_tag="l.1")
-        t_unit = lp.add_prefetch(t_unit, L,
-                                 sweep_inames=[j_inner_name, i_inner_name, new_f],
-                                 fetch_outer_inames=frozenset(
-                                     {j_tile_name,
-                                      i_tile_name,
-                                      e_outer_names[i_stmt_tile]}),
-                                 dim_arg_names=[i_prftchL, f_prftchL, j_prftchL],
-                                 temporary_name=L_fetch,
-                                 temporary_address_space=lp.AddressSpace.LOCAL,
-                                 default_tag=None,
-                                 prefetch_insn_id=prefetch_L_insns_ids[i_stmt_tile],
-                                 within=lp_match.Iname(i_inner_name),
-                                 )
+        t_unit = lp.precompute(t_unit, L,
+                               sweep_inames=[j_inner_name, i_inner_name, new_f],
+                               precompute_outer_inames=frozenset(
+                                   {j_tile_name,
+                                    i_tile_name,
+                                    e_outer_names[i_stmt_tile]}),
+                               precompute_inames=[i_prftchL, f_prftchL, j_prftchL],
+                               temporary_name=L_fetch,
+                               temporary_address_space=lp.AddressSpace.LOCAL,
+                               default_tag=None,
+                               compute_insn_id=prefetch_L_insns_ids[i_stmt_tile],
+                               within=lp_match.Iname(i_inner_name),
+                               )
         t_unit = lp.split_iname(t_unit, i_prftchL, n_e_per_wg,
                                 inner_tag="l.1", outer_tag="unr")
         t_unit = lp.split_iname(t_unit, j_prftchL, nwork_items_per_e,
@@ -446,6 +473,8 @@ def transform(t_unit: lp.TranslationUnit,
                                      & t_unit[kernel_name].all_inames())
         acc_names = {vng(f"acc_{new_f}_{j_tile_name}_{j_inner_name}")
                      for _ in fields_in_tile}
+        assert ((set(t_unit[kernel_name].temporary_variables) & acc_names)
+                == acc_names)
         t_unit = lp.privatize_temporaries_with_inames(t_unit,
                                                       set(inames_to_duplicate),
                                                       only_var_names=acc_names)
@@ -486,11 +515,11 @@ def transform(t_unit: lp.TranslationUnit,
         successor = lp_match.Iname(j_tile_names[i_stmt_tile])
         t_unit = lp.add_dependency(t_unit, successor, predecessor)
 
-    t_unit = lp.add_inames_to_insn(t_unit,
-                                   frozenset({i_inner_inner_names[0]}),
-                                   f"writes:{J_fetch}")
-    t_unit = lp.split_iname(t_unit, e, n_e_per_wg, inner_tag="l.1",
-                            outer_tag="g.0", within=f"writes:{J_fetch}")
+    # t_unit = lp.add_inames_to_insn(t_unit,
+    #                                frozenset({i_inner_inner_names[0]}),
+    #                                f"writes:{J_fetch}")
+    # t_unit = lp.split_iname(t_unit, e, n_e_per_wg, inner_tag="l.1",
+    #                         outer_tag="g.0", within=f"writes:{J_fetch}")
 
     return t_unit
 
@@ -528,8 +557,8 @@ if __name__ == "__main__":
                                   n_i_tile=1, n_j_tile=1,
                                   )
 
-        print(fnsm.stringify_comparison_with_roofline(expr,
-                                                      bound_transform,
-                                                      cl_ctx))
+        print(fnsm.stringify_comparison_vs_roofline(expr,
+                                                    transform=bound_transform,
+                                                    cl_ctx=cl_ctx))
 
 # vim: fdm=marker

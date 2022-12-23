@@ -55,40 +55,73 @@ def variant_1(t_unit):
     """
     Simple work division strategy.
     """
-    t_unit = lp.tag_inames(t_unit, {"f": "unr"})
-    t_unit = lp.split_iname(t_unit, "e", 8,
+    ref_einsum = get_face_mass_einsum(nface=4, nvoldofs=35, nfacedofs=15)
+
+    subst_map = f.match_t_unit_to_einsum(t_unit, ref_einsum)
+    iface = subst_map["f"]
+    e = subst_map["e"]
+    idof = subst_map["i"]
+
+    t_unit = lp.tag_inames(t_unit, {iface: "unr"})
+    t_unit = lp.split_iname(t_unit, e, 8,
                             outer_tag="g.0", inner_tag="l.1")
-    t_unit = lp.split_iname(t_unit, "i", 4,
+    t_unit = lp.split_iname(t_unit, idof, 4,
                             inner_tag="l.0", outer_tag="ilp")
 
     return t_unit
 
 
 def variant_2(t_unit, insn_match=None, kernel_name=None):
+    from pymbolic import variables
+
+    kernel_name = kernel_name or t_unit.default_entrypoint.name
+
     ncells_per_group = 16
     nworkitems_per_cell = 12
 
-    for i in range(4):
-        t_unit = f.extract_einsum_terms_as_subst(t_unit,
-                                                 f"subst{i}(f, e, j)",
-                                                 f"v{i}[f, e, j]*J[e, f]")
+    ref_einsum = get_face_mass_einsum(nface=4, nvoldofs=35, nfacedofs=15)
 
-    t_unit = lp.split_iname(t_unit, "e", ncells_per_group,
+    subst_map = f.match_t_unit_to_einsum(t_unit, ref_einsum,
+                                         insn_match=insn_match,
+                                         kernel_name=kernel_name)
+    e = subst_map["e"]
+    iface = subst_map["f"]
+    vs = [subst_map[f"v{i}"] for i in range(4)]
+    idof = subst_map["i"]
+    j = subst_map["j"]
+    J = subst_map["J"]
+    R = subst_map["R"]
+
+    knl = t_unit[kernel_name]
+    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(4)]
+
+    for i in range(4):
+        knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+            knl,
+            within=f"writes:{output_names[i]}",
+            subst_name=f"subst{i}",
+            arguments=variables(f"{iface} {e} {j}"),
+            terms_filter=lambda x: {J, vs[i]} & f.get_call_ids(x)
+        )
+
+    t_unit = t_unit.with_kernel(knl)
+
+    t_unit = lp.split_iname(t_unit, e, ncells_per_group,
                             inner_iname="e_inner", outer_iname="e_outer",
                             outer_tag="g.0", inner_tag="l.1")
 
     # {{{ fetch 'R'
 
-    t_unit = lp.add_prefetch(t_unit,
-                             "R",
-                             ["f", "i", "j"],
-                             fetch_outer_inames=frozenset(["e_outer"]),
-                             temporary_address_space=lp.AddressSpace.LOCAL,
-                             default_tag=None,
-                             dim_arg_names=["f_Rprftch",
-                                            "i_Rprftch",
-                                            "j_Rprftch"],
-                             )
+    t_unit = lp.precompute(t_unit,
+                           R,
+                           [iface, idof, j],
+                           precompute_outer_inames=frozenset(["e_outer"]),
+                           temporary_address_space=lp.AddressSpace.LOCAL,
+                           default_tag=None,
+                           precompute_inames=["f_Rprftch",
+                                              "i_Rprftch",
+                                              "j_Rprftch"],
+                           )
 
     t_unit = lp.split_iname(t_unit, "i_Rprftch", ncells_per_group,
                             inner_tag="l.1", outer_tag="unr")
@@ -99,18 +132,18 @@ def variant_2(t_unit, insn_match=None, kernel_name=None):
 
     # }}}
 
-    t_unit = lp.rename_iname(t_unit, "i", "i_0",
+    t_unit = lp.rename_iname(t_unit, idof, "i_0",
                              within="writes:_fe_out or writes:_fe_out_0")
-    t_unit = lp.rename_iname(t_unit, "f", "f_0",
+    t_unit = lp.rename_iname(t_unit, iface, "f_0",
                              within="writes:_fe_out or writes:_fe_out_0")
-    t_unit = lp.rename_iname(t_unit, "j", "j_0",
+    t_unit = lp.rename_iname(t_unit, j, "j_0",
                              within="writes:_fe_out or writes:_fe_out_0")
 
-    t_unit = lp.rename_iname(t_unit, "i", "i_1",
+    t_unit = lp.rename_iname(t_unit, idof, "i_1",
                              within="writes:_fe_out_1 or writes:_fe_out_2")
-    t_unit = lp.rename_iname(t_unit, "f", "f_1",
+    t_unit = lp.rename_iname(t_unit, iface, "f_1",
                              within="writes:_fe_out_1 or writes:_fe_out_2")
-    t_unit = lp.rename_iname(t_unit, "j", "j_1",
+    t_unit = lp.rename_iname(t_unit, j, "j_1",
                              within="writes:_fe_out_1 or writes:_fe_out_2")
 
     t_unit = lp.split_iname(t_unit, "i_0", nworkitems_per_cell,

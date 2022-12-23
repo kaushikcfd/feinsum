@@ -1,4 +1,4 @@
-from feinsum.tuning import IntParameter, BoolParameter
+from feinsum.tuning import IntParameter
 from typing import Optional, Any
 
 import feinsum as fnsm
@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
     "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2)))
 @fnsm.tuning.transform_param(
     "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2)))
-@fnsm.tuning.transform_param(
-    "prftch_u_to_local", lambda e: BoolParameter())
 def transform(t_unit: lp.TranslationUnit,
               ndim: int, ndof: int,
               n_e_per_wg: int, nwork_items_per_e: int,
-              prftch_u_to_local: bool, i_tiles: int, j_tiles: int,
+              i_tiles: int, j_tiles: int,
+              # FIXME: Making this is BoolParameters leads to an error in validation.
+              prftch_u_to_local: bool = False,
               insn_match: Optional[Any] = None,
               kernel_name: Optional[str] = None) -> lp.TranslationUnit:
 
@@ -40,6 +40,8 @@ def transform(t_unit: lp.TranslationUnit,
         raise fnsm.InvalidParameterError("Shared memory limit exceeded")
 
     from loopy.match import parse_match
+    from pymbolic import variables
+
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
     within = parse_match(insn_match)
@@ -59,7 +61,9 @@ def transform(t_unit: lp.TranslationUnit,
 
     vng = t_unit.default_entrypoint.get_var_name_generator()
     ing = t_unit.default_entrypoint.get_var_name_generator()
-    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum, insn_match)
+    subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
+                                            insn_match=insn_match,
+                                            kernel_name=kernel_name)
     i = subst_map["i"]
     j = subst_map["j"]
     J = subst_map["J"]
@@ -84,20 +88,25 @@ def transform(t_unit: lp.TranslationUnit,
     D_fetch = vng(f"{D}_fetch")
     J_fetch = vng(f"{J}_fetch")
     i_inner_inner, i_inner_outer = vng(f"{i_inner}_inner"), vng(f"{i_inner}_outer")
+    J_prftch_0, J_prftch_1 = vng(f"{J}_prftch_x"), vng(f"{J}_prftch_r")
     # prftch_J = ing(f"prftch_{J}")
 
     # }}}
 
     # {{{ term hoisting to match the flop count of opt_einsum
 
-    t_unit = lp.split_reduction_inward(t_unit, j)
-    t_unit = fnsm.hoist_reduction_invariant_terms(t_unit, j)
-    t_unit = fnsm.extract_einsum_terms_as_subst(
-        t_unit,
-        f"subst({e}, {i}, {r})",
-        f"sum({j}, {D}[{r}, {i}, {j}]*{u}[{e}, {j}])",
-        insn_match=insn_match
+    knl = t_unit[kernel_name]
+    knl = lp.split_reduction_inward(knl, j)
+    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
+    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+        knl,
+        subst_name="subst",
+        arguments=variables(f"{e} {i} {r}"),
+        within=insn_match,
+        terms_filter=lambda x: fnsm.get_call_ids(x) <= {D, u},
     )
+
+    t_unit = t_unit.with_kernel(knl)
 
     t_unit = lp.split_iname(t_unit, i, math.ceil(ndof/i_tiles),
                             outer_iname=i_tile, inner_iname=i_inner)
@@ -112,54 +121,57 @@ def transform(t_unit: lp.TranslationUnit,
 
     if prftch_u_to_local:
         eprftch_u, jprftch_u = vng("eprftch_u"), vng("jprftch_u")
-        t_unit = lp.add_prefetch(t_unit, u,
-                                 sweep_inames=[e_inner, j],
-                                 fetch_outer_inames=frozenset([e_outer]),
-                                 temporary_address_space=lp.AddressSpace.LOCAL,
-                                 temporary_name=u_fetch,
-                                 dim_arg_names=[eprftch_u, jprftch_u],
-                                 default_tag=None,
-                                 within=within
-                                 )
+        t_unit = lp.precompute(t_unit, u,
+                               sweep_inames=[e_inner, j],
+                               precompute_outer_inames=frozenset([e_outer]),
+                               temporary_address_space=lp.AddressSpace.LOCAL,
+                               temporary_name=u_fetch,
+                               precompute_inames=[eprftch_u, jprftch_u],
+                               default_tag=None,
+                               within=within
+                               )
         t_unit = lp.tag_inames(t_unit, {eprftch_u: "l.1"})
         t_unit = lp.split_iname(t_unit, jprftch_u, nwork_items_per_e,
                                 inner_tag="l.0")
     else:
-        t_unit = lp.add_prefetch(t_unit, u,
-                                 sweep_inames=[j],
-                                 fetch_outer_inames=frozenset([e_inner,
-                                                               e_outer]),
-                                 temporary_address_space=lp.AddressSpace.PRIVATE,
-                                 temporary_name=u_fetch,
-                                 default_tag="unr",
-                                 within=within
-                                 )
+        jprftch_u = vng("j_prftch_u")
+        t_unit = lp.precompute(t_unit, u,
+                               sweep_inames=[j],
+                               precompute_outer_inames=frozenset([e_inner,
+                                                                  e_outer]),
+                               temporary_address_space=lp.AddressSpace.PRIVATE,
+                               temporary_name=u_fetch,
+                               default_tag="unr",
+                               precompute_inames=(None, jprftch_u,),
+                               within=within
+                               )
 
     # }}}
 
-    t_unit = lp.add_prefetch(t_unit, J,
-                             sweep_inames=[x, r],
-                             fetch_outer_inames=frozenset({e_outer, e_inner,
-                                                           i_inner_inner}),
-                             temporary_address_space=lp.AddressSpace.PRIVATE,
-                             temporary_name=J_fetch,
-                             default_tag="unr",
-                             within=within)
+    t_unit = lp.precompute(t_unit, J,
+                           sweep_inames=[x, r],
+                           precompute_outer_inames=frozenset({e_outer, e_inner,
+                                                              i_inner_inner}),
+                           temporary_address_space=lp.AddressSpace.PRIVATE,
+                           temporary_name=J_fetch,
+                           precompute_inames=(J_prftch_0, J_prftch_1),
+                           default_tag="unr",
+                           within=within)
 
     # {{{ tile and prefetch D
 
     t_unit = lp.split_iname(t_unit, j, math.ceil(ndof/j_tiles),
                             inner_iname=j_inner, outer_iname=j_tile,
                             inner_tag="unr", outer_tag="unr")
-    t_unit = lp.add_prefetch(t_unit, D, [i_inner, r, j_inner],
-                             fetch_outer_inames=frozenset([e_outer,
-                                                           i_tile,
-                                                           j_tile]),
-                             dim_arg_names=[rprftch_D, iprftch_D, jprftch_D],
-                             temporary_address_space=lp.AddressSpace.LOCAL,
-                             temporary_name=D_fetch,
-                             within=within,
-                             default_tag=None)
+    t_unit = lp.precompute(t_unit, D, [i_inner, r, j_inner],
+                           precompute_outer_inames=frozenset([e_outer,
+                                                              i_tile,
+                                                              j_tile]),
+                           precompute_inames=[rprftch_D, iprftch_D, jprftch_D],
+                           temporary_address_space=lp.AddressSpace.LOCAL,
+                           temporary_name=D_fetch,
+                           within=within,
+                           default_tag=None)
     t_unit = lp.split_iname(t_unit, iprftch_D, n_e_per_wg, inner_tag="l.1")
     t_unit = lp.split_iname(t_unit, jprftch_D, nwork_items_per_e, inner_tag="l.0")
 
