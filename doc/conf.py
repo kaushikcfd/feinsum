@@ -5,6 +5,7 @@ _conf_url = (
 with urlopen(_conf_url) as _inf:
     exec(compile(_inf.read(), _conf_url, "exec"), globals())
 
+html_theme = "sphinx_book_theme"
 copyright = "2022, feinsum Contributors"
 author = "feinsum Contributors"
 
