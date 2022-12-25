@@ -84,8 +84,6 @@ modified Batched-einsum expressions by simply using :math:`\rho_{ij}(x_1, x_2,
 \ldots) = x_1\cdot x_2\cdot\ldots`. Throughout this manual we will use Batched-einsum
 and modified Batched-einsum interchangeably.
 
-**TODO**: Maybe show an example here?
-
 .. _dsgn_loopy_grammar:
 
 Grammar of :mod:`loopy` kernels
@@ -132,23 +130,18 @@ With these rules we can infer an einsum expression from a :mod:`loopy` kernel. I
 a batched einsum expression is simply applying the above rules to a collection of instructions
 in a loopy kernel.
 
-**TODO**: Provide an example.
-
-
 .. _dsgn_why_perf_engg:
 
 Why keep a performance engineer in the loop?
 --------------------------------------------
 
-.. red::
-  
-  The main competitors seem to be Sadayappan's Cogent and FB's Tensor
-  Comprehensions with auto-tuning. The possible routes are:
-  
-  #. Evaluate really how far along are they.
-  #. Their results look like dubious to me. TBH.
-  #. Look at their generated code.
-  #. Best case: re-implement their algorithm & evaluate.
-    - do not trust anyone.
-    - but given that they have had their artifacts reviewed and probably it is open source
-      the chances of them “cheating” is *low*.
+As of this writing, limited solutions are available that unify the
+code-generation of a single Einstein summation. Approaches that rely on an
+auto-tuning phase have been proposed for generating optimized device codes
+sub-class of Einstein-summations and for a particular architecture, for eg.
+Cogent [Kim_2019]_ that provides generates optimized GPU kernels for
+tensor-contractions.
+
+Hence, *feinsum* expects a performance engineer to specify the transform space,
+and, provides abstractions to develop (and implement) code-transformations for
+certain sub-classes of Batched-einsums.

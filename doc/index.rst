@@ -29,6 +29,7 @@ The API reference is generated in Sec. xxx.
     compiler_writer_tutorial
     design
     api
+    refs
 
     🚀 Github <https://github.com/kaushikcfd/feinsum>
     💾 Download Releases <https://pypi.org/project/feinsum>
