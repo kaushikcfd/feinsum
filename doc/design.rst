@@ -135,13 +135,12 @@ in a loopy kernel.
 Why keep a performance engineer in the loop?
 --------------------------------------------
 
-As of this writing, limited solutions are available that unify the
-code-generation of a single Einstein summation. Approaches that rely on an
-auto-tuning phase have been proposed for generating optimized device codes
-sub-class of Einstein-summations and for a particular architecture, for eg.
-Cogent [Kim_2019]_ that provides generates optimized GPU kernels for
-tensor-contractions.
+As of this writing, limited solutions are available that unify the heuristics
+needed to generate roofline-performing code for a single Einstein summation.
+Approaches that rely on an auto-tuning phase have been proposed for generating
+optimized device codes for a sub-class of Einstein-summations and for
+a particular architecture, for eg. Cogent [Kim_2019]_ generates optimized GPU
+kernels for tensor-contractions.
 
-Hence, *feinsum* expects a performance engineer to specify the transform space,
-and, provides abstractions to develop (and implement) code-transformations for
-certain sub-classes of Batched-einsums.
+Hence, *feinsum* provides abstractions to develop (and implement)
+code-transformations for certain sub-classes of Batched-einsums.
