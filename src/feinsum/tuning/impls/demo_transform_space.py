@@ -1,4 +1,7 @@
 # NOTE: Keep this implementation short as this is a part of docs.
+# Type-ignoring because this is part of the demo
+# type: ignore
+# flake8: noqa
 
 # BEGINEXAMPLE
 import feinsum as f
