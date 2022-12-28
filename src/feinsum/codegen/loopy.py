@@ -239,7 +239,8 @@ def generate_loopy(einsum: FusedEinsum,
     # {{{ Populate kernel_data
 
     # Inputs:
-    for value, dtype in einsum.value_to_dtype.items():
+    for value, dtype in sorted(einsum.value_to_dtype.items(),
+                               key=lambda x: x[0]):
         kernel_data.append(lp.GlobalArg(value,
                                         shape=lp.auto,
                                         dtype=dtype))
