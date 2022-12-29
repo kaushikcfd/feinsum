@@ -1,3 +1,5 @@
+.. _tutorial-2:
+
 Tutorial: Using the transformation knowledge
 ============================================
 

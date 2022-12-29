@@ -17,9 +17,10 @@ it serves the following purposes:
 3. Defines (and implements) a specification to translate the recorded
    code-transformations to a subset of :mod:`loopy` kernels.
 
-The rest of this manual is structured as follows. We outline our design
-choices are elaborate in  Sec xxx. We provide a tutorial in Sec xx an Sec yy.
-The API reference is generated in Sec. xxx.
+The rest of this manual is structured as follows. We outline our design choices
+are elaborate in  Sec “:ref:`dsgn`\ ”. We provide tutorials in Sec
+“:ref:`tutorial-1`\ ” an Sec “:ref:`tutorial-2`\ ”. The API reference is
+generated in Sec. “:ref:`api`\ ”.
 
 .. toctree::
     :maxdepth: 2

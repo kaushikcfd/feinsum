@@ -1,3 +1,5 @@
+.. _tutorial-1:
+
 Tutorial: Expressing code-transformation space
 ==============================================
 

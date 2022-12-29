@@ -1,3 +1,5 @@
+.. _api:
+
 API Reference
 =============
 
@@ -31,6 +33,12 @@ Lowering to :mod:`loopy`
 ------------------------
 
 .. automodule:: feinsum.codegen.loopy
+
+
+Canonicalization
+----------------
+
+.. automodule:: feinsum.canonicalization
 
 Miscellaneous Utilities
 -----------------------
