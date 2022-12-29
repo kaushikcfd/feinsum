@@ -9,5 +9,3 @@ tabulate
 types-tabulate
 types-pytz
 opentuner
-sphinx-book-theme
-sphinx-copybutton
