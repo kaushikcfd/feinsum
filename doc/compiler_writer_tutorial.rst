@@ -53,7 +53,7 @@ Let us first create a kernel to apply transformations on:
 
 
 Now let's ask :mod:`feinsum` to parse the two batched einsums in the kernel according
-to the specification (see ":ref:`_dsgn_loopy_grammar`"):
+to the specification (see ":ref:`dsgn_loopy_grammar`"):
 
 .. doctest::
 
@@ -87,7 +87,7 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
 
 .. doctest::
 
-    >>> print(lp.generate_code_v2(t_unit).device_code())   # doctest: +NORMALIZE_WHITESPACE
+    >>> print(lp.generate_code_v2(t_unit).device_code())   # doctest: +ELLIPSIS
     #define lid(N) ((int) get_local_id(N))
     #define gid(N) ((int) get_group_id(N))
     #if __OPENCL_C_VERSION__ < 120
@@ -124,7 +124,7 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
           for (int r_prcmpt_0 = 0; r_prcmpt_0 <= 2; ++r_prcmpt_0)
             if (34 + -1 * lid(0) + -12 * idof_0_tile >= 0)
               acc_jdof_0_tile_jdof_0_inner[r_prcmpt_0] = 0.0;
-        barrier(CLK_LOCAL_MEM_FENCE) /* for D_s_fetch (D_s rev-depends on prcmpt_jdof_0_redn_jdof_0_tile_jdof_0_inner_update) */;
+        barrier(CLK_LOCAL_MEM_FENCE) /* ... */;
         {
           int const iprftchD_outer = 0;
     <BLANKLINE>
@@ -133,7 +133,7 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
               for (int rprftchD = 0; rprftchD <= 2; ++rprftchD)
                 D_s_fetch[420 * rprftchD + 35 * lid(1) + 12 * jprftchD_outer + lid(0)] = D[1225 * rprftchD + 35 * (12 * idof_0_tile + lid(1)) + 12 * jprftchD_outer + lid(0)];
         }
-        barrier(CLK_LOCAL_MEM_FENCE) /* for D_s_fetch (prcmpt_jdof_0_redn_jdof_0_tile_jdof_0_inner_update depends on D_s) */;
+        barrier(CLK_LOCAL_MEM_FENCE) /* ... */;
         if (-1 + -1 * lid(1) + -29 * gid(0) + Nel >= 0)
         {
           if (34 + -12 * idof_0_tile + -1 * lid(0) >= 0)
@@ -428,7 +428,7 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
             prcmpt_stage1_2[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = jac_face_s_fetch[iface_prcmpt_stage1] * F_3[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
           }
         }
-      barrier(CLK_LOCAL_MEM_FENCE) /* for L_s_fetch (insn_2_iface_0_ifacedof_0_update depends on L_s) */;
+      barrier(CLK_LOCAL_MEM_FENCE) /* ... */;
       if (-1 + -8 * gid(0) + -1 * lid(1) + Nel >= 0)
       {
         acc_iface_0_ifacedof_0 = 0.0;
