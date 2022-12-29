@@ -5,6 +5,12 @@ _conf_url = (
 with urlopen(_conf_url) as _inf:
     exec(compile(_inf.read(), _conf_url, "exec"), globals())
 
+html_theme = "sphinx_book_theme"
+html_theme_options = {
+    'logo_only': True,
+}
+html_static_path = ["static"]
+html_logo = "static/logo.svg"
 copyright = "2022, feinsum Contributors"
 author = "feinsum Contributors"
 

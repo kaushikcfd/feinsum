@@ -92,4 +92,7 @@ jobs:
                 curl -L -O -k https://tiker.net/ci-support-v0
                 . ci-support-v0
                 build_py_project_in_conda_env
-                build_docs
+                with_echo $PY_EXE -m pip install sphinx-book-theme sphinx-copybutton
+                with_echo $PY_EXE -m pip install "sphinx>=4.0.2"
+                with_echo cd doc
+                with_echo make html SPHINXOPTS="-W --keep-going -n"
