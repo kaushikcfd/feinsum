@@ -13,7 +13,7 @@ it serves the following purposes:
 2. Automatically record facts (such as walltime, FLOPS) about the points in the
    transformation space specified by a performance engineer. (current
    implementation uses `OpenTuner <https://opentuner.org/>`_ to traverse the
-   space)
+   search space)
 3. Defines (and implements) a specification to translate the recorded
    code-transformations to a subset of :mod:`loopy` kernels.
 
@@ -25,7 +25,8 @@ generated in Sec. “:ref:`api`\ ”.
 .. toctree::
     :maxdepth: 2
     :caption: Contents:
-
+  
+    install
     perf_engg_tutorial
     compiler_writer_tutorial
     design

@@ -65,7 +65,7 @@ to the specification (see ":ref:`dsgn_loopy_grammar`"):
 
 
 We now ask *feinsum* to query the available transformation knowledge and pick
-the best one according to a user-relevant metric, which in this case if the
+the best one according to a user-relevant metric, which in this case is the
 FLOP throughput.
 
 .. doctest::

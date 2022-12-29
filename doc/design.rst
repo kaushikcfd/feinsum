@@ -46,8 +46,8 @@ with :math:`n` operands. It is defined by a 4-tuple :math:`(\mathcal{E},
    :math:`\mathcal{A}_{i j} \subseteq \{ A_{1,} \ldots, A_k \}` is a set of
    array names. The :math:`j`-th operand of the einstein summation computing
    :math:`R_i` is the term :math:`\prod_{a \in \mathcal{A}_{i j}}
-   a [\mathcal{E}_{j, 1}, \mathcal{E}_{j, 2}, \ldots], \mathrm{where}
-   \mathcal{E}_{j, 1}, \mathcal{E}_{j, 2}, \ldots` are the indices for the
+   a [\mathcal{E}_{j, 1}, \mathcal{E}_{j, 2}, \ldots]` where,
+   :math:`\mathcal{E}_{j, 1}, \mathcal{E}_{j, 2}, \ldots` are the indices for the
    :math:`j`-th operand of :math:`\mathcal{E}`.
 
 #. :math:`\mathcal{T}` is a mapping from the input arrays to their
@@ -140,15 +140,6 @@ We note that :mod:`feinsum` does not impose any constraints on the substitution
 rule's expression. We leave that upon the compiler to ensure that the rule's RHS
 has memory access pattern close to that of a multi-dimensional array with similar
 stride patterns.
-
-
-**Example 1**
-
-
-**Example 2**
-
-
-
 
 .. _dsgn_why_perf_engg:
 

@@ -18,9 +18,16 @@ The main parts of the script include:
   summations it targets.
 - ``transform_param`` decorator that prescribes the bounds of the transform
   space.
+- ``match_t_unit_to_einsum`` re-interprets the relevant expresions in the
+  translation unit as per the provided reference batched einsum and provides
+  a substitution mapping from the einsum's entities to the kernel's
+  entities as:
 
+  * An einsum's index corresponds to one of the inames in the translation unit
+  * An einsum's argument corresponds to one the substitution rules in the
+    translation unit
 
-We ask :mod:`feinsum` to record the facts about facts of transform space as:
+We ask :mod:`feinsum` to record facts about the transform space as:
 
 .. code-block:: python
 
