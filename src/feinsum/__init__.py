@@ -19,6 +19,7 @@ from feinsum.loopy_utils import (match_t_unit_to_einsum,
 from feinsum.canonicalization import canonicalize_einsum
 from feinsum.cl_utils import make_fake_cl_context
 from feinsum.tuning import autotune
+from feinsum.utils import IndexNameGenerator
 
 
 __all__ = (
@@ -45,4 +46,6 @@ __all__ = (
     "make_fake_cl_context",
 
     "autotune",
+
+    "IndexNameGenerator",
 )
