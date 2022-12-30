@@ -1,12 +1,16 @@
 """
 .. autofunction:: has_similar_subscript
 .. autofunction:: is_any_redn_dim_parametric
+
+.. autoclass:: IndexNameGenerator
 """
 
 
 from feinsum.einsum import FusedEinsum, SummationAxis, SizeParam
 from feinsum import array
 from feinsum.make_einsum import einsum as build_einsum
+from typing import FrozenSet
+import dataclasses as dc
 
 
 def has_similar_subscript(einsum: FusedEinsum,
@@ -88,3 +92,39 @@ def is_any_redn_dim_parametric(einsum: FusedEinsum) -> bool:
                 return True
 
     return False
+
+
+@dc.dataclass
+class IndexNameGenerator:
+    """
+    Generates indices to be fed into an einstein summation.
+
+    .. attribute:: banned_names
+
+        A :class:`frozenset` of index names that will not be generated.
+
+    .. doctest::
+
+        >>> from feinsum import IndexNameGenerator
+        >>> idx_name_gen = IndexNameGenerator(frozenset({'c'}))
+        >>> idx_name_gen()
+        'a'
+        >>> idx_name_gen()
+        'b'
+        >>> idx_name_gen()
+        'd'
+    """
+    banned_names: FrozenSet[str] = dc.field(default=frozenset())
+    counter: int = dc.field(init=False, default=0)
+
+    def __call__(self) -> str:
+        if self.counter == 26:
+            raise RuntimeError("All indices have been exhausted")
+
+        new_name = chr(97+self.counter)
+        self.counter += 1
+
+        if new_name in self.banned_names:
+            return self()
+        else:
+            return new_name
