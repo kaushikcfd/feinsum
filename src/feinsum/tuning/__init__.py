@@ -1,10 +1,19 @@
-"""
+from __future__ import annotations
+
+__doc__ = """
+.. autoclass:: TuningParameter
 .. autoclass:: IntParameter
 .. autoclass:: BoolParameter
+.. autoclass:: TupleParameter
 
 .. autofunction:: autotune
 .. autofunction:: transform_param
 .. autofunction:: einsum_arg
+
+.. class:: ConvertibleToTuningParamT
+
+    A type alias for ``Union[TuningParameter, Tuple[Any, ...]]``.
+    See :attr:`transform_param.func`.
 """
 import abc
 import os
@@ -14,7 +23,9 @@ import pyopencl as cl
 import loopy as lp
 import opentuner
 
-from typing import Callable, Any, Tuple, Mapping, Optional, Sequence
+from typing import (Callable, Any, Tuple, Mapping, Optional, Sequence, Union,
+                    FrozenSet)
+from immutables import Map
 from dataclasses import dataclass
 from functools import cached_property, cache
 from feinsum.einsum import (FusedEinsum, IntegralT, ShapeComponentT,
@@ -28,7 +39,13 @@ logger = logging.getLogger(__name__)
 # {{{ supported tuning parameters
 
 class TuningParameter(abc.ABC):  # noqa: B024
-    pass
+    """
+    Records the parameter space of a code-transformation.
+
+    .. note::
+
+        This is an abstract class.
+    """
 
 
 @dataclass(frozen=True, init=False)
@@ -56,10 +73,22 @@ class BoolParameter(TuningParameter):
     A parameter that can be either *True* or *False*.
     """
 
+
+@dataclass(frozen=True)
+class TupleParameter(TuningParameter):
+    """
+    A tuple of parameters. The resulting parameter space is a Cartesian product of
+    the individual elements of the tuple.
+    """
+    _data: Tuple[TuningParameter, ...]
+
 # }}}
 
 
-# {{{ einsum_arg/transform_arg
+ConvertibleToTuningParamT = Union[Tuple[Any, ...], TuningParameter]
+
+
+# {{{ einsum_arg/transform_param
 
 @dataclass(frozen=True, repr=True)
 class einsum_arg:  # noqa: N801
@@ -95,11 +124,15 @@ class transform_param:  # noqa: N801
 
     :param arg_name: Name of the argument in the template
         transformation to be parametrized.
-    :param param_getter: A callable that expects an einsum and returns the
-        parameter space for that einsum.
+    :param func: A callable that expects an einsum and returns the
+        parameter space for that einsum. The returned parameter space could be an
+        instance of:
+        - A :class:`TuningParameter`.
+        - A :class:`tuple` of :class:`ConvertibleToTuningParamT` types that is
+          (internally) mapped to a :class:`TupleParameter`.
     """
     var_name: str
-    func: Callable[[FusedEinsum], TuningParameter]
+    func: Callable[[FusedEinsum], ConvertibleToTuningParamT]
 
     def __call__(self,
                  fn: Callable[..., lp.TranslationUnit]) -> "ParametrizedTransform":
@@ -175,6 +208,90 @@ def get_transform_func_from_module_path(module_path: str) -> ParametrizedTransfo
     else:
         assert callable(transform_obj)
         return ParametrizedTransform(transform_obj, (), ())
+
+
+def _convert_to_tuning_param(param: ConvertibleToTuningParamT) -> TuningParameter:
+    if isinstance(param, TuningParameter):
+        return param
+    elif isinstance(param, tuple):
+        return TupleParameter(tuple(_convert_to_tuning_param(el) for el in param))
+    else:
+        raise ValueError("Only instances of ConvertibleToTuningParamT"
+                         " are supported.")
+
+
+def _get_opentuner_param_name(key: Tuple[str, ...]) -> str:
+    return "_".join(key)
+
+
+def _get_opentuner_params_from_tuning_param(
+        key: Tuple[str, ...],
+        tuning_param: TuningParameter) -> FrozenSet[opentuner.manipulator.Parameter]:
+    if isinstance(tuning_param, IntParameter):
+        from opentuner.search.manipulator import IntegerParameter
+        return frozenset([IntegerParameter(_get_opentuner_param_name(key),
+                                           tuning_param.low,
+                                           tuning_param.high)])
+    elif isinstance(tuning_param, BoolParameter):
+        from opentuner.search.manipulator import BooleanParameter
+        return frozenset([BooleanParameter(_get_opentuner_param_name(key))])
+    elif isinstance(tuning_param, TupleParameter):
+        from functools import reduce
+        return reduce(frozenset.union,
+                      (_get_opentuner_params_from_tuning_param(key+(f"_fetup_{i}", ),
+                                                               k)
+                       for i, k in enumerate(tuning_param._data)),
+                      frozenset())
+    elif isinstance(tuning_param, TuningParameter):
+        raise NotImplementedError(type(tuning_param))
+    else:
+        raise TypeError(type(tuning_param))
+
+
+def _reconstruct_transform_params_from_opentuner_config(
+        config: Mapping[str, Any],
+        transform_params: Tuple[transform_param, ...],
+        ensm: FusedEinsum,
+) -> Mapping[str, Any]:
+
+    def rec(key: Tuple[str, ...], tuning_param: TuningParameter) -> Any:
+        if isinstance(tuning_param, (IntParameter, BoolParameter)):
+            param_name = _get_opentuner_param_name(key)
+            return config[param_name]
+        elif isinstance(tuning_param, TupleParameter):
+            return tuple(rec(key + ((f"_fetup_{isubparam}", )),
+                             subparam)
+                         for isubparam, subparam in enumerate(tuning_param._data))
+        elif isinstance(tuning_param, TuningParameter):
+            raise NotImplementedError(type(tuning_param))
+        else:
+            raise TypeError(type(tuning_param))
+
+    return {
+        param.var_name: rec(
+            (param.var_name,),
+            _convert_to_tuning_param(param.func(ensm)))
+        for param in transform_params}
+
+
+def _get_opentuner_config_from_transform_config(
+        config: Mapping[str, Any]) -> Map[str, Any]:
+    result = {}
+
+    def rec(key: Tuple[str, ...],   param: Any) -> None:
+        if isinstance(param, (INT_CLASSES, bool)):
+            result[_get_opentuner_param_name(key)] = param
+            return
+        elif isinstance(param,  tuple):
+            for ipar, par in enumerate(param):
+                rec(key + (f"_fetup_{ipar}",), par)
+        else:
+            raise NotImplementedError(type(param))
+
+    for k, v in config.items():
+        rec((k,), v)
+
+    return Map(result)
 
 
 # {{{ Opentuner entrypoint
@@ -253,30 +370,25 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
     def manipulator(self) -> "opentuner.ConfigurationManipulator":
         from opentuner import ConfigurationManipulator
-        from opentuner.search.manipulator import BooleanParameter
         manipulator = ConfigurationManipulator()
 
         for param in self.transform_func.transform_params:
-            tuning_param = param.func(self.einsum)
-            if isinstance(tuning_param, IntParameter):
-                manipulator.add_parameter(
-                    opentuner.IntegerParameter(param.var_name,
-                                               tuning_param.low,
-                                               tuning_param.high))
-            elif isinstance(tuning_param, BoolParameter):
-                manipulator.add_parameter(BooleanParameter(param.var_name))
-            else:
-                raise NotImplementedError(f"Parameter: {param}.")
+            unprocessed_tuning_param = param.func(self.einsum)
+            tuning_param = _convert_to_tuning_param(unprocessed_tuning_param)
+            for opentuner_param in _get_opentuner_params_from_tuning_param(
+                    (param.var_name,),
+                    tuning_param):
+                manipulator.add_parameter(opentuner_param)
 
         return manipulator
 
     def seed_configurations(self) -> Sequence[Mapping[str, Any]]:
-        import json
         from feinsum.sql_utils import (dump_index_to_length,
                                        dump_use_matrix,
                                        dump_value_to_dtype,
                                        dump_op_info,
                                        dump_device_name,
+                                       load_transform_params,
                                        )
 
         cursor = self.conn.cursor()
@@ -305,7 +417,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                         use_matrix, value_to_dtype, op_info, device_name))
 
         return [
-            json.loads(transform_params[0])
+            dict(_get_opentuner_config_from_transform_config(
+                load_transform_params(transform_params[0])))
             for transform_params in cursor.fetchall()
         ]
 
@@ -403,7 +516,11 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                                      stringify_comparison_vs_roofline)
         from feinsum.diagnostics import InvalidParameterError
 
-        cfg = desired_result.configuration.data
+        cfg = _reconstruct_transform_params_from_opentuner_config(
+            desired_result.configuration.data,
+            self.transform_func.transform_params,
+            self.einsum,
+        )
 
         logger.info(cfg)
 

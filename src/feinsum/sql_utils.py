@@ -86,6 +86,24 @@ def load_op_info(op_info: str) -> Map[np.dtype[Any], float]:
                 for k, v in json.loads(op_info).items()})
 
 
+def _process_param(param: Any) -> Any:
+    if isinstance(param, (int, bool)):
+        return param
+    elif isinstance(param, list):
+        return tuple(_process_param(k) for k in param)
+    else:
+        raise NotImplementedError(type(param))
+
+
+def load_transform_params(params_str: str) -> Map[str, Any]:
+    preprocessed_params = json.loads(params_str)
+    assert isinstance(preprocessed_params, dict)
+    assert all(isinstance(k, str) for k in preprocessed_params)
+
+    return Map({k: _process_param(v)
+                for k, v in preprocessed_params.items()})
+
+
 def dump_device_name(cl_device: "cl.Device") -> str:
     dev_name = cl_device.name
     assert isinstance(dev_name, str)
