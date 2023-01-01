@@ -1,6 +1,7 @@
 """
 .. autofunction:: has_similar_subscript
 .. autofunction:: is_any_redn_dim_parametric
+.. autofunction:: get_n_redn_dim
 
 .. autoclass:: IndexNameGenerator
 """
@@ -92,6 +93,15 @@ def is_any_redn_dim_parametric(einsum: FusedEinsum) -> bool:
                 return True
 
     return False
+
+
+def get_n_redn_dim(ensm: FusedEinsum) -> int:
+    """
+    Returns the number of reduction indices in *ensm*.
+    """
+    return len({axis
+                for axis in ensm.index_to_dim_length()
+                if isinstance(axis, SummationAxis)})
 
 
 @dc.dataclass
