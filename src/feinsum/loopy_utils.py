@@ -254,9 +254,11 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
 
         if isinstance(inner_expr, p.Product):
             from pymbolic.primitives import flattened_product
-            einsum_terms: Tuple[p.Expression, ...] = (flattened_product(inner_expr
-                                                                        .children)
-                                                      .children)
+            flat_prod = flattened_product(inner_expr.children)
+            if isinstance(flat_prod, p.Product):
+                einsum_terms: Tuple[p.Expression, ...] = flat_prod.children
+            else:
+                einsum_terms = flat_prod,
         else:
             einsum_terms = (inner_expr,)
 
