@@ -45,7 +45,6 @@ def has_similar_subscript(einsum: FusedEinsum,
         True
         >>> has_similar_subscript(ensm, "pq,qr->pr")
         True
-
     """
 
     try:

@@ -45,6 +45,7 @@ Miscellaneous Utilities
 
 .. automodule:: feinsum.utils
 .. automodule:: feinsum.typing
+.. automodule:: feinsum.cl_utils
 
 
 Indices and tables

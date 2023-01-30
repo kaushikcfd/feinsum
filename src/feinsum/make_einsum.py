@@ -3,6 +3,7 @@
 
 .. autofunction:: einsum
 .. autofunction:: fused_einsum
+.. autoclass:: ArrayT
 """
 
 __copyright__ = """

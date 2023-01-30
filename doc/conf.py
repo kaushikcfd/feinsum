@@ -20,8 +20,6 @@ exec(compile(open("../src/VERSION.py").read(), "../src/VERSION.py",
 version = ".".join(str(x) for x in ver_dic["VERSION"])
 release = ver_dic["VERSION_TEXT"]
 
-extensions += ["sphinx.ext.autodoc", "sphinx_autodoc_typehints"]
-
 intersphinx_mapping = {
     "https://docs.python.org/3/": None,
     "https://numpy.org/doc/stable/": None,
