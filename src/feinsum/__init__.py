@@ -12,7 +12,7 @@ from feinsum.measure import (timeit, measure_giga_op_rate,
                              get_roofline_flop_rate,
                              validate_fused_einsum_transform)
 from feinsum.diagnostics import InvalidParameterError
-from feinsum.sql_utils import query
+from feinsum.sql_utils import query, DEFAULT_DB
 from feinsum.loopy_utils import (match_t_unit_to_einsum,
                                  get_a_matched_einsum,
                                  get_call_ids)
@@ -36,7 +36,7 @@ __all__ = (
     "get_opt_einsum_contraction_schedule", "get_trivial_contraction_schedule",
     "InvalidParameterError",
 
-    "query",
+    "query", "DEFAULT_DB",
 
     "match_t_unit_to_einsum", "get_call_ids",
     "get_a_matched_einsum",
