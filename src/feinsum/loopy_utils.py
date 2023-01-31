@@ -19,6 +19,7 @@ from feinsum.einsum import FusedEinsum, IntegralT
 from feinsum.diagnostics import EinsumTunitMatchError
 from loopy.symbolic import CombineMapper, Reduction
 from more_itertools import zip_equal as szip
+from pytools import memoize_on_first_arg
 
 
 # {{{ matching loopy kernel against a ref. einsum
@@ -98,7 +99,12 @@ def _get_iname_length(kernel: lp.LoopKernel, iname: str, long_dim_length: Integr
         return np.inf
 
 
-def _get_dtype_for_subst_argument(t_unit: lp.LoopKernel,
+@memoize_on_first_arg
+def _infer_lp_types(t_unit: lp.TranslationUnit) -> lp.TranslationUnit:
+    return lp.infer_unknown_types(t_unit)
+
+
+def _get_dtype_for_subst_argument(t_unit: lp.TranslationUnit,
                                   kernel_name: str,
                                   rule_name: str) -> np.dtype[Any]:
     """
@@ -110,8 +116,8 @@ def _get_dtype_for_subst_argument(t_unit: lp.LoopKernel,
     from pymbolic.mapper.substitutor import make_subst_func
     from loopy.symbolic import (SubstitutionMapper,
                                 SubstitutionRuleExpander)
+    t_unit = _infer_lp_types(t_unit)
     knl = t_unit.default_entrypoint
-    # TODO: The loopy.TypeReader is flaky -> try to break it and fix it.
     type_reader = TypeReader(knl, t_unit.callables_table)
     subst = knl.substitutions[rule_name]
     subst_expr = subst.expression
