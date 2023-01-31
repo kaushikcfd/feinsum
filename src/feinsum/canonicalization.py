@@ -32,12 +32,12 @@ import pynauty as nauty
 from typing import (Dict, Set, Mapping, List, Any, Union, Sequence,
                     Tuple, FrozenSet)
 from feinsum.einsum import (FusedEinsum, ShapeT, ShapeComponentT,
-                            EinsumAxisAccess, FreeAxis, IntegralT, SizeParam,
+                            EinsumAxisAccess, IntegralT, SizeParam,
                             INT_CLASSES)
 from feinsum.make_einsum import fused_einsum
 from immutables import Map
 from dataclasses import dataclass
-from more_itertools import zip_equal as zip
+from more_itertools import zip_equal as szip
 from pytools import UniqueNameGenerator
 from bidict import frozenbidict
 
@@ -85,6 +85,7 @@ class AccessNode(EinsumGraphNode):
     Represents an access into an array i.e. the index accessing it along with
     the array's axis it is accessed into.
     """
+    output_name: str
     index: str
     axis: int
 
@@ -108,11 +109,11 @@ class ArrayNode(EinsumGraphNode):
 
 @dataclass(frozen=True)
 class LiteralNode(EinsumGraphNode):
-    dim: IntegralT
+    value: IntegralT
 
     @property
     def name(self) -> str:
-        return str(self.dim)
+        return str(self.value)
 
 
 @dataclass(frozen=True)
@@ -191,7 +192,7 @@ def _group_same_access_descriptors(einsum: FusedEinsum) -> FusedEinsum:
     acc_descrs_to_i_new_col: Dict[Tuple[EinsumAxisAccess, ...], int] = {}
     n_unique = 0
 
-    for arg_shape, acc_descrs in zip(einsum.arg_shapes, einsum.access_descriptors):
+    for arg_shape, acc_descrs in szip(einsum.arg_shapes, einsum.access_descriptors):
 
         try:
             acc_descrs_to_i_new_col[acc_descrs]
@@ -214,7 +215,7 @@ def _group_same_access_descriptors(einsum: FusedEinsum) -> FusedEinsum:
     ]
 
     for irow, use_row in enumerate(einsum.use_matrix):
-        for acc_descrs, uses in zip(einsum.access_descriptors, use_row):
+        for acc_descrs, uses in szip(einsum.access_descriptors, use_row):
             icol = acc_descrs_to_i_new_col[acc_descrs]
             new_use_matrix[irow][icol].update(uses)
 
@@ -238,7 +239,7 @@ def get_einsum_dag(einsum: FusedEinsum) -> Map[EinsumGraphNode,
     # {{{ compute acc_descr_to_node, array_to_node
 
     acc_descr_to_node: Dict[EinsumAxisAccess, IndexNode] = {}
-    access_to_node: Dict[Tuple[EinsumAxisAccess, int], AccessNode] = {}
+    access_to_node: Dict[Tuple[str, EinsumAxisAccess, int], AccessNode] = {}
     array_to_node: Dict[str, ArrayNode] = {}
     axis_to_node: Dict[int, AxisNode] = {}
     shape_dim_to_node: Dict[ShapeComponentT, Union[LiteralNode, SizeParamNode]] = {}
@@ -264,14 +265,11 @@ def get_einsum_dag(einsum: FusedEinsum) -> Map[EinsumGraphNode,
                           default=einsum.ndim)):
         axis_to_node[idim] = AxisNode(idim)
 
-    for acc_descrs in einsum.access_descriptors:
-        for idim, acc_descr in enumerate(acc_descrs):
-            access_to_node[(acc_descr, idim)] = AccessNode(
-                einsum.index_names[acc_descr], idim)
-
-    for idim in range(einsum.ndim):
-        access_to_node[(FreeAxis(idim), idim)] = AccessNode(
-            einsum.index_names[FreeAxis(idim)], idim)
+    for output_name in output_names:
+        for acc_descrs in einsum.access_descriptors:
+            for idim, acc_descr in enumerate(acc_descrs):
+                access_to_node[(output_name, acc_descr, idim)] = AccessNode(
+                    output_name, einsum.index_names[acc_descr], idim)
 
     for dtype in einsum.value_to_dtype.values():
         dtype_to_node[dtype] = DtypeNode(dtype)
@@ -291,67 +289,34 @@ def get_einsum_dag(einsum: FusedEinsum) -> Map[EinsumGraphNode,
 
     # {{{ adding the edges
 
-    # Add edges from values to outputs
-    for output_name, use_row in zip(output_names, einsum.use_matrix):
-        output_node = array_to_node[output_name]
-        for uses in use_row:
+    # Add edges from values to accesses
+    for output_name, use_row in szip(output_names, einsum.use_matrix):
+        for acc_descrs, uses in szip(einsum.access_descriptors, use_row):
+            acc_nodes = {access_to_node[(output_name, acc_descr, idim)]
+                         for idim, acc_descr in enumerate(acc_descrs)}
+
             for use in uses:
                 use_node = array_to_node[use]
-                einsum_dag[use_node].add(output_node)
-
-    # Add edges between the access axes ordering
-    for idim in range(max((len(arg_shape)
-                           for arg_shape in einsum.arg_shapes),
-                          default=einsum.ndim)-1):
-        node = axis_to_node[idim]
-        succ_node = axis_to_node[idim+1]
-        einsum_dag[node].add(succ_node)
-
-    # add edges due to indexing the inputs
-    for use_row in einsum.use_matrix:
-        for uses, acc_descrs in zip(use_row, einsum.access_descriptors):
-            for ary in uses:
-                ary_node = array_to_node[ary]
-                for idim, acc_descr in enumerate(acc_descrs):
-                    access_node = access_to_node[(acc_descr, idim)]
-                    einsum_dag[access_node].add(ary_node)
-
-    # add edges due to indexing the outputs
-    for output_name in output_names:
-        ary_node = array_to_node[output_name]
-        for idim in range(einsum.ndim):
-            access_node = access_to_node[(FreeAxis(idim), idim)]
-            einsum_dag[access_node].add(ary_node)
+                einsum_dag[use_node].update(acc_nodes)
 
     # {{{ add edges defining an access
 
-    for acc_descrs in einsum.access_descriptors:
-        for idim, acc_descr in enumerate(acc_descrs):
-            access_node = access_to_node[(acc_descr, idim)]
-            axis_node = axis_to_node[idim]
-            index_node = acc_descr_to_node[acc_descr]
-            einsum_dag[axis_node].add(access_node)
-            einsum_dag[index_node].add(access_node)
-
-    for idim in range(einsum.ndim):
-        acc_descr = FreeAxis(idim)
-        access_node = access_to_node[(acc_descr, idim)]
-        axis_node = axis_to_node[idim]
-        index_node = acc_descr_to_node[acc_descr]
-        einsum_dag[axis_node].add(access_node)
-        einsum_dag[index_node].add(access_node)
+    for (output_name, access_descr, iaxis), node in access_to_node.items():
+        einsum_dag[node].add(array_to_node[output_name])
+        einsum_dag[node].add(acc_descr_to_node[access_descr])
+        einsum_dag[node].add(axis_to_node[iaxis])
 
     # }}}
 
     # add edges coming from index_to_length
     for acc_descr, dim in einsum.index_to_dim_length().items():
-        einsum_dag[shape_dim_to_node[dim]].add(acc_descr_to_node[acc_descr])
+        einsum_dag[acc_descr_to_node[acc_descr]].add(shape_dim_to_node[dim])
 
     # add edges coming from dtypes
     for ary_name, dtype in einsum.value_to_dtype.items():
         einsum_dag[dtype_to_node[dtype]].add(array_to_node[ary_name])
 
-    for output_name, use_row in zip(output_names, einsum.use_matrix):
+    for output_name, use_row in szip(output_names, einsum.use_matrix):
         use_dtypes: FrozenSet[np.dtype[Any]] = functools.reduce(
             frozenset.union,
             (frozenset(einsum.value_to_dtype[use] for use in uses)
@@ -359,28 +324,6 @@ def get_einsum_dag(einsum: FusedEinsum) -> Map[EinsumGraphNode,
             frozenset())
         out_dtype = np.find_common_type(list(use_dtypes), [])
         einsum_dag[dtype_to_node[out_dtype]].add(array_to_node[output_name])
-
-    all_dtypes = sorted(set(einsum.value_to_dtype.values()),
-                        key=lambda x: x.itemsize)
-
-    for prev_dtype, dtype in zip(all_dtypes[:-1], all_dtypes[1:]):
-        if prev_dtype.itemsize != dtype.itemsize:
-            einsum_dag[dtype_to_node[prev_dtype]].add(dtype_to_node[dtype])
-
-    del all_dtypes
-
-    all_size_param_nodes = {node
-                            for dim, node in shape_dim_to_node.items()
-                            if isinstance(dim, SizeParam)}
-    literal_dims = sorted({dim
-                           for dim, node in shape_dim_to_node.items()
-                           if isinstance(dim, INT_CLASSES)})
-    for prev_dim, dim in zip(literal_dims[:-1], literal_dims[1:]):
-        einsum_dag[shape_dim_to_node[prev_dim]].add(shape_dim_to_node[dim])
-
-    for dim in literal_dims:
-        for size_param_node in all_size_param_nodes:
-            einsum_dag[shape_dim_to_node[dim]].add(size_param_node)
 
     # }}}
 
@@ -410,13 +353,77 @@ def _get_canonicalized_einsum_with_subst_mapping(
     node_to_idx = {node: i
                    for i,  node in enumerate(einsum_dag.keys())}
 
-    g = nauty.Graph(number_of_vertices=len(node_to_idx), directed=True,
+    # {{{ compute vertex coloring
+
+    input_array_nodes: Set[int] = set()
+    output_array_nodes: Set[int] = set()
+    size_param_nodes: Set[int] = set()
+    axis_nodes: Dict[int, Set[int]] = {}
+    access_nodes: Set[int] = set()
+    index_nodes: Set[int] = set()
+    dtype_nodes: Dict[np.dtype[Any], Set[int]] = {}
+    literal_nodes: Dict[IntegralT, Set[int]] = {}
+
+    # all input arrays => first color
+    for node, idx in node_to_idx.items():
+        if isinstance(node, ArrayNode):
+            if node.name in output_names:
+                output_array_nodes.add(idx)
+            else:
+                assert node.name in einsum.value_to_dtype
+                input_array_nodes.add(idx)
+        elif isinstance(node, IndexNode):
+            index_nodes.add(idx)
+        elif isinstance(node, AxisNode):
+            axis_nodes.setdefault(node.axis, set()).add(idx)
+        elif isinstance(node, AccessNode):
+            access_nodes.add(idx)
+        elif isinstance(node, SizeParamNode):
+            size_param_nodes.add(idx)
+        elif isinstance(node, DtypeNode):
+            dtype_nodes.setdefault(node.dtype, set()).add(idx)
+        elif isinstance(node, LiteralNode):
+            literal_nodes.setdefault(node.value, set()).add(idx)
+        else:
+            raise NotImplementedError(type(node))
+
+    vertex_coloring: List[Set[int]] = []
+
+    vertex_coloring.append(input_array_nodes)
+    vertex_coloring.append(output_array_nodes)
+    vertex_coloring.append(index_nodes)
+    vertex_coloring.append(access_nodes)
+    vertex_coloring.append(size_param_nodes)
+    vertex_coloring.extend([nodes
+                            for _, nodes in sorted(axis_nodes.items(),
+                                                   key=lambda x: x[0])])
+    vertex_coloring.extend([nodes
+                            for _, nodes in sorted(dtype_nodes.items(),
+                                                   key=lambda x: x[0].name)])
+    vertex_coloring.extend([nodes
+                            for _, nodes in sorted(literal_nodes.items(),
+                                                   key=lambda x: x[0])])
+
+    del input_array_nodes, output_array_nodes, size_param_nodes
+    del axis_nodes, access_nodes, index_nodes
+    del dtype_nodes, literal_nodes
+
+    # }}}
+
+    assert sum(len(k) for k in vertex_coloring) == len(node_to_idx)
+
+    g = nauty.Graph(number_of_vertices=len(node_to_idx), directed=False,
                     adjacency_dict={node_to_idx[k]: {node_to_idx[v] for v in vs}
                                     for k, vs in einsum_dag.items()},
+                    vertex_coloring=vertex_coloring,
                     )
+
+    # TODO: The logic below till the function exit will benefit from some
+    # cleanup
 
     reindex_map = {lbl: i
                    for i, lbl in enumerate(nauty.canon_label(g))}
+
     # recompute node_to_idx as per the mapping emitted by nauty.
     node_to_idx = {node: reindex_map[idx]
                    for node, idx in node_to_idx.items()}
