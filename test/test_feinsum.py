@@ -196,4 +196,19 @@ def test_canonicalization_with_automorphic_vertices():
     )
 
 
+def test_canonicalization_of_large_graphs():
+    expr1 = f.fused_einsum("ij,ej->ei",
+                           [(35, 35), (np.inf, 35)],
+                           dtypes=np.float64,
+                           use_matrix=[[{f"u{i}"}, {f"v{i}"}]
+                                       for i in range(500)])
+    expr2 = f.fused_einsum("et,st->es",
+                          [(np.inf, 35), (35, 35)],
+                          dtypes=np.float64,
+                          use_matrix=[[{f"a{i}"}, {f"b{i}"}]
+                                      for i in range(500)])
+
+    assert are_einsums_isomorphic(expr1, expr2)
+
+
 # vim: fdm=marker
