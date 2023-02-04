@@ -1,11 +1,16 @@
 """
 .. autoclass:: ContextT
+
+.. autoclass:: DeviceT
 """
 from typing import Protocol, Sequence, Tuple, Union
 from dataclasses import dataclass
 
 
 class DeviceT(Protocol):
+    """
+    Abstract type providing an interface like :class:`pyopencl.Device`.
+    """
     @property
     def name(self) -> str:
         pass
