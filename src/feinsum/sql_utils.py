@@ -1,5 +1,6 @@
 """
 .. autofunction:: query
+.. autofunction:: get_timed_einsums_in_db
 .. autoclass:: QueryInfo
 """
 
@@ -14,11 +15,11 @@ import json
 
 from dataclasses import dataclass
 from typing import (TYPE_CHECKING, Optional, Callable,
-                    Tuple, Any)
+                    Tuple, Any, List, Sequence, Mapping, Union)
 from functools import cached_property
 from immutables import Map
 from feinsum.einsum import FusedEinsum, INT_CLASSES, SizeParam
-from feinsum.cl_utils import ContextT
+from feinsum.cl_utils import ContextT, DeviceT
 
 logger = logging.getLogger(__name__)
 
@@ -221,5 +222,53 @@ def query(einsum: FusedEinsum,
 
     return query_result
 
+
+def get_timed_einsums_in_db(cl_device: DeviceT,
+                            database: str = DEFAULT_DB) -> Tuple[FusedEinsum,
+                                                                 ...]:
+    r"""
+    Returns a :class:`tuple` of :class:`~feinsum.einsum.FusedEinsum`\ s for
+    which some timing data is available on the OpenCL device *device* in the
+    database *database*.
+    """
+    from feinsum.make_einsum import fused_einsum
+
+    device_name = dump_device_name(cl_device)
+
+    conn = sqlite3.connect(database)
+    cursor = conn.cursor()
+    cursor.execute(" SELECT"
+                   "     subscripts,"
+                   "     index_to_length,"
+                   "     use_matrix,"
+                   "     value_to_dtype"
+                   "  FROM "
+                   f"    {TIMINGS_TABLENAME}"
+                   " WHERE "
+                   "    device_name = ?"
+                   ";", (device_name,))
+
+    facts = set(cursor.fetchall())
+    seen_einsums: List[FusedEinsum] = []
+    conn.close()
+
+    for (subscripts, index_to_length_str, use_matrix, value_to_dtype) in facts:
+        input_subscripts, _ = subscripts.split("->")
+        index_to_length: Mapping[str, int] = json.loads(index_to_length_str)
+        arg_shapes: List[Sequence[Union[int, float]]] = []
+        processed_use_matrix = [[frozenset(uses) for uses in use_row]
+                                for use_row in json.loads(use_matrix)]
+        for indexing_expr in input_subscripts.split(","):
+            arg_shapes.append([index_to_length.get(index, np.inf)
+                               for index in indexing_expr])
+        seen_einsums.append(fused_einsum(subscripts,
+                                         arg_shapes,
+                                         processed_use_matrix,
+                                         value_to_dtype=json.loads(value_to_dtype)))
+
+    # Asserts that the canonicalization was sound.
+    assert len(set(seen_einsums)) == len(seen_einsums)
+
+    return tuple(seen_einsums)
 
 # vim: foldmethod=marker
