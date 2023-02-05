@@ -1,6 +1,8 @@
 """
 .. autofunction:: query
 .. autofunction:: get_timed_einsums_in_db
+.. autofunction:: record_into_db
+
 .. autoclass:: QueryInfo
 """
 
@@ -270,5 +272,100 @@ def get_timed_einsums_in_db(cl_device: DeviceT,
     assert len(set(seen_einsums)) == len(seen_einsums)
 
     return tuple(seen_einsums)
+
+
+def _create_timings_table_if_non_existent(conn: sqlite3.Connection) -> None:
+    cursor = conn.cursor()
+    cursor.execute(" SELECT name FROM sqlite_master"
+                   " WHERE (type='table' AND name=?);",
+                   (TIMINGS_TABLENAME,))
+
+    if not cursor.fetchall():
+        # device table not available
+        logger.info(f"Table {TIMINGS_TABLENAME} not in DB, creating one.")
+        cursor.execute(f"CREATE TABLE {TIMINGS_TABLENAME} ("
+                       " ID INTEGER PRIMARY KEY AUTOINCREMENT,"
+                       " subscripts TEXT,"
+                       " index_to_length TEXT,"
+                       " use_matrix TEXT,"
+                       " value_to_dtype TEXT,"
+                       " device_name TEXT,"
+                       " transform_id TEXT,"
+                       " transform_params TEXT,"
+                       " runtime_in_sec REAL,"
+                       " compiler_version TEXT,"
+                       " giga_op_info TEXT,"
+                       " timestamp TEXT"
+                       ")")
+    conn.commit()
+
+
+def record_into_db(einsum: FusedEinsum,
+                   cl_ctx: ContextT,
+                   module_path: str,
+                   transform_params: Mapping[str, Any],
+                   database: str = DEFAULT_DB,
+                   long_dim_length: int = 100_000,
+                   ) -> None:
+    """
+    Records facts corresponding to the execution of *einsum* on *cl_ctx* with
+    the transformation in *module_path* along with *transform_params* and
+    records it in the SQL database *database*.
+    """
+    from feinsum.tuning import (get_transform_func_from_module_path,
+                                _get_impls_path)
+    from feinsum.canonicalization import canonicalize_einsum
+    from feinsum.measure import timeit, stringify_comparison_vs_roofline
+    dirpath, transform_space_id = os.path.split(module_path)
+    assert dirpath == _get_impls_path()
+    einsum = canonicalize_einsum(einsum)
+
+    transform_func = (get_transform_func_from_module_path(module_path)
+                      .bind_args(einsum, **transform_params))
+    logger.info("\n"+stringify_comparison_vs_roofline(einsum,
+                                                      transform=transform_func,
+                                                      cl_ctx=cl_ctx,))
+    runtime = timeit(einsum,
+                     cl_ctx=cl_ctx,
+                     transform=transform_func,
+                     long_dim_length=long_dim_length
+                     )
+    conn = sqlite3.connect(database)
+    _create_timings_table_if_non_existent(conn)
+    cursor = conn.cursor()
+    subscripts = einsum.get_subscripts()
+    index_to_length = dump_index_to_length(einsum)
+    use_matrix = dump_use_matrix(einsum)
+    value_to_dtype = dump_value_to_dtype(einsum)
+    transform_params_str = json.dumps(transform_params, sort_keys=True)
+    cl_device, = cl_ctx.devices
+    device_name = dump_device_name(cl_device)
+    compiler_version = dump_cl_version(cl_device)
+    op_info = dump_op_info(einsum, long_dim_length=long_dim_length)
+
+    # {{{ compute timestamp in Chicago
+
+    import pytz
+    from datetime import datetime
+
+    timestamp = (datetime
+                 .now(pytz.timezone("America/Chicago"))
+                 .strftime("%Y_%m_%d_%H%M%S"))
+
+    # }}}
+
+    cursor.execute(f"INSERT INTO {TIMINGS_TABLENAME}"
+                   " (subscripts, index_to_length, use_matrix,"
+                   "  value_to_dtype, device_name, transform_id,"
+                   "  transform_params, runtime_in_sec,"
+                   "  compiler_version, giga_op_info, timestamp)"
+                   " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                   (subscripts, index_to_length, use_matrix,
+                   value_to_dtype, device_name, transform_space_id,
+                   transform_params_str, runtime, compiler_version,
+                   op_info, timestamp))
+
+    conn.commit()
+
 
 # vim: foldmethod=marker
