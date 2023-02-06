@@ -38,7 +38,7 @@ TransformT = Callable[["lp.TranslationUnit", Optional[Any], Optional[str]],
 
 DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           os.path.pardir, os.path.pardir,
-                          "data", "transform_archive_v4.sqlite")
+                          "data", "transform_archive_v5.sqlite")
 TIMINGS_TABLENAME = "FEINSUM_TIMING_FACTS"
 
 
