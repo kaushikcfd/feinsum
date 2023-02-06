@@ -148,15 +148,18 @@ def transform(t_unit: lp.TranslationUnit,
 
     # }}}
 
-    t_unit = lp.precompute(t_unit, J,
-                           sweep_inames=[x, r],
-                           precompute_outer_inames=frozenset({e_outer, e_inner,
-                                                              i_inner_inner}),
-                           temporary_address_space=lp.AddressSpace.PRIVATE,
-                           temporary_name=J_fetch,
-                           precompute_inames=(J_prftch_0, J_prftch_1),
-                           default_tag="unr",
-                           within=within)
+    if 0:
+        # TODO: Assumes that len(i_inner_inner) > len(jprftch_D_inner).
+        # Re-enable this after that ambiguity is fixed.
+        t_unit = lp.precompute(t_unit, J,
+                               sweep_inames=[x, r],
+                               precompute_outer_inames=frozenset({e_outer, e_inner,
+                                                                  i_inner_inner}),
+                               temporary_address_space=lp.AddressSpace.PRIVATE,
+                               temporary_name=J_fetch,
+                               precompute_inames=(J_prftch_0, J_prftch_1),
+                               default_tag="unr",
+                               within=within)
 
     # {{{ tile and prefetch D
 

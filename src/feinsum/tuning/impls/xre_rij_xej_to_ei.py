@@ -107,14 +107,17 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                             inner_iname=e_inner, outer_iname=e_outer,
                             inner_tag="l.1", outer_tag="g.0")
 
-    J = subst_map["J"]
-    t_unit = lp.precompute(t_unit, J,
-                           sweep_inames=[x, r],
-                           precompute_outer_inames=frozenset({e_outer, e_inner,
-                                                              i_inner_inner}),
-                           temporary_address_space=lp.AddressSpace.PRIVATE,
-                           default_tag="unr",
-                           within=within)
+    if 0:
+        # TODO: This is valid only if len(i_inner_inner) is greater than
+        # len(iprftch_D_inner). Enable this after fixing that.
+        J = subst_map["J"]
+        t_unit = lp.precompute(t_unit, J,
+                               sweep_inames=[x, r],
+                               precompute_outer_inames=frozenset({e_outer, e_inner,
+                                                                  i_inner_inner}),
+                               temporary_address_space=lp.AddressSpace.PRIVATE,
+                               default_tag="unr",
+                               within=within)
 
     # {{{ tile and prefetch D
 
