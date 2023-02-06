@@ -96,33 +96,33 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
     #pragma OPENCL EXTENSION cl_khr_fp64: enable
     #endif
     <BLANKLINE>
-    __kernel void __attribute__ ((reqd_work_group_size(12, 29, 1))) loopy_kernel(__global double const *__restrict__ D, __global double const *__restrict__ J, int const Nel, __global double *__restrict__ grad_out, __global double const *__restrict__ u)
+    __kernel void __attribute__ ((reqd_work_group_size(12, 21, 1))) loopy_kernel(__global double const *__restrict__ D, __global double const *__restrict__ J, int const Nel, __global double *__restrict__ grad_out, __global double const *__restrict__ u)
     {
       __local double D_s_fetch[3 * 12 * 35];
       double acc_jdof_0_tile_jdof_0_inner[3];
       double acc_r;
       double jac_s_fetch[3 * 3];
       double subst_0[3];
-      __local double u_s_prftch[29 * 35];
+      __local double u_s_prftch[21 * 35];
     <BLANKLINE>
-      if (-1 + -29 * gid(0) + -1 * lid(1) + Nel >= 0)
+      if (-1 + -21 * gid(0) + -1 * lid(1) + Nel >= 0)
       {
-        jac_s_fetch[0] = J[Nel * 3 * 0 + Nel * 0 + 29 * gid(0) + lid(1)];
-        jac_s_fetch[3] = J[Nel * 3 * 1 + Nel * 0 + 29 * gid(0) + lid(1)];
-        jac_s_fetch[6] = J[Nel * 3 * 2 + Nel * 0 + 29 * gid(0) + lid(1)];
-        jac_s_fetch[1] = J[Nel * 3 * 0 + Nel * 1 + 29 * gid(0) + lid(1)];
-        jac_s_fetch[4] = J[Nel * 3 * 1 + Nel * 1 + 29 * gid(0) + lid(1)];
-        jac_s_fetch[7] = J[Nel * 3 * 2 + Nel * 1 + 29 * gid(0) + lid(1)];
-        jac_s_fetch[2] = J[Nel * 3 * 0 + Nel * 2 + 29 * gid(0) + lid(1)];
-        jac_s_fetch[5] = J[Nel * 3 * 1 + Nel * 2 + 29 * gid(0) + lid(1)];
-        jac_s_fetch[8] = J[Nel * 3 * 2 + Nel * 2 + 29 * gid(0) + lid(1)];
+        jac_s_fetch[0] = J[Nel * 3 * 0 + Nel * 0 + 21 * gid(0) + lid(1)];
+        jac_s_fetch[3] = J[Nel * 3 * 1 + Nel * 0 + 21 * gid(0) + lid(1)];
+        jac_s_fetch[6] = J[Nel * 3 * 2 + Nel * 0 + 21 * gid(0) + lid(1)];
+        jac_s_fetch[1] = J[Nel * 3 * 0 + Nel * 1 + 21 * gid(0) + lid(1)];
+        jac_s_fetch[4] = J[Nel * 3 * 1 + Nel * 1 + 21 * gid(0) + lid(1)];
+        jac_s_fetch[7] = J[Nel * 3 * 2 + Nel * 1 + 21 * gid(0) + lid(1)];
+        jac_s_fetch[2] = J[Nel * 3 * 0 + Nel * 2 + 21 * gid(0) + lid(1)];
+        jac_s_fetch[5] = J[Nel * 3 * 1 + Nel * 2 + 21 * gid(0) + lid(1)];
+        jac_s_fetch[8] = J[Nel * 3 * 2 + Nel * 2 + 21 * gid(0) + lid(1)];
       }
-      if (-1 + -29 * gid(0) + -1 * lid(1) + Nel >= 0)
+      if (-1 + -21 * gid(0) + -1 * lid(1) + Nel >= 0)
         for (int jprftch_u_outer = 0; jprftch_u_outer <= 2 + -1 * lid(0) + (10 + 11 * lid(0)) / 12; ++jprftch_u_outer)
-          u_s_prftch[35 * lid(1) + 12 * jprftch_u_outer + lid(0)] = u[35 * (29 * gid(0) + lid(1)) + 12 * jprftch_u_outer + lid(0)];
+          u_s_prftch[35 * lid(1) + 12 * jprftch_u_outer + lid(0)] = u[35 * (21 * gid(0) + lid(1)) + 12 * jprftch_u_outer + lid(0)];
       for (int idof_0_tile = 0; idof_0_tile <= 2; ++idof_0_tile)
       {
-        if (-1 + -1 * lid(1) + -29 * gid(0) + Nel >= 0)
+        if (-1 + -1 * lid(1) + -21 * gid(0) + Nel >= 0)
           for (int r_prcmpt_0 = 0; r_prcmpt_0 <= 2; ++r_prcmpt_0)
             if (34 + -1 * lid(0) + -12 * idof_0_tile >= 0)
               acc_jdof_0_tile_jdof_0_inner[r_prcmpt_0] = 0.0;
@@ -136,7 +136,7 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
                 D_s_fetch[420 * rprftchD + 35 * lid(1) + 12 * jprftchD_outer + lid(0)] = D[1225 * rprftchD + 35 * (12 * idof_0_tile + lid(1)) + 12 * jprftchD_outer + lid(0)];
         }
         barrier(CLK_LOCAL_MEM_FENCE) /* ... */;
-        if (-1 + -1 * lid(1) + -29 * gid(0) + Nel >= 0)
+        if (-1 + -1 * lid(1) + -21 * gid(0) + Nel >= 0)
         {
           if (34 + -12 * idof_0_tile + -1 * lid(0) >= 0)
             acc_jdof_0_tile_jdof_0_inner[0] = acc_jdof_0_tile_jdof_0_inner[0] + D_s_fetch[420 * 0 + 35 * lid(0) + 0] * u_s_prftch[35 * lid(1) + 0];
@@ -349,7 +349,7 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
           if (34 + -12 * idof_0_tile + -1 * lid(0) >= 0)
             acc_jdof_0_tile_jdof_0_inner[2] = acc_jdof_0_tile_jdof_0_inner[2] + D_s_fetch[420 * 2 + 35 * lid(0) + 34] * u_s_prftch[35 * lid(1) + 34];
         }
-        if (-1 + -1 * lid(1) + -29 * gid(0) + Nel >= 0)
+        if (-1 + -1 * lid(1) + -21 * gid(0) + Nel >= 0)
         {
           for (int r_prcmpt_1 = 0; r_prcmpt_1 <= 2; ++r_prcmpt_1)
             if (34 + -1 * lid(0) + -12 * idof_0_tile >= 0)
@@ -361,7 +361,7 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
               acc_r = acc_r + subst_0[0] * jac_s_fetch[3 * x];
               acc_r = acc_r + subst_0[1] * jac_s_fetch[1 + 3 * x];
               acc_r = acc_r + subst_0[2] * jac_s_fetch[2 + 3 * x];
-              grad_out[35 * Nel * x + 35 * (29 * gid(0) + lid(1)) + 12 * idof_0_tile + lid(0)] = acc_r;
+              grad_out[35 * Nel * x + 35 * (21 * gid(0) + lid(1)) + 12 * idof_0_tile + lid(0)] = acc_r;
             }
         }
       }
@@ -374,7 +374,6 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
       double acc_iface_0_ifacedof_1;
       double acc_iface_0_ifacedof_2;
       double acc_iface_0_ifacedof_3;
-      double jac_face_s_fetch[4];
       __local double prcmpt_stage1[4 * 8 * 15];
       __local double prcmpt_stage1_0[4 * 8 * 15];
       __local double prcmpt_stage1_1[4 * 8 * 15];
@@ -409,25 +408,18 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
             L_s_fetch[60 * (8 * 4 + lid(1)) + 15 * ifaceprftchL_s + 8 * 1 + lid(0)] = L[60 * (8 * 4 + lid(1)) + 15 * ifaceprftchL_s + 8 * 1 + lid(0)];
       }
       if (-1 + -8 * gid(0) + -1 * lid(1) + Nel >= 0)
-      {
-        jac_face_s_fetch[0] = Jface[Nel * 0 + 8 * gid(0) + lid(1)];
-        jac_face_s_fetch[1] = Jface[Nel * 1 + 8 * gid(0) + lid(1)];
-        jac_face_s_fetch[2] = Jface[Nel * 2 + 8 * gid(0) + lid(1)];
-        jac_face_s_fetch[3] = Jface[Nel * 3 + 8 * gid(0) + lid(1)];
-      }
-      if (-1 + -8 * gid(0) + -1 * lid(1) + Nel >= 0)
         for (int iface_prcmpt_stage1 = 0; iface_prcmpt_stage1 <= 3; ++iface_prcmpt_stage1)
         {
-          prcmpt_stage1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = jac_face_s_fetch[iface_prcmpt_stage1] * F_0[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
-          prcmpt_stage1_0[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = jac_face_s_fetch[iface_prcmpt_stage1] * F_1[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
-          prcmpt_stage1_1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = jac_face_s_fetch[iface_prcmpt_stage1] * F_2[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
-          prcmpt_stage1_2[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = jac_face_s_fetch[iface_prcmpt_stage1] * F_3[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
+          prcmpt_stage1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_0[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
+          prcmpt_stage1_0[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_1[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
+          prcmpt_stage1_1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_2[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
+          prcmpt_stage1_2[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_3[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
           if (6 + -1 * lid(0) >= 0)
           {
-            prcmpt_stage1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = jac_face_s_fetch[iface_prcmpt_stage1] * F_0[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
-            prcmpt_stage1_0[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = jac_face_s_fetch[iface_prcmpt_stage1] * F_1[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
-            prcmpt_stage1_1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = jac_face_s_fetch[iface_prcmpt_stage1] * F_2[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
-            prcmpt_stage1_2[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = jac_face_s_fetch[iface_prcmpt_stage1] * F_3[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
+            prcmpt_stage1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_0[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
+            prcmpt_stage1_0[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_1[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
+            prcmpt_stage1_1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_2[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
+            prcmpt_stage1_2[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_3[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
           }
         }
       barrier(CLK_LOCAL_MEM_FENCE) /* ... */;
