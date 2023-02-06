@@ -101,22 +101,9 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
       __local double D_s_fetch[3 * 12 * 35];
       double acc_jdof_0_tile_jdof_0_inner[3];
       double acc_r;
-      double jac_s_fetch[3 * 3];
       double subst_0[3];
       __local double u_s_prftch[21 * 35];
     <BLANKLINE>
-      if (-1 + -21 * gid(0) + -1 * lid(1) + Nel >= 0)
-      {
-        jac_s_fetch[0] = J[Nel * 3 * 0 + Nel * 0 + 21 * gid(0) + lid(1)];
-        jac_s_fetch[3] = J[Nel * 3 * 1 + Nel * 0 + 21 * gid(0) + lid(1)];
-        jac_s_fetch[6] = J[Nel * 3 * 2 + Nel * 0 + 21 * gid(0) + lid(1)];
-        jac_s_fetch[1] = J[Nel * 3 * 0 + Nel * 1 + 21 * gid(0) + lid(1)];
-        jac_s_fetch[4] = J[Nel * 3 * 1 + Nel * 1 + 21 * gid(0) + lid(1)];
-        jac_s_fetch[7] = J[Nel * 3 * 2 + Nel * 1 + 21 * gid(0) + lid(1)];
-        jac_s_fetch[2] = J[Nel * 3 * 0 + Nel * 2 + 21 * gid(0) + lid(1)];
-        jac_s_fetch[5] = J[Nel * 3 * 1 + Nel * 2 + 21 * gid(0) + lid(1)];
-        jac_s_fetch[8] = J[Nel * 3 * 2 + Nel * 2 + 21 * gid(0) + lid(1)];
-      }
       if (-1 + -21 * gid(0) + -1 * lid(1) + Nel >= 0)
         for (int jprftch_u_outer = 0; jprftch_u_outer <= 2 + -1 * lid(0) + (10 + 11 * lid(0)) / 12; ++jprftch_u_outer)
           u_s_prftch[35 * lid(1) + 12 * jprftch_u_outer + lid(0)] = u[35 * (21 * gid(0) + lid(1)) + 12 * jprftch_u_outer + lid(0)];
@@ -358,9 +345,9 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
             for (int x = 0; x <= 2; ++x)
             {
               acc_r = 0.0;
-              acc_r = acc_r + subst_0[0] * jac_s_fetch[3 * x];
-              acc_r = acc_r + subst_0[1] * jac_s_fetch[1 + 3 * x];
-              acc_r = acc_r + subst_0[2] * jac_s_fetch[2 + 3 * x];
+              acc_r = acc_r + subst_0[0] * J[Nel * 3 * x + Nel * 0 + 21 * gid(0) + lid(1)];
+              acc_r = acc_r + subst_0[1] * J[Nel * 3 * x + Nel * 1 + 21 * gid(0) + lid(1)];
+              acc_r = acc_r + subst_0[2] * J[Nel * 3 * x + Nel * 2 + 21 * gid(0) + lid(1)];
               grad_out[35 * Nel * x + 35 * (21 * gid(0) + lid(1)) + 12 * idof_0_tile + lid(0)] = acc_r;
             }
         }
