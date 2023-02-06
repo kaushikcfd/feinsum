@@ -209,6 +209,7 @@ def transform(t_unit: lp.TranslationUnit,
                            & t_unit[kernel_name].all_inames())
 
     acc_name = f"acc_{j_tile}_{j_inner}"
+    assert acc_name in t_unit[kernel_name].temporary_variables
     t_unit = lp.privatize_temporaries_with_inames(t_unit,
                                                   inames_to_duplicate,
                                                   only_var_names={acc_name})

@@ -107,17 +107,14 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                             inner_iname=e_inner, outer_iname=e_outer,
                             inner_tag="l.1", outer_tag="g.0")
 
-    if 0:
-        # FIXME: Analyze the profitability of this transformation
-        J = subst_map["J"]
-        t_unit = lp.precompute(t_unit, J,
-                               sweep_inames=[x, r],
-                               precompute_outer_inames=frozenset({e_outer, e_inner,
-                                                                  i_inner_inner}),
-                               temporary_address_space=lp.AddressSpace.PRIVATE,
-                               # default_tag="unr",
-                               default_tag=None,
-                               within=within)
+    J = subst_map["J"]
+    t_unit = lp.precompute(t_unit, J,
+                           sweep_inames=[x, r],
+                           precompute_outer_inames=frozenset({e_outer, e_inner,
+                                                              i_inner_inner}),
+                           temporary_address_space=lp.AddressSpace.PRIVATE,
+                           default_tag="unr",
+                           within=within)
 
     # {{{ tile and prefetch D
 
@@ -171,20 +168,18 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
                             outer_tag="unr",
                             )
 
-    if 0:
-        # FIXME: Verify if this branch will ever be profitable?!
-        u_fetch = vng(f"{u}_fetch")
-        t_unit = lp.precompute(
-            t_unit, u,
-            sweep_inames=[x, j_prcmpt_subst_outer],
-            precompute_outer_inames=frozenset([j_prcmpt_subst_inner,
-                                               e_prcmpt_subst, e_outer,
-                                               j_tile]),
-            precompute_inames=[vng("prftch_u_x"), vng("prftch_u_j")],
-            temporary_address_space=lp.AddressSpace.PRIVATE,
-            temporary_name=u_fetch,
-            default_tag="unr",
-        )
+    u_fetch = vng(f"{u}_fetch")
+    t_unit = lp.precompute(
+        t_unit, u,
+        sweep_inames=[x, j_prcmpt_subst_outer],
+        precompute_outer_inames=frozenset([j_prcmpt_subst_inner,
+                                           e_prcmpt_subst, e_outer,
+                                           j_tile]),
+        precompute_inames=[vng("prftch_u_x"), vng("prftch_u_j")],
+        temporary_address_space=lp.AddressSpace.PRIVATE,
+        temporary_name=u_fetch,
+        default_tag="unr",
+    )
 
     # {{{ TODO: remove once github.com/inducer/loopy/issues/666 is resolved.
 
@@ -192,6 +187,7 @@ def transform(t_unit: lp.TranslationUnit, ndim: int, ndof: int,
     inames_to_duplicate = (frozenset({i_tile, i_inner_outer})
                            & t_unit[kernel_name].all_inames())
     acc_name = f"acc_{r}_{j_tile}_{j_inner}"
+    assert acc_name in t_unit[kernel_name].temporary_variables
     t_unit = lp.privatize_temporaries_with_inames(t_unit,
                                                   inames_to_duplicate,
                                                   only_var_names={acc_name})
