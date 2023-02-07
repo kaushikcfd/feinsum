@@ -245,7 +245,7 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
         access_to_operands: Dict[Tuple[str, ...], Set[str]] = {}
         redns_in_expr = get_reductions((insn.expression, tuple(insn.predicates)))
         if len(redns_in_expr) == 0:
-            inner_expr = insn.expr
+            inner_expr = insn.expression
             ensm_inames = insn.within_inames
             redn_inames: FrozenSet[str] = frozenset()
         elif len(redns_in_expr) == 1:
