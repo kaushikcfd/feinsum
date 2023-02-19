@@ -177,7 +177,7 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
                                 outer_tag="unr"
                                 )
         t_unit = lp.prioritize_loops(t_unit, [new_j, new_f])
-        t_unit = lp.tag_inames(t_unit, {new_f: "unr"})
+        # t_unit = lp.tag_inames(t_unit, {new_f: "unr"})
 
     for i_stmt_tile in range(1, n_stmt_tile):
         predecessors = lp_match.And((
