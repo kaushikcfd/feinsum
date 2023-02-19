@@ -177,17 +177,16 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
                                 outer_tag="unr"
                                 )
         t_unit = lp.prioritize_loops(t_unit, [new_j, new_f])
-        # t_unit = lp.tag_inames(t_unit, {new_f: "unr"})
+        t_unit = lp.tag_inames(t_unit, {new_f: "unr"})
 
     for i_stmt_tile in range(1, n_stmt_tile):
         predecessors = lp_match.And((
             within,
             lp_match.Or(tuple(lp_match.Writes(output)
                               for output in i_stmt_tile_to_outputs[i_stmt_tile-1]))))
-        successors = lp_match.And((
-            within,
-            lp_match.Or(tuple(lp_match.Id(compute_fxj_id[field])
-                              for field in i_stmt_tile_to_fields[i_stmt_tile]))))
+        successors = lp_match.Or(
+            tuple(lp_match.Id(compute_fxj_id[field])
+                  for field in i_stmt_tile_to_fields[i_stmt_tile]))
         t_unit = lp.add_dependency(t_unit, successors, predecessors)
 
     return t_unit
