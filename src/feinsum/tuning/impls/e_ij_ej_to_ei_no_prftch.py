@@ -6,13 +6,14 @@ from feinsum.tuning import IntParameter
 from typing import Optional, Any
 
 
+@fnsm.tuning.einsum_arg("noutputs", lambda e: e.noutputs)
 @fnsm.tuning.einsum_arg("ndofs", lambda e: e.shape[1])
 @fnsm.tuning.transform_param(
     "nworkitems_per_e", lambda e: IntParameter(1, e.shape[1]))
 @fnsm.tuning.transform_param(
     "n_e_per_wg", lambda e: IntParameter(1, 32))
 def transform(t_unit: lp.TranslationUnit,
-              ndofs: int,
+              ndofs: int, noutputs: int,
               n_e_per_wg: int, nworkitems_per_e: int,
               insn_match: Optional[Any] = None,
               kernel_name: Optional[str] = None) -> lp.TranslationUnit:
@@ -25,10 +26,8 @@ def transform(t_unit: lp.TranslationUnit,
                                     (np.inf, ndofs)],
                                    dtypes=np.float64,
                                    use_matrix=[
-                                       [{"J"}, {"D"}, {"u1"}],
-                                       [{"J"}, {"D"}, {"u2"}],
-                                       [{"J"}, {"D"}, {"u3"}],
-                                       [{"J"}, {"D"}, {"u4"}],
+                                       [{"J"}, {"D"}, {f"u{i}"}]
+                                       for i in range(noutputs)
                                    ])
     subst_map = fnsm.match_t_unit_to_einsum(t_unit,
                                             ref_einsum,
@@ -88,7 +87,8 @@ if __name__ == "__main__":
     import pyopencl as cl
     import os
 
-    Ndof = 4
+    Ndof = 35
+    Nfields = 5
 
     cl_ctx = cl.create_some_context()
 
@@ -98,10 +98,8 @@ if __name__ == "__main__":
                               (np.inf, Ndof)],
                              dtypes=np.float64,
                              use_matrix=[
-                                 [{"J"}, {"D"}, {"u1"}],
-                                 [{"J"}, {"D"}, {"u2"}],
-                                 [{"J"}, {"D"}, {"u3"}],
-                                 [{"J"}, {"D"}, {"u4"}],
+                                 [{"J"}, {"D"}, {f"u{i}"}]
+                                 for i in range(Nfields)
                              ])
 
     fnsm. autotune(expr, os.path.abspath(__file__), cl_ctx)
