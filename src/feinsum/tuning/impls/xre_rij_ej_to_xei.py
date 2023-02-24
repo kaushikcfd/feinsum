@@ -263,13 +263,13 @@ if __name__ == "__main__":
         # evaluate a point in the parameter space.
         bound_transform = partial(transform,
                                   ndim=Ndim, ndof=Ndof,
-                                  n_e_per_wg=27,
-                                  nwork_items_per_e=9,
-                                  i_tiles=4, j_tiles=4,
-                                  prftch_u_to_local=True)
+                                  n_e_per_wg=21,
+                                  nwork_items_per_e=12,
+                                  i_tiles=3, j_tiles=1,
+                                  prftch_u_to_local=False)
 
-        print(fnsm.stringify_comparison_with_roofline(expr,
-                                                      bound_transform,
-                                                      cl_ctx))
+        print(fnsm.stringify_comparison_vs_roofline(expr,
+                                                    transform=bound_transform,
+                                                    cl_ctx=cl_ctx))
 
 # vim: fdm=marker
