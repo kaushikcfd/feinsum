@@ -7,6 +7,7 @@ import numpy as np
 import loopy as lp
 import math
 import logging
+import islpy as isl
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
                                         kernel_name: Optional[str] = None
                                         ) -> lp.TranslationUnit:
     import loopy.match as lp_match
-    from more_itertools import distribute
+    from more_itertools import chunked
     from pymbolic import variables
     from loopy.symbolic import get_dependencies
 
@@ -59,6 +60,9 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
     i_s = [vng(i) for _ in range(n_stmt_tile)]
     f_s = [vng(f) for _ in range(n_stmt_tile)]
     j_s = [vng(j) for _ in range(n_stmt_tile)]
+    e_s = [vng(e) for _ in range(n_stmt_tile)]
+    e_outer_names = [vng("e_outer") for _ in range(n_stmt_tile)]
+    e_inner_names = [vng("e_inner") for _ in range(n_stmt_tile)]
     i_outer_names = [vng(f"{i}_outer") for _ in range(n_stmt_tile)]
     i_inner_names = [vng(f"{i}_inner") for _ in range(n_stmt_tile)]
     L_fetch = vng(f"{L}_fetch")
@@ -77,8 +81,12 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
 
     # {{{ splitting fields across outer_statement_tiles
 
-    i_stmt_tile_to_fields = [list(el) for el in distribute(n_stmt_tile, fields)]
-    i_stmt_tile_to_outputs = [list(el) for el in distribute(n_stmt_tile, outputs)]
+    i_stmt_tile_to_fields = [
+        list(el)
+        for el in chunked(fields, math.ceil(nfields/n_stmt_tile))]
+    i_stmt_tile_to_outputs = [
+        list(el)
+        for el in chunked(outputs, math.ceil(nfields/n_stmt_tile))]
     assert all(len(el) <= len_stmt_tile for el in i_stmt_tile_to_fields)
     assert all(len(el1) == len(el2)
                for el1, el2 in szip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs))
@@ -86,6 +94,7 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
     # }}}
 
     knl = t_unit[kernel_name]
+
     for fields_in_tile, outputs_in_tile in szip(i_stmt_tile_to_fields,
                                                 i_stmt_tile_to_outputs):
         for field, output in szip(fields_in_tile, outputs_in_tile):
@@ -104,17 +113,13 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
             )
     t_unit = t_unit.with_kernel(knl)
 
-    t_unit = lp.split_iname(t_unit, e, n_e_per_wg,
-                            inner_iname=e_inner, outer_iname=e_outer,
-                            inner_tag="l.1", outer_tag="g.0")
-
     f_prftchL, i_prftchL, j_prftchL = (vng(f"{f}prftch{L}"),
                                        vng(f"{i}prftch{L}"),
                                        vng(f"{j}prftch{L}"))
 
     t_unit = lp.precompute(t_unit, L,
                            sweep_inames=[f, i, j],
-                           precompute_outer_inames=frozenset([e_outer]),
+                           precompute_outer_inames=frozenset(),
                            precompute_inames=[i_prftchL, f_prftchL, j_prftchL],
                            default_tag=None,
                            within=within,
@@ -134,16 +139,33 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
         new_j = j_s[i_stmt_tile]
         new_f = f_s[i_stmt_tile]
         new_i = i_s[i_stmt_tile]
+        new_e = e_s[i_stmt_tile]
+        e_inner = e_inner_names[i_stmt_tile]
+        e_outer = e_outer_names[i_stmt_tile]
         i_inner_name = i_inner_names[i_stmt_tile]
         i_outer_name = i_outer_names[i_stmt_tile]
+
         outputs_insn_match = lp_match.And(
             (within,
              lp_match.Or(tuple(lp_match.Writes(output)
                                for output in i_stmt_tile_to_outputs[i_stmt_tile])))
         )
-        t_unit = lp.duplicate_inames(t_unit, [f, i, j],
+        t_unit = lp.duplicate_inames(t_unit, [e, f, i, j],
                                      within=outputs_insn_match,
-                                     new_inames=[new_f, new_i, new_j])
+                                     new_inames=[new_e, new_f, new_i, new_j])
+        t_unit = t_unit.with_kernel(
+            lp.decouple_domain(
+                t_unit[kernel_name],
+                [new_e, new_f, new_i, new_j],
+                parent_inames=(t_unit[kernel_name]
+                               .get_inames_domain(e)
+                               .get_var_names(isl.dim_type.param))
+            )
+        )
+
+        t_unit = lp.split_iname(t_unit, new_e, n_e_per_wg,
+                                inner_iname=e_inner, outer_iname=e_outer,
+                                inner_tag="l.1", outer_tag="g.0")
 
         for istmt, field in enumerate(fields_in_tile):
             subst_name = subst_names[field]
@@ -167,7 +189,9 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
         t_unit = lp.split_iname(
             t_unit, i_stmt_tile_to_j_prcmpt_stage1[i_stmt_tile],
             nwork_items_per_e, inner_tag="l.0",
-            outer_tag="unr"
+            # TODO: uncommenting this leads to 20% slow down in POCL & 10%
+            # speedup in Nv-CL.
+            # outer_tag="unr"
         )
 
         t_unit = lp.split_iname(t_unit, new_i, nwork_items_per_e,
@@ -188,6 +212,10 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
             tuple(lp_match.Id(compute_fxj_id[field])
                   for field in i_stmt_tile_to_fields[i_stmt_tile]))
         t_unit = lp.add_dependency(t_unit, successors, predecessors)
+
+    t_unit = lp.add_inames_to_insn(t_unit,
+                                   inames=e_outer_names[0],
+                                   insn_match=lp_match.Writes(L_fetch))
 
     return t_unit
 
@@ -217,9 +245,10 @@ def transform(t_unit: lp.TranslationUnit,
               insn_match: Optional[Any] = None,
               kernel_name: Optional[str] = None) -> lp.TranslationUnit:
     import loopy.match as lp_match
-    from more_itertools import distribute
+    from more_itertools import chunked
     from pymbolic import variables
     from loopy.symbolic import get_dependencies
+    n_stmt_tile = math.ceil(nfields / math.ceil(nfields/n_stmt_tile))
 
     if n_j_tile == 1 and n_i_tile == 1:
         return transform_with_single_j_tile_i_tile(t_unit,
@@ -298,8 +327,12 @@ def transform(t_unit: lp.TranslationUnit,
 
     # {{{ splitting fields across outer_statement_tiles
 
-    i_stmt_tile_to_fields = [list(el) for el in distribute(n_stmt_tile, fields)]
-    i_stmt_tile_to_outputs = [list(el) for el in distribute(n_stmt_tile, outputs)]
+    i_stmt_tile_to_fields = [
+        list(el)
+        for el in chunked(fields, math.ceil(nfields/n_stmt_tile))]
+    i_stmt_tile_to_outputs = [
+        list(el)
+        for el in chunked(outputs, math.ceil(nfields/n_stmt_tile))]
     assert all(len(el) <= len_stmt_tile for el in i_stmt_tile_to_fields)
     assert all(len(el1) == len(el2)
                for el1, el2 in szip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs))
@@ -323,6 +356,16 @@ def transform(t_unit: lp.TranslationUnit,
         t_unit = lp.duplicate_inames(t_unit, (i, f, e, j),
                                      within=insn_match,
                                      new_inames=[new_i, new_f, new_e, new_j])
+        t_unit = t_unit.with_kernel(
+            lp.decouple_domain(
+                t_unit[kernel_name],
+                [new_e, new_i, new_j, new_f],
+                parent_inames=(t_unit[kernel_name]
+                               .get_inames_domain(e)
+                               .get_var_names(isl.dim_type.param)))
+        )
+
+    t_unit = lp.remove_unused_inames(t_unit)
 
     # }}}
 
