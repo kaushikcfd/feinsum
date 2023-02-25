@@ -36,6 +36,7 @@ def transform(t_unit: lp.TranslationUnit,
                                             kernel_name=kernel_name,
                                             insn_match=insn_match)
     vng = t_unit[kernel_name].get_var_name_generator()
+    ing = t_unit[kernel_name].get_instruction_id_generator()
 
     e = subst_map["e"]
     i = subst_map["i"]
@@ -45,8 +46,8 @@ def transform(t_unit: lp.TranslationUnit,
     # out = subst_map["_fe_out"]
     u = subst_map["u"]
     D = subst_map["D"]
-    uprftch_insn_id = vng("u_prftch_id")
-    Dprftch_insn_id = vng("D_prftch_id")
+    uprftch_insn_id = ing("u_prftch_id")
+    Dprftch_insn_id = ing("D_prftch_id")
     jprftch_u = vng("jprftch_u")
     iprftch_D, jprftch_D = vng("iprftch_D"), vng("jprftch_D")
 

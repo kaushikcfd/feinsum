@@ -66,7 +66,7 @@ def transform(t_unit: lp.TranslationUnit,
     # {{{ get corresponding variables in t_unit
 
     vng = t_unit.default_entrypoint.get_var_name_generator()
-    ing = t_unit.default_entrypoint.get_var_name_generator()
+    ing = t_unit.default_entrypoint.get_instruction_id_generator()
     subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
                                             insn_match=within,
                                             kernel_name=kernel_name)
@@ -122,7 +122,7 @@ def transform(t_unit: lp.TranslationUnit,
     D_fetch = vng(f"{D}_fetch")
     hoisted_tmp_names = tuple(vng("J_times_u_fetch")
                               for _ in i_stmt_tile_to_fields[0])
-    D_prftch_id = tuple(vng("D_fetch_insn") for _ in range(n_stmt_tile))
+    D_prftch_id = tuple(ing("D_fetch_insn") for _ in range(n_stmt_tile))
 
     prcmpt_x_redn_ids = tuple(tuple(ing(f"prcmpt_{x}_redn") for _ in fields)
                               for fields in i_stmt_tile_to_fields)
