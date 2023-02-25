@@ -396,19 +396,13 @@ We now ask :mod:`loopy` to generate OpenCL code for the transformed kernel:
       }
       if (-1 + -8 * gid(0) + -1 * lid(1) + Nel >= 0)
         for (int iface_prcmpt_stage1 = 0; iface_prcmpt_stage1 <= 3; ++iface_prcmpt_stage1)
-        {
-          prcmpt_stage1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_0[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
-          prcmpt_stage1_0[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_1[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
-          prcmpt_stage1_1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_2[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
-          prcmpt_stage1_2[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 0 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_3[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 0 + lid(0)];
-          if (6 + -1 * lid(0) >= 0)
+          for (int ifacedof_prcmpt_stage1_outer = 0; ifacedof_prcmpt_stage1_outer <= 1 + -1 * lid(0) + (6 + 7 * lid(0)) / 8; ++ifacedof_prcmpt_stage1_outer)
           {
-            prcmpt_stage1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_0[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
-            prcmpt_stage1_0[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_1[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
-            prcmpt_stage1_1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_2[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
-            prcmpt_stage1_2[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * 1 + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_3[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * 1 + lid(0)];
+            prcmpt_stage1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * ifacedof_prcmpt_stage1_outer + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_0[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * ifacedof_prcmpt_stage1_outer + lid(0)];
+            prcmpt_stage1_0[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * ifacedof_prcmpt_stage1_outer + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_1[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * ifacedof_prcmpt_stage1_outer + lid(0)];
+            prcmpt_stage1_1[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * ifacedof_prcmpt_stage1_outer + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_2[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * ifacedof_prcmpt_stage1_outer + lid(0)];
+            prcmpt_stage1_2[120 * iface_prcmpt_stage1 + 15 * lid(1) + 8 * ifacedof_prcmpt_stage1_outer + lid(0)] = Jface[Nel * iface_prcmpt_stage1 + 8 * gid(0) + lid(1)] * F_3[15 * Nel * iface_prcmpt_stage1 + 15 * (8 * gid(0) + lid(1)) + 8 * ifacedof_prcmpt_stage1_outer + lid(0)];
           }
-        }
       barrier(CLK_LOCAL_MEM_FENCE) /* ... */;
       if (-1 + -8 * gid(0) + -1 * lid(1) + Nel >= 0)
       {
