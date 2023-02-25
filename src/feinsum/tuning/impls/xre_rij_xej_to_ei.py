@@ -238,8 +238,8 @@ if __name__ == "__main__":
                                   nwork_items_per_e=9,
                                   i_tiles=4, j_tiles=4)
 
-        print(fnsm.stringify_comparison_with_roofline(expr,
-                                                      bound_transform,
-                                                      cl_ctx))
+        print(fnsm.stringify_comparison_vs_roofline(expr,
+                                                    transform=bound_transform,
+                                                    cl_ctx=cl_ctx))
 
 # vim: fdm=marker
