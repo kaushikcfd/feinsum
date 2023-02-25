@@ -278,6 +278,7 @@ def transform(t_unit: lp.TranslationUnit,
     # {{{ get corresponding variables in t_unit
 
     vng = t_unit.default_entrypoint.get_var_name_generator()
+    ing = t_unit.default_entrypoint.get_instruction_id_generator()
     subst_map = fnsm.match_t_unit_to_einsum(t_unit, ref_einsum,
                                             insn_match=insn_match,
                                             kernel_name=kernel_name)
@@ -303,7 +304,7 @@ def transform(t_unit: lp.TranslationUnit,
     i_inner_outer_names = [vng(f"{i}_inner_outer")
                            for _ in range(n_stmt_tile)]
     L_fetch = vng(f"{L}_fetch")
-    prefetch_L_insns_ids = [vng(f"prftch_{L}") for _ in range(n_stmt_tile)]
+    prefetch_L_insns_ids = [ing(f"prftch_{L}") for _ in range(n_stmt_tile)]
     e_outer_names = [vng(f"{e}_outer") for _ in range(n_stmt_tile)]
     e_inner_names = [vng(f"{e}_inner") for _ in range(n_stmt_tile)]
     i_stmt_to_subst_prcmp_tmp = [vng("prcmpt_stage1")
