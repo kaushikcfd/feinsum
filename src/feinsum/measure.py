@@ -62,6 +62,8 @@ def _generate_random_np_array(rng: "np.random._generator.Generator",
                            dtype=real_dtype)
                 + dtype.type(1j) * rng.random(size=shape,
                                               dtype=real_dtype))
+    elif dtype.kind == "i":
+        return rng.integers(low=-100, high=100, size=shape, dtype=dtype)
     else:
         return rng.random(size=shape, dtype=dtype)
 
