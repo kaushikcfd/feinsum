@@ -161,10 +161,10 @@ def generate_loopy(einsum: FusedEinsum,
                                          for result_name in schedule.result_names)
                                    for _ in range(einsum.noutputs))
 
-    name_in_feinsum_to_lpy = tuple(Map({feinsum_name: lpy_name
+    name_in_feinsum_to_lpy = tuple(Map(((feinsum_name, lpy_name)
                                         for feinsum_name, lpy_name in szip(
-                                                schedule.result_names,
-                                                result_name_in_lpy_knl[i_output])})
+                                            schedule.result_names,
+                                            result_name_in_lpy_knl[i_output])))
                                    for i_output in range(einsum.noutputs))
 
     # }}}

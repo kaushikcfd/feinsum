@@ -317,7 +317,7 @@ def transform(t_unit: lp.TranslationUnit,
                 lp_match.Writes(output)
                 for output in i_stmt_tile_to_outputs[istmt_tile-1])
         )
-        for ifield, successor_field in enumerate(i_stmt_tile_to_fields[istmt_tile]):
+        for ifield, _ in enumerate(i_stmt_tile_to_fields[istmt_tile]):
             successor_match = lp_match.Or((
                 lp_match.Id(prcmpt_x_redn_ids[istmt_tile][ifield]),
                 lp_match.Id(D_prftch_id[istmt_tile])))
