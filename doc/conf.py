@@ -7,7 +7,6 @@ with urlopen(_conf_url) as _inf:
 
 html_theme = "sphinx_book_theme"
 html_theme_options = {
-    'logo_only': True,
 }
 html_static_path = ["static"]
 html_logo = "static/logo.svg"
