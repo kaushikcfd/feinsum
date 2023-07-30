@@ -298,7 +298,7 @@ def _get_footprint_gbytes(expr: FusedEinsum, long_dim_length: int) -> float:
 
     # TODO: mypy is right arg.shape can be 'Any' expression
     return sum(  # type: ignore[no-any-return]
-        np.product(arg.shape) * arg.dtype.itemsize
+        np.prod(arg.shape) * arg.dtype.itemsize
         for arg in kernel.args) * 1e-9
 
 
