@@ -201,10 +201,9 @@ def transform(t_unit: lp.TranslationUnit,
 
     # Verify register file usage
     # --------------------------
-    if (rx or 1) * (ry or 1) * np.find_common_type(
-            [ensm.value_to_dtype[ensm_A],
-             ensm.value_to_dtype[ensm_B]],
-            []).itemsize > REG_FILE_SPACE_PER_WI:
+    if (rx or 1) * (ry or 1) * np.result_type(
+            ensm.value_to_dtype[ensm_A],
+            ensm.value_to_dtype[ensm_B]).itemsize > REG_FILE_SPACE_PER_WI:
         raise fnsm.InvalidParameterError("Exceeds register file limits")
 
     assert tx <= 32 and ty <= 32

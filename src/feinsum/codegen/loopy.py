@@ -175,9 +175,8 @@ def generate_loopy(einsum: FusedEinsum,
 
     for i_output in range(einsum.noutputs):
         arg_to_dtype: Dict[Argument, np.dtype[Any]] = {
-            EinsumOperand(ioperand): np.find_common_type({value_to_dtype[use]
-                                                          for use in uses},
-                                                         [])
+            EinsumOperand(ioperand): np.result_type(*{value_to_dtype[use]
+                                                      for use in uses})
             for ioperand, uses in enumerate(einsum
                                             .use_matrix[i_output])}
 
@@ -185,7 +184,7 @@ def generate_loopy(einsum: FusedEinsum,
                 zip(result_name_in_lpy_knl[i_output],
                     schedule.result_names,
                     schedule.arguments)):
-            dtype = np.find_common_type({arg_to_dtype[arg] for arg in args}, [])
+            dtype = np.result_type(*{arg_to_dtype[arg] for arg in args})
             value_to_dtype = value_to_dtype.set(name_in_lpy_knl, dtype)
             arg_to_dtype[IntermediateResult(name_in_feinsum)] = dtype
 

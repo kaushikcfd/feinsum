@@ -74,7 +74,7 @@ engineer's behalf. The transformations are recorded on
 :math:`\rho_{ij}:\mathcal{T}[a_1]\times\mathcal{T}[a_2]\times\ldots\mapsto
 \mathcal{C}\left(\mathcal{T}[a_1]\times\mathcal{T}[a_2]\times\ldots\right)`,
 where, :math:`\mathcal{C}` is a mapping on the numeric data-types as provided
-by :func:`numpy.find_common_type`.
+by :func:`numpy.result_type`.
 
 
 The transformation writer prescribes the transformation space without making

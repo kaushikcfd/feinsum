@@ -322,7 +322,7 @@ def get_einsum_dag(einsum: FusedEinsum) -> Map[EinsumGraphNode,
             (frozenset(einsum.value_to_dtype[use] for use in uses)
              for uses in use_row),
             frozenset())
-        out_dtype = np.find_common_type(list(use_dtypes), [])
+        out_dtype = np.result_type(*use_dtypes)
         einsum_dag[dtype_to_node[out_dtype]].add(array_to_node[output_name])
 
     # }}}
