@@ -9,3 +9,4 @@ tabulate
 types-tabulate
 types-pytz
 opentuner
+psutil
