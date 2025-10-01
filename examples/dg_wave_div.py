@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_div_einsum(ndofs, ndim):
-    return f.fused_einsum("es, sij, ej -> ei",
+    return f.batched_einsum("es, sij, ej -> ei",
                           [(np.inf, ndim),
                            (ndim, ndofs, ndofs),
                            (np.inf, ndofs)],

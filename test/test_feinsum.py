@@ -24,8 +24,8 @@ import feinsum as f
 import numpy as np
 
 
-def are_einsums_isomorphic(e1: f.FusedEinsum,
-                           e2: f.FusedEinsum) -> bool:
+def are_einsums_isomorphic(e1: f.BatchedEinsum,
+                           e2: f.BatchedEinsum) -> bool:
     e1_pr = f.canonicalize_einsum(e1)
     e2_pr = f.canonicalize_einsum(e2)
     if 0:
@@ -46,7 +46,7 @@ def test_einsum_canonicalization_dg_einsums():
     ndim = 3
     ndofs = 35
 
-    einsum1 = f.fused_einsum("es, sij, ej -> ei",
+    einsum1 = f.batched_einsum("es, sij, ej -> ei",
                             [(np.inf, ndim),
                             (ndim, ndofs, ndofs),
                             (np.inf, ndofs)],
@@ -57,7 +57,7 @@ def test_einsum_canonicalization_dg_einsums():
                                 [{"Jz"}, {"R"}, {"uz"}],
                             ])
 
-    einsum2 = f.fused_einsum("td, dkl, tl -> tk",
+    einsum2 = f.batched_einsum("td, dkl, tl -> tk",
                             [(np.inf, ndim),
                             (ndim, ndofs, ndofs),
                             (np.inf, ndofs)],
@@ -68,7 +68,7 @@ def test_einsum_canonicalization_dg_einsums():
                                 [{"JacZ"}, {"ref_mat"}, {"z_dofs"}],
                             ])
 
-    einsum3 = f.fused_einsum("td, dkl, tl -> tk",
+    einsum3 = f.batched_einsum("td, dkl, tl -> tk",
                             [(np.inf, ndim),
                             (ndim, ndofs, ndofs),
                             (np.inf, ndofs)],
@@ -79,7 +79,7 @@ def test_einsum_canonicalization_dg_einsums():
                                 [{"JacZ"}, {"ref_mat"}, {"u"}],
                             ])
 
-    einsum4 = f.fused_einsum("es, sij, ej -> ei",
+    einsum4 = f.batched_einsum("es, sij, ej -> ei",
                             [(np.inf, ndim),
                             (ndim, ndofs, ndofs),
                             (np.inf, ndofs)],
@@ -134,7 +134,7 @@ def test_canonicalization_with_automorphic_vertices():
     )
 
     assert are_einsums_isomorphic(
-        f.fused_einsum("ijk,ik,ij,ij->i",
+        f.batched_einsum("ijk,ik,ij,ij->i",
                        [(np.inf, 10, 10),
                         (np.inf, 10),
                         (np.inf, 10),
@@ -143,7 +143,7 @@ def test_canonicalization_with_automorphic_vertices():
                        use_matrix=[
                            [{"A"}, {"B"}, {"C"}, {"D"}]
                        ]),
-        f.fused_einsum("ijk,ik,ij->i",
+        f.batched_einsum("ijk,ik,ij->i",
                        [(np.inf, 10, 10),
                         (np.inf, 10),
                         (np.inf, 10)],
@@ -154,7 +154,7 @@ def test_canonicalization_with_automorphic_vertices():
     )
 
     assert not are_einsums_isomorphic(
-        f.fused_einsum("ijk,ik,ij,ij->i",
+        f.batched_einsum("ijk,ik,ij,ij->i",
                        [(np.inf, 10, 10),
                         (np.inf, 10),
                         (np.inf, 10),
@@ -163,7 +163,7 @@ def test_canonicalization_with_automorphic_vertices():
                        use_matrix=[
                            [{"A"}, {"B"}, {"C"}, {"D"}]
                        ]),
-        f.fused_einsum("ijk,ij,ik->i",
+        f.batched_einsum("ijk,ij,ik->i",
                        [(np.inf, 10, 10),
                         (np.inf, 10),
                         (np.inf, 10)],
@@ -174,7 +174,7 @@ def test_canonicalization_with_automorphic_vertices():
     )
 
     assert are_einsums_isomorphic(
-        f.fused_einsum("ijk,ik,ij,ij->i",
+        f.batched_einsum("ijk,ik,ij,ij->i",
                        [(np.inf, 10, 10),
                         (np.inf, 10),
                         (np.inf, 10),
@@ -184,7 +184,7 @@ def test_canonicalization_with_automorphic_vertices():
                            [{"A"}, {"B"}, {"C"}, {"D"}],
                            [{"A"}, {"B"}, {"C"}, {"B"}]
                        ]),
-        f.fused_einsum("ijk,ik,ij->i",
+        f.batched_einsum("ijk,ik,ij->i",
                        [(np.inf, 10, 10),
                         (np.inf, 10),
                         (np.inf, 10)],
@@ -197,12 +197,12 @@ def test_canonicalization_with_automorphic_vertices():
 
 
 def test_canonicalization_of_large_graphs():
-    expr1 = f.fused_einsum("ij,ej->ei",
+    expr1 = f.batched_einsum("ij,ej->ei",
                            [(35, 35), (np.inf, 35)],
                            dtypes=np.float64,
                            use_matrix=[[{f"u{i}"}, {f"v{i}"}]
                                        for i in range(500)])
-    expr2 = f.fused_einsum("et,st->es",
+    expr2 = f.batched_einsum("et,st->es",
                           [(np.inf, 35), (35, 35)],
                           dtypes=np.float64,
                           use_matrix=[[{f"a{i}"}, {f"b{i}"}]

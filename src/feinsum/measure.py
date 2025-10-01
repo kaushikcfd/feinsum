@@ -15,7 +15,7 @@ import pyopencl.array as cla
 
 from typing import Dict, Any, Optional, Mapping, Tuple
 from immutables import Map
-from feinsum.einsum import (FusedEinsum, INT_CLASSES, SizeParam,
+from feinsum.einsum import (BatchedEinsum, INT_CLASSES, SizeParam,
                             ContractionSchedule, IntegralT)
 from feinsum.typing import ToStr, TransformT
 from more_itertools import zip_equal as zip
@@ -69,7 +69,7 @@ def _generate_random_np_array(rng: "np.random._generator.Generator",
 
 
 def generate_input_arrays(queue: cl.CommandQueue,
-                          einsum: FusedEinsum,
+                          einsum: BatchedEinsum,
                           long_dim_length: int,
                           np_seed: int = 0,
                           ) -> Map[str, cla.Array]:
@@ -102,7 +102,7 @@ def generate_input_arrays(queue: cl.CommandQueue,
                 })
 
 
-def validate_fused_einsum_transform(einsum: FusedEinsum,
+def validate_batched_einsum_transform(einsum: BatchedEinsum,
                                     cl_ctx: cl.Context,
                                     transform: TransformT,
                                     schedule: Optional[ContractionSchedule] = None,
@@ -174,7 +174,7 @@ def validate_fused_einsum_transform(einsum: FusedEinsum,
     logger.info("Statistically verified the soundness of the transformation")
 
 
-def timeit(einsum: FusedEinsum,
+def timeit(einsum: BatchedEinsum,
            *,
            transform: TransformT,
            cl_ctx: cl.Context,
@@ -192,7 +192,7 @@ def timeit(einsum: FusedEinsum,
     from feinsum.codegen.loopy import generate_loopy
 
     # Validate the transformation before fusing it
-    validate_fused_einsum_transform(einsum, cl_ctx, transform, schedule)
+    validate_batched_einsum_transform(einsum, cl_ctx, transform, schedule)
 
     cq = cl.CommandQueue(cl_ctx)
 
@@ -242,7 +242,7 @@ def timeit(einsum: FusedEinsum,
     return total_sim_time / total_rounds
 
 
-def _get_giga_ops_from_einsum(expr: FusedEinsum) -> Map[np.dtype[Any],
+def _get_giga_ops_from_einsum(expr: BatchedEinsum) -> Map[np.dtype[Any],
                                                           prim.Expression]:
     from feinsum.codegen.loopy import generate_loopy_with_opt_einsum_schedule
     from loopy.symbolic import qpolynomial_to_expr
@@ -285,7 +285,7 @@ def _get_giga_ops_from_einsum(expr: FusedEinsum) -> Map[np.dtype[Any],
     return Map(new_op_map)
 
 
-def _get_footprint_gbytes(expr: FusedEinsum, long_dim_length: int) -> float:
+def _get_footprint_gbytes(expr: BatchedEinsum, long_dim_length: int) -> float:
     from feinsum.codegen.loopy import generate_loopy
 
     t_unit = generate_loopy(expr)
@@ -302,7 +302,7 @@ def _get_footprint_gbytes(expr: FusedEinsum, long_dim_length: int) -> float:
         for arg in kernel.args) * 1e-9
 
 
-def measure_giga_op_rate(expr: FusedEinsum,
+def measure_giga_op_rate(expr: BatchedEinsum,
                          *,
                          transform: TransformT,
                          cl_ctx: cl.Context,
@@ -327,7 +327,7 @@ def measure_giga_op_rate(expr: FusedEinsum,
                 for k, v in _get_giga_ops_from_einsum(expr).items()})
 
 
-def get_roofline_flop_rate(expr: FusedEinsum, dev_name: str,
+def get_roofline_flop_rate(expr: BatchedEinsum, dev_name: str,
                            long_dim_length: int = 100_000
                            ) -> Map[np.dtype[Any], float]:
 
@@ -382,7 +382,7 @@ def _strify_measured_vs_roofline(measured_flop_rate: Mapping[np.dtype[Any], ToSt
     return tabulate(perf_table, tablefmt="fancy_grid")
 
 
-def stringify_comparison_vs_roofline(expr: FusedEinsum,
+def stringify_comparison_vs_roofline(expr: BatchedEinsum,
                                      *,
                                      schedule: Optional[ContractionSchedule] = None,
                                      transform: TransformT,

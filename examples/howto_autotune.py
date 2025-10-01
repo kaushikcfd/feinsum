@@ -10,7 +10,7 @@ logging.basicConfig(level="INFO")
 @f.tuning.transform_param("block_size_div_32",
                           lambda ensm: IntParameter(1, 5))
 def transform(t_unit, block_size_div_32, insn_match=None, kernel_name=None):
-    ref_einsum = f.fused_einsum("ij,j->i",
+    ref_einsum = f.batched_einsum("ij,j->i",
                                 [(np.inf, 4), (4, )],
                                 dtypes="float64",
                                 use_matrix=[
@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
     cl_ctx = cl.create_some_context()
 
-    expr = f.fused_einsum("ij,j->i",
+    expr = f.batched_einsum("ij,j->i",
                           [(np.inf, 4), (4, )],
                           dtypes="float64",
                           use_matrix=[

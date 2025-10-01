@@ -6,7 +6,7 @@ import json
 
 def record_into_db(cursor: sql.Cursor,
                    *,
-                   einsum: f.FusedEinsum,
+                   einsum: f.BatchedEinsum,
                    device_name: str,
                    transform_id: str,
                    transform_params: str,
@@ -90,7 +90,7 @@ def main():
             [idx_to_len.get(idx, np.inf)
              for idx in input_subscript]
             for input_subscript in input_subscripts.split(",")]
-        einsum = f.fused_einsum(subscripts,
+        einsum = f.batched_einsum(subscripts,
                                 arg_shapes,
                                 use_matrix,
                                 value_to_dtype=val_to_dtype)

@@ -29,7 +29,7 @@ def transform_with_single_j_tile_i_tile(t_unit: lp.TranslationUnit,
 
     within = lp_match.parse_match(insn_match)
 
-    ref_einsum = fnsm.fused_einsum("ifj,fe,fej->ei",
+    ref_einsum = fnsm.batched_einsum("ifj,fe,fej->ei",
                                    [(nvoldof, nface, nfacedof),
                                     (nface, np.inf),
                                     (nface, np.inf, nfacedof)],
@@ -262,7 +262,7 @@ def transform(t_unit: lp.TranslationUnit,
 
     within = lp_match.parse_match(insn_match)
 
-    ref_einsum = fnsm.fused_einsum("ifj,fe,fej->ei",
+    ref_einsum = fnsm.batched_einsum("ifj,fe,fej->ei",
                                    [(nvoldof, nface, nfacedof),
                                     (nface, np.inf),
                                     (nface, np.inf, nfacedof)],
@@ -542,7 +542,7 @@ if __name__ == "__main__":
     Nvoldof = 35
 
     cl_ctx = cl.create_some_context()
-    expr = fnsm.fused_einsum("ifj,fe,fej->ei",
+    expr = fnsm.batched_einsum("ifj,fe,fej->ei",
                              [(Nvoldof, Nface, Nfacedof),
                               (Nface, np.inf),
                               (Nface, np.inf, Nfacedof)],

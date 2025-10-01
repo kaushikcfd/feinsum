@@ -30,7 +30,7 @@ import loopy as lp
 
 def test_simple_matvec(ctx_factory):
     cl_ctx = ctx_factory()
-    expr = f.fused_einsum("ij, j -> i",
+    expr = f.batched_einsum("ij, j -> i",
                         ((10, 4), (4,)),
                         dtypes="float32",
                         use_matrix=[[{"I0", "I1"}, {"I3", "I2"}],
@@ -44,7 +44,7 @@ def test_simple_matvec(ctx_factory):
 
 def test_matvec_with_long_dim_result(ctx_factory):
     cl_ctx = ctx_factory()
-    expr = f.fused_einsum("ij, j -> i",
+    expr = f.batched_einsum("ij, j -> i",
                         ((np.inf, 4), (4,)),
                         dtypes="float32",
                         use_matrix=[[{"I0", "I1"}, {"I3", "I2"}],

@@ -12,14 +12,14 @@ import numpy as np
 
 from typing import Union, Tuple, Optional, Any, Dict
 from pytools import UniqueNameGenerator, memoize_on_first_arg
-from feinsum.einsum import (FusedEinsum, FreeAxis, SummationAxis,
+from feinsum.einsum import (BatchedEinsum, FreeAxis, SummationAxis,
                             EinsumAxisAccess, IntegralT, INT_CLASSES,
                             ContractionSchedule, EinsumOperand,
                             IntermediateResult, SizeParam, Argument,
                             ShapeT,
                             get_opt_einsum_contraction_schedule,
                             get_trivial_contraction_schedule)
-from feinsum.make_einsum import fused_einsum
+from feinsum.make_einsum import batched_einsum
 from more_itertools import zip_equal as szip
 from immutables import Map
 
@@ -27,7 +27,7 @@ from immutables import Map
 LOOPY_LANG_VERSION = (2018, 2)
 
 
-def get_isl_basic_set(einsum: FusedEinsum) -> isl.BasicSet:
+def get_isl_basic_set(einsum: BatchedEinsum) -> isl.BasicSet:
     dim_name_to_ubound = {}
 
     for idx, dim in einsum.index_to_dim_length().items():
@@ -65,7 +65,7 @@ def get_isl_basic_set(einsum: FusedEinsum) -> isl.BasicSet:
 
 def make_subscript(name: str,
                    axes: Tuple[EinsumAxisAccess, ...],
-                   einsum: FusedEinsum,
+                   einsum: BatchedEinsum,
                    ) -> p.Subscript:
     return p.Variable(name)[tuple(p.Variable(einsum.index_names[axis])
                                   for axis in axes)]
@@ -73,14 +73,14 @@ def make_subscript(name: str,
 
 def make_access_expr(name: str,
                      axes: Tuple[EinsumAxisAccess, ...],
-                     einsum: FusedEinsum,
+                     einsum: BatchedEinsum,
                      ) -> p.Call:
     return p.Variable(_get_input_subst_name(name))(
         *tuple(p.Variable(einsum.index_names[axis])
                for axis in axes))
 
 
-def _generate_trivial_einsum(einsum: FusedEinsum,
+def _generate_trivial_einsum(einsum: BatchedEinsum,
                              output_names: Tuple[str, ...],
                              ) -> Tuple[isl.BasicSet, "lp.TranslationUnit"]:
     assert len(output_names) == einsum.noutputs
@@ -119,7 +119,7 @@ def _get_input_subst_name(x: str) -> str:
 
 
 @memoize_on_first_arg
-def generate_loopy(einsum: FusedEinsum,
+def generate_loopy(einsum: BatchedEinsum,
                    schedule: Optional[ContractionSchedule] = None
                    ) -> "lp.TranslationUnit":
     """
@@ -218,7 +218,7 @@ def generate_loopy(einsum: FusedEinsum,
 
             subeinsum_use_matrix.append(subeinsum_use_row)
 
-        subeinsum = fused_einsum(subscripts,
+        subeinsum = batched_einsum(subscripts,
                                  [arg_to_shape[arg] for arg in args],
                                  subeinsum_use_matrix,
                                  value_to_dtype=Map(subeinsum_value_to_dtype))
@@ -297,7 +297,7 @@ def generate_loopy(einsum: FusedEinsum,
     return t_unit
 
 
-def generate_loopy_with_opt_einsum_schedule(expr: FusedEinsum,
+def generate_loopy_with_opt_einsum_schedule(expr: BatchedEinsum,
                                             **opt_einsum_kwargs: Any
                                             ) -> "lp.TranslationUnit":
     """

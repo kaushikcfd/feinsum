@@ -24,7 +24,7 @@ def transform(t_unit: lp.TranslationUnit,
     kernel_name = kernel_name or t_unit.default_entrypoint.name
     within = lp_match.parse_match(insn_match)
 
-    ref_einsum = fnsm.fused_einsum("e,ij,ej->ei",
+    ref_einsum = fnsm.batched_einsum("e,ij,ej->ei",
                                    [(np.inf,),
                                     (ndofs, ndofs),
                                     (np.inf, ndofs)],
@@ -88,7 +88,7 @@ if __name__ == "__main__":
 
     cl_ctx = cl.create_some_context()
 
-    expr = fnsm.fused_einsum("e,ij,ej->ei",
+    expr = fnsm.batched_einsum("e,ij,ej->ei",
                              [(np.inf,),
                               (Ndof, Ndof),
                               (np.inf, Ndof)],

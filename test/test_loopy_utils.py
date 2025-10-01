@@ -33,7 +33,7 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
     nface = 4
     nvoldofs = 35
     nfacedofs = 15
-    face_mass = f.fused_einsum("ef, fij, fej -> ei",
+    face_mass = f.batched_einsum("ef, fij, fej -> ei",
                                [(np.inf, nface),
                                 (nface, nvoldofs, nfacedofs),
                                 (nface, np.inf, nfacedofs)],
@@ -93,7 +93,7 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
     nel = 1
     ndim = 3
     ndofs = 35
-    expr = f.fused_einsum("xre, rij, ej->xei",
+    expr = f.batched_einsum("xre, rij, ej->xei",
                           ((ndim, ndim, nel),
                            (ndim, ndofs, ndofs),
                            (nel, ndofs)),
@@ -188,7 +188,7 @@ def test_einsum_matching():
     nvoldofs = 35
     nfacedofs = 15
     nface = 4
-    ref_einsum = f.fused_einsum("ef, fij, fej -> ei",
+    ref_einsum = f.batched_einsum("ef, fij, fej -> ei",
                                 [(np.inf, nface),
                                 (nface, nvoldofs, nfacedofs),
                                 (nface, np.inf, nfacedofs)],

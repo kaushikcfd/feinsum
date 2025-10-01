@@ -31,10 +31,10 @@ import pynauty as nauty
 
 from typing import (Dict, Set, Mapping, List, Any, Union, Sequence,
                     Tuple, FrozenSet)
-from feinsum.einsum import (FusedEinsum, ShapeT, ShapeComponentT,
+from feinsum.einsum import (BatchedEinsum, ShapeT, ShapeComponentT,
                             EinsumAxisAccess, IntegralT, SizeParam,
                             INT_CLASSES)
-from feinsum.make_einsum import fused_einsum
+from feinsum.make_einsum import batched_einsum
 from immutables import Map
 from dataclasses import dataclass
 from more_itertools import zip_equal as szip
@@ -98,7 +98,7 @@ class AccessNode(EinsumGraphNode):
 class ArrayNode(EinsumGraphNode):
     """
     An array (could be either input  or output) seen in a
-    :class:`FusedEinsum`.
+    :class:`BatchedEinsum`.
     """
     _name: str
 
@@ -170,7 +170,7 @@ def visualize_einsum_graph(graph: Mapping[EinsumGraphNode,
     show_dot(dot_code)
 
 
-def _get_use_matrix_col_permutation(einsum: FusedEinsum,
+def _get_use_matrix_col_permutation(einsum: BatchedEinsum,
                                     sorted_index_names: Sequence[str]
                                     ) -> Tuple[int, ...]:
     acc_descr_to_rank = {
@@ -185,7 +185,7 @@ def _get_use_matrix_col_permutation(einsum: FusedEinsum,
     return tuple(np.argsort(a))
 
 
-def _group_same_access_descriptors(einsum: FusedEinsum) -> FusedEinsum:
+def _group_same_access_descriptors(einsum: BatchedEinsum) -> BatchedEinsum:
 
     new_arg_shapes: List[ShapeT] = []
     new_acc_descrs: List[Tuple[EinsumAxisAccess, ...]] = []
@@ -219,7 +219,7 @@ def _group_same_access_descriptors(einsum: FusedEinsum) -> FusedEinsum:
             icol = acc_descrs_to_i_new_col[acc_descrs]
             new_use_matrix[irow][icol].update(uses)
 
-    return FusedEinsum(
+    return BatchedEinsum(
         tuple(new_arg_shapes),
         einsum.value_to_dtype,
         tuple(new_acc_descrs),
@@ -229,7 +229,7 @@ def _group_same_access_descriptors(einsum: FusedEinsum) -> FusedEinsum:
         einsum.index_names)
 
 
-def get_einsum_dag(einsum: FusedEinsum) -> Map[EinsumGraphNode,
+def get_einsum_dag(einsum: BatchedEinsum) -> Map[EinsumGraphNode,
                                                FrozenSet[EinsumGraphNode]]:
 
     output_names = ["_fe_out"] + [f"_fe_out_{i}"
@@ -332,7 +332,7 @@ def get_einsum_dag(einsum: FusedEinsum) -> Map[EinsumGraphNode,
 
 
 def _get_canonicalized_einsum_with_subst_mapping(
-        einsum: FusedEinsum) -> Tuple[FusedEinsum, frozenbidict[str, str]]:
+        einsum: BatchedEinsum) -> Tuple[BatchedEinsum, frozenbidict[str, str]]:
     """
     Returns a tuple of the form ``(canonicalized_einsum, subst_map)`` where
     *canonicalized_einsum* is an instance of :class:`BatchedEinsum` which is the
@@ -485,7 +485,7 @@ def _get_canonicalized_einsum_with_subst_mapping(
            for irow, old_output_name in enumerate(output_names)},
     })
 
-    return fused_einsum(
+    return batched_einsum(
         f"{new_input_subscripts}->{output_subscript}",
         operand_shapes=[[np.inf if isinstance(d, SizeParam) else d
                          for d in einsum.arg_shapes[icol]]
@@ -495,7 +495,7 @@ def _get_canonicalized_einsum_with_subst_mapping(
         use_matrix=new_use_matrix), substitution_mapping
 
 
-def canonicalize_einsum(einsum: FusedEinsum) -> FusedEinsum:
+def canonicalize_einsum(einsum: BatchedEinsum) -> BatchedEinsum:
     """
     Returns a canonicalized form of *einsum*.
 
@@ -508,7 +508,7 @@ def canonicalize_einsum(einsum: FusedEinsum) -> FusedEinsum:
 
 
 def get_substitution_mapping_between_isomorphic_batched_einsums(
-    batched_einsum_from: FusedEinsum, batched_einsum_to: FusedEinsum
+    batched_einsum_from: BatchedEinsum, batched_einsum_to: BatchedEinsum
 ) -> Mapping[str, str]:
     """
     Returns the isomorphism mapping from the entities of *batched_einsum_from* to

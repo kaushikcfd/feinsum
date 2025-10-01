@@ -17,7 +17,7 @@ MAX_SHARED_MEM_PER_WG = 48e3  # in bytes
 REG_FILE_SPACE_PER_WI = 256*4  # in bytes
 
 
-def _is_ensm_tensor_contraction(ensm: fnsm.FusedEinsum) -> bool:
+def _is_ensm_tensor_contraction(ensm: fnsm.BatchedEinsum) -> bool:
     # TC requires noperands == 2
     noperands = len(ensm.access_descriptors)
     if noperands != 2:
@@ -53,7 +53,7 @@ def _is_ensm_tensor_contraction(ensm: fnsm.FusedEinsum) -> bool:
     return True
 
 
-def _get_indices(ensm: fnsm.FusedEinsum) -> Tuple[Tuple[str, ...],
+def _get_indices(ensm: fnsm.BatchedEinsum) -> Tuple[Tuple[str, ...],
                                                   Tuple[str, ...]]:
     from feinsum.einsum import FreeAxis, SummationAxis
     nredn_dim = len({idx
@@ -65,7 +65,7 @@ def _get_indices(ensm: fnsm.FusedEinsum) -> Tuple[Tuple[str, ...],
                   for iredn_dim in range(nredn_dim)))
 
 
-def _get_operand_names(ensm: fnsm.FusedEinsum) -> Tuple[str, str]:
+def _get_operand_names(ensm: fnsm.BatchedEinsum) -> Tuple[str, str]:
     assert ensm.noutputs == 1
     assert len(ensm.access_descriptors) == 2
     operand1, = ensm.use_matrix[0][0]
@@ -84,7 +84,7 @@ def _get_operand_names(ensm: fnsm.FusedEinsum) -> Tuple[str, str]:
 @transform_param("t_redns", lambda ensm: tuple(IntParameter(1, 16)
                                                for i in range(get_n_redn_dim(ensm))))
 def transform(t_unit: lp.TranslationUnit,
-              ensm: fnsm.FusedEinsum,
+              ensm: fnsm.BatchedEinsum,
               i_axis_mapping_perm: int,
               output_tile_lengths: Tuple[int, ...],
               t_redns: Tuple[int, ...],

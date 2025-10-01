@@ -1,7 +1,7 @@
 """
 .. currentmodule:: feinsum.einsum
 
-.. autoclass:: FusedEinsum
+.. autoclass:: BatchedEinsum
 .. autoclass:: VeryLongAxis
 .. autoclass:: EinsumAxisAccess
 .. autoclass:: FreeAxis
@@ -99,9 +99,9 @@ class SummationAxis(EinsumAxisAccess):
 
 
 @dataclass(frozen=True)
-class FusedEinsum:
+class BatchedEinsum:
     """
-    A fused einsum expression.
+    A batched einsum expression.
 
     .. attribute:: shape
     .. attribute:: ndim
@@ -176,7 +176,7 @@ class FusedEinsum:
 
         raise ValueError(f"'{name}' is not one of the arguments.")
 
-    def copy(self, **kwargs: Any) -> FusedEinsum:
+    def copy(self, **kwargs: Any) -> BatchedEinsum:
         from dataclasses import replace
         return replace(self, **kwargs)
 
@@ -245,7 +245,7 @@ class ContractionSchedule:
         return replace(self, **kwargs)
 
 
-def get_trivial_contraction_schedule(einsum: FusedEinsum) -> ContractionSchedule:
+def get_trivial_contraction_schedule(einsum: BatchedEinsum) -> ContractionSchedule:
     """
     Returns the :class:`ContractionSchedule` for *einsum* scheduled as a single
     contraction.
@@ -257,7 +257,7 @@ def get_trivial_contraction_schedule(einsum: FusedEinsum) -> ContractionSchedule
                                )
 
 
-def get_opt_einsum_contraction_schedule(expr: FusedEinsum,
+def get_opt_einsum_contraction_schedule(expr: BatchedEinsum,
                                         **opt_einsum_kwargs: Any,
                                         ) -> ContractionSchedule:
     """

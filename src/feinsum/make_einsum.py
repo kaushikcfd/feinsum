@@ -2,7 +2,7 @@
 .. currentmodule:: feinsum.make_einsum
 
 .. autofunction:: einsum
-.. autofunction:: fused_einsum
+.. autofunction:: batched_einsum
 .. autoclass:: ArrayT
 """
 
@@ -42,7 +42,7 @@ from typing import (Tuple, Protocol, Any, List, Sequence, Optional, Mapping,
                     FrozenSet, Union, Dict)
 from dataclasses import dataclass
 from immutables import Map
-from feinsum.einsum import (FusedEinsum, FreeAxis,
+from feinsum.einsum import (BatchedEinsum, FreeAxis,
                             SummationAxis, EinsumAxisAccess, VeryLongAxis,
                             INT_CLASSES, IntegralT, SizeParam)
 from more_itertools import zip_equal as szip  # strict zip
@@ -264,14 +264,14 @@ def _parse_subscripts(subscripts: str,
     return tuple(access_descriptors), index_to_descr
 
 
-def fused_einsum(subscripts: str,
+def batched_einsum(subscripts: str,
                  operand_shapes: Sequence[Any],
                  use_matrix: Any,
                  dtypes: Optional[npt.DTypeLike] = None,
                  value_to_dtype: Optional[Mapping[str, npt.DTypeLike]] = None,
-                 ) -> FusedEinsum:
+                 ) -> BatchedEinsum:
     """
-    Returns a :class:`~feinsum.einsum.FusedEinsum` with an interface similar to
+    Returns a :class:`~feinsum.einsum.BatchedEinsum` with an interface similar to
     :func:`numpy.einsum`.
 
     :param subscripts: A :class:`str` describing the Einstein summation as
@@ -367,7 +367,7 @@ def fused_einsum(subscripts: str,
 
     # }}}
 
-    return FusedEinsum(tuple(size_param_op_shapes),
+    return BatchedEinsum(tuple(size_param_op_shapes),
                        Map(value_to_proc_dtype),
                        access_descriptors,
                        tuple(tuple(use_row)
@@ -378,9 +378,9 @@ def fused_einsum(subscripts: str,
 
 def einsum(subscripts: str,
            *operands: ArrayT,
-           arg_names: Optional[Sequence[str]] = None) -> FusedEinsum:
+           arg_names: Optional[Sequence[str]] = None) -> BatchedEinsum:
     """
-    Returns a :class:`~feinsum.einsum.FusedEinsum` with an interface similar to
+    Returns a :class:`~feinsum.einsum.BatchedEinsum` with an interface similar to
     :func:`numpy.einsum`.
 
     :param arg_names: An optional sequence of :class:`str`. If not provided,
@@ -399,7 +399,7 @@ def einsum(subscripts: str,
     value_to_dtype = {arg_name: operand.dtype
                       for arg_name, operand in szip(arg_names, operands)}
 
-    return fused_einsum(subscripts,
+    return batched_einsum(subscripts,
                         tuple(op.shape for op in operands),
                         use_matrix=use_matrix,
                         value_to_dtype=value_to_dtype)

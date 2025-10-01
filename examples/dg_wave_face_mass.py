@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_face_mass_einsum(nface, nfacedofs, nvoldofs):
-    return f.fused_einsum("ef, fij, fej -> ei",
+    return f.batched_einsum("ef, fij, fej -> ei",
                           [(np.inf, nface),
                            (nface, nvoldofs, nfacedofs),
                            (nface, np.inf, nfacedofs)],

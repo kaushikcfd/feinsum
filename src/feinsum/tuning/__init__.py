@@ -28,7 +28,7 @@ from typing import (Callable, Any, Tuple, Mapping, Optional, Sequence, Union,
 from immutables import Map
 from dataclasses import dataclass
 from functools import cached_property, cache
-from feinsum.einsum import (FusedEinsum, IntegralT, ShapeComponentT,
+from feinsum.einsum import (BatchedEinsum, IntegralT, ShapeComponentT,
                             INT_CLASSES)
 from feinsum.sql_utils import DEFAULT_DB, TIMINGS_TABLENAME
 from feinsum.typing import TransformT
@@ -103,7 +103,7 @@ class einsum_arg:  # noqa: N801
         value of the static argument.
     """
     var_name: str
-    func: Callable[[FusedEinsum], Any]
+    func: Callable[[BatchedEinsum], Any]
 
     def __call__(self, fn: Callable[..., Any]) -> "ParametrizedTransform":
         if isinstance(fn, ParametrizedTransform):
@@ -132,7 +132,7 @@ class transform_param:  # noqa: N801
           (internally) mapped to a :class:`TupleParameter`.
     """
     var_name: str
-    func: Callable[[FusedEinsum], ConvertibleToTuningParamT]
+    func: Callable[[BatchedEinsum], ConvertibleToTuningParamT]
 
     def __call__(self,
                  fn: Callable[..., lp.TranslationUnit]) -> "ParametrizedTransform":
@@ -156,7 +156,7 @@ class ParametrizedTransform:
         return self.transform(*args, **kwargs)
 
     def bind_args(self,
-                  einsum: FusedEinsum,
+                  einsum: BatchedEinsum,
                   **transform_args: Any) -> TransformT:
         """
         Binds *transform_args* to *self* and returns a python callable
@@ -251,7 +251,7 @@ def _get_opentuner_params_from_tuning_param(
 def _reconstruct_transform_params_from_opentuner_config(
         config: Mapping[str, Any],
         transform_params: Tuple[transform_param, ...],
-        ensm: FusedEinsum,
+        ensm: BatchedEinsum,
 ) -> Mapping[str, Any]:
 
     def rec(key: Tuple[str, ...], tuning_param: TuningParameter) -> Any:
@@ -300,7 +300,7 @@ def _get_opentuner_config_from_transform_config(
 class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
     def __init__(self,
                  args: Any,
-                 einsum: FusedEinsum,
+                 einsum: BatchedEinsum,
                  cl_ctx: cl.Context,
                  module_path: str,
                  long_dim_length: int,
@@ -562,7 +562,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 # }}}
 
 
-def autotune(einsum: FusedEinsum, module_path: str, cl_ctx: cl.Context,
+def autotune(einsum: BatchedEinsum, module_path: str, cl_ctx: cl.Context,
              *,
              db_path: Optional[str] = None,
              long_dim_length: int = 100_000,

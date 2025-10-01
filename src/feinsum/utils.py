@@ -7,14 +7,14 @@
 """
 
 
-from feinsum.einsum import FusedEinsum, SummationAxis, SizeParam
+from feinsum.einsum import BatchedEinsum, SummationAxis, SizeParam
 from feinsum import array
 from feinsum.make_einsum import einsum as build_einsum
 from typing import FrozenSet
 import dataclasses as dc
 
 
-def has_similar_subscript(einsum: FusedEinsum,
+def has_similar_subscript(einsum: BatchedEinsum,
                           subscript: str) -> bool:
     """
     Returns *True* only if *einsum*'s expression being applied
@@ -58,7 +58,7 @@ def has_similar_subscript(einsum: FusedEinsum,
                 == einsum.access_descriptors)
 
 
-def is_any_redn_dim_parametric(einsum: FusedEinsum) -> bool:
+def is_any_redn_dim_parametric(einsum: BatchedEinsum) -> bool:
     """
     .. testsetup::
 
@@ -95,7 +95,7 @@ def is_any_redn_dim_parametric(einsum: FusedEinsum) -> bool:
     return False
 
 
-def get_n_redn_dim(ensm: FusedEinsum) -> int:
+def get_n_redn_dim(ensm: BatchedEinsum) -> int:
     """
     Returns the number of reduction indices in *ensm*.
     """

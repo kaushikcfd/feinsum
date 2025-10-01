@@ -55,7 +55,7 @@ def transform(t_unit: lp.TranslationUnit,
 
     within = parse_match(insn_match)
 
-    ref_einsum = fnsm.fused_einsum("xre,rij,ej->xei",
+    ref_einsum = fnsm.batched_einsum("xre,rij,ej->xei",
                                    operand_shapes=[(ndim, ndim, np.inf),
                                                    (ndim, ndof, ndof),
                                                    (np.inf, ndof)],
@@ -360,7 +360,7 @@ if __name__ == "__main__":
 
     cl_ctx = cl.create_some_context()
 
-    expr = fnsm.fused_einsum("xre,rij,ej->xei",
+    expr = fnsm.batched_einsum("xre,rij,ej->xei",
                              operand_shapes=[(Ndim, Ndim, np.inf),
                                              (Ndim, Ndof, Ndof),
                                              (np.inf, Ndof)],

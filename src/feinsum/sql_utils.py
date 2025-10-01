@@ -20,7 +20,7 @@ from typing import (TYPE_CHECKING, Optional, Callable,
                     Tuple, Any, List, Sequence, Mapping, Union)
 from functools import cached_property
 from immutables import Map
-from feinsum.einsum import FusedEinsum, INT_CLASSES, SizeParam
+from feinsum.einsum import BatchedEinsum, INT_CLASSES, SizeParam
 from feinsum.cl_utils import ContextT, DeviceT
 
 logger = logging.getLogger(__name__)
@@ -42,14 +42,14 @@ DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 TIMINGS_TABLENAME = "FEINSUM_TIMING_FACTS"
 
 
-def dump_value_to_dtype(einsum: FusedEinsum) -> str:
+def dump_value_to_dtype(einsum: BatchedEinsum) -> str:
     return json.dumps({val: dtype.name
                        for val, dtype in einsum.value_to_dtype.items()},
                       sort_keys=True
                       )
 
 
-def dump_index_to_length(einsum: FusedEinsum) -> str:
+def dump_index_to_length(einsum: BatchedEinsum) -> str:
     return json.dumps({einsum.index_names[k]: v
                        for k, v in einsum.index_to_dim_length().items()
                        if isinstance(v, INT_CLASSES)},
@@ -57,7 +57,7 @@ def dump_index_to_length(einsum: FusedEinsum) -> str:
                       )
 
 
-def dump_use_matrix(einsum: FusedEinsum) -> str:
+def dump_use_matrix(einsum: BatchedEinsum) -> str:
     use_matrix = [
         [sorted(values) for values in use_row]
         for use_row in einsum.use_matrix]
@@ -69,7 +69,7 @@ def dump_cl_version(cl_device: "cl.Device") -> str:
     return f"{cl_device.vendor}-{cl_device.driver_version}"
 
 
-def dump_op_info(einsum: FusedEinsum, long_dim_length: int) -> str:
+def dump_op_info(einsum: BatchedEinsum, long_dim_length: int) -> str:
     from feinsum.measure import _get_giga_ops_from_einsum
     from pymbolic.mapper.evaluator import evaluate_to_float
 
@@ -127,7 +127,7 @@ class QueryInfo:
     runtime_in_sec: float
     compiler_version: str
     giga_op_info: Map[np.dtype[Any], float]
-    _einsum: FusedEinsum
+    _einsum: BatchedEinsum
 
     def giga_op_rate(self, dtype: npt.DTypeLike) -> float:
         return self.giga_op_info[np.dtype(dtype)]/self.runtime_in_sec
@@ -142,7 +142,7 @@ class QueryInfo:
             module_path).bind_args(self._einsum, **self.transform_params)
 
 
-def query(einsum: FusedEinsum,
+def query(einsum: BatchedEinsum,
           cl_ctx: ContextT,
           *,
           database: str = DEFAULT_DB,
@@ -226,14 +226,14 @@ def query(einsum: FusedEinsum,
 
 
 def get_timed_einsums_in_db(cl_device: DeviceT,
-                            database: str = DEFAULT_DB) -> Tuple[FusedEinsum,
+                            database: str = DEFAULT_DB) -> Tuple[BatchedEinsum,
                                                                  ...]:
     r"""
-    Returns a :class:`tuple` of :class:`~feinsum.einsum.FusedEinsum`\ s for
+    Returns a :class:`tuple` of :class:`~feinsum.einsum.BatchedEinsum`\ s for
     which some timing data is available on the OpenCL device *device* in the
     database *database*.
     """
-    from feinsum.make_einsum import fused_einsum
+    from feinsum.make_einsum import batched_einsum
 
     device_name = dump_device_name(cl_device)
 
@@ -251,7 +251,7 @@ def get_timed_einsums_in_db(cl_device: DeviceT,
                    ";", (device_name,))
 
     facts = set(cursor.fetchall())
-    seen_einsums: List[FusedEinsum] = []
+    seen_einsums: List[BatchedEinsum] = []
     conn.close()
 
     for (subscripts, index_to_length_str, use_matrix, value_to_dtype) in facts:
@@ -263,7 +263,7 @@ def get_timed_einsums_in_db(cl_device: DeviceT,
         for indexing_expr in input_subscripts.split(","):
             arg_shapes.append([index_to_length.get(index, np.inf)
                                for index in indexing_expr])
-        seen_einsums.append(fused_einsum(subscripts,
+        seen_einsums.append(batched_einsum(subscripts,
                                          arg_shapes,
                                          processed_use_matrix,
                                          value_to_dtype=json.loads(value_to_dtype)))
@@ -300,7 +300,7 @@ def _create_timings_table_if_non_existent(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def record_into_db(einsum: FusedEinsum,
+def record_into_db(einsum: BatchedEinsum,
                    cl_ctx: ContextT,
                    module_path: str,
                    transform_params: Mapping[str, Any],

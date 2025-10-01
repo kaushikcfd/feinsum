@@ -6,7 +6,7 @@ from feinsum.tuning import IntParameter
 from typing import Any, Optional
 
 
-def _get_scale_dtype(einsum: fnsm.FusedEinsum) -> np.dtype[Any]:
+def _get_scale_dtype(einsum: fnsm.BatchedEinsum) -> np.dtype[Any]:
     assert len(einsum.use_matrix) == 1
     for arg_shape, uses in zip(einsum.arg_shapes, einsum.use_matrix[0]):
         if len(arg_shape) == 1:

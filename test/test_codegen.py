@@ -34,7 +34,7 @@ def test_wave_div_components(ctx_factory):
 
     Ndofs = 35
     Ndim = 3
-    wave_div_components = f.fused_einsum("se, sij, ej -> ei",
+    wave_div_components = f.batched_einsum("se, sij, ej -> ei",
                                          [(Ndim, np.inf,),
                                           (Ndim, Ndofs, Ndofs),
                                           (np.inf, Ndofs)],
@@ -57,7 +57,7 @@ def test_wave_face_mass(ctx_factory):
     Ndofs = 15
     Nface = 4
 
-    wave_face_mass = f.fused_einsum("se, sij, ej -> ei",
+    wave_face_mass = f.batched_einsum("se, sij, ej -> ei",
                                     [(Nface, np.inf,),
                                     (Nface, Ndofs, Ndofs),
                                     (np.inf, Ndofs)],
@@ -80,7 +80,7 @@ def test_wave_grad(ctx_factory):
     Ndofs = 35
     Ndim = 3
 
-    wave_grad = f.fused_einsum("xre,rij,ej->xei",
+    wave_grad = f.batched_einsum("xre,rij,ej->xei",
                             [(Ndim, Ndim, np.inf,),
                                 (Ndim, Ndofs, Ndofs),
                                 (np.inf, Ndofs)],

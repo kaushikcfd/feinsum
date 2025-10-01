@@ -15,7 +15,7 @@ from typing import (Union, Optional, Tuple, FrozenSet, Any, Dict, List, Iterable
                     Set, Mapping, cast)
 from immutables import Map
 from bidict import frozenbidict
-from feinsum.einsum import FusedEinsum, IntegralT
+from feinsum.einsum import BatchedEinsum, IntegralT
 from feinsum.diagnostics import EinsumTunitMatchError
 from loopy.symbolic import CombineMapper, Reduction
 from more_itertools import zip_equal as szip
@@ -172,7 +172,7 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
                          insn_match: Any = None,
                          argument_substitutions: Optional[FrozenSet[str]] = None,
                          long_dim_length: int = 500,
-                         ) -> Tuple[FusedEinsum, frozenbidict[str, str]]:
+                         ) -> Tuple[BatchedEinsum, frozenbidict[str, str]]:
     """
     Returns a tuple of the form ``(matched_einsum, subst_map)`` where,
     ``matched_einsum`` is the batched einsum having a memory access pattern similar
@@ -360,8 +360,8 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
                                 for iname in accesses))
 
     # Step 6. Construct the batched einsum.
-    from feinsum.make_einsum import fused_einsum
-    batched_einsum = fused_einsum(einsum_subscripts,
+    from feinsum.make_einsum import batched_einsum
+    batched_einsum = batched_einsum(einsum_subscripts,
                                   arg_shapes,
                                   use_matrix=use_matrix,
                                   value_to_dtype=value_to_dtype)
@@ -379,7 +379,7 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
 
 
 def match_t_unit_to_einsum(t_unit: lp.TranslationUnit,
-                           einsum: FusedEinsum,
+                           einsum: BatchedEinsum,
                            *,
                            kernel_name: Optional[str] = None,
                            insn_match: Any = None,

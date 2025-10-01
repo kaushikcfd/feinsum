@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 def transform_div(t_unit, insn_match=None, kernel_name=None):
     ndim = 3
     ndofs = 35
-    ref_einsum = fnsm.fused_einsum("es, sij, ej -> ei",
+    ref_einsum = fnsm.batched_einsum("es, sij, ej -> ei",
                                 [(np.inf, ndim),
                                  (ndim, ndofs, ndofs),
                                  (np.inf, ndofs)],
@@ -251,7 +251,7 @@ def transform_face_mass(t_unit, insn_match=None, kernel_name=None):
     nvoldofs = 35
     nfacedofs = 15
     nface = 4
-    ref_einsum = fnsm.fused_einsum("ef, fij, fej -> ei",
+    ref_einsum = fnsm.batched_einsum("ef, fij, fej -> ei",
                                    [(np.inf, nface),
                                     (nface, nvoldofs, nfacedofs),
                                     (nface, np.inf, nfacedofs)],
@@ -399,7 +399,7 @@ def transform_face_mass(t_unit, insn_match=None, kernel_name=None):
 def report_div_performance(cl_ctx):
     ndim = 3
     ndofs = 35
-    expr = fnsm.fused_einsum("es, sij, ej -> ei",
+    expr = fnsm.batched_einsum("es, sij, ej -> ei",
                           [(np.inf, ndim),
                            (ndim, ndofs, ndofs),
                            (np.inf, ndofs)],
@@ -442,7 +442,7 @@ def report_face_mass_performance(cl_ctx):
     nvoldofs = 35
     nfacedofs = 15
     nface = 4
-    expr = fnsm.fused_einsum("ef, fij, fej -> ei",
+    expr = fnsm.batched_einsum("ef, fij, fej -> ei",
                           [(np.inf, nface),
                            (nface, nvoldofs, nfacedofs),
                            (nface, np.inf, nfacedofs)],
