@@ -1,4 +1,124 @@
 [build-system]
-# AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
-requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5", "wheel"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "feinsum"
+description = "Fast(er?) Einsum"
+authors = [
+    { name = "Kaushik Kulkarni", email = "kaushikcfd@gmail.com" },
+]
+license = { file = "LICENSE.txt" }
+readme = { file = "README.md", content-type = "text/x-rst; charset=UTF-8" }
+urls = { Homepage = "https://github.com/kaushikcfd/feinsum/" }
+requires-python = ">=3.8"
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries",
+]
+
+dependencies = [
+    "numpy>=1.20",
+    "loopy",
+    "pytools",
+    "islpy",
+    "more-itertools",
+    "pytz",
+    "opentuner",
+    "pyopencl",
+    "immutables",
+    "tabulate",
+    "pynauty",
+    "bidict",
+    "opt_einsum",
+]
+
+dynamic = ["version"]
+
+[project.optional-dependencies]
+testing = [
+    "setuptools",
+    "pytest",
+]
+
+[tool.setuptools]
+zip-safe = false
+include-package-data = true
+platforms = ["any"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["test"]
+
+[tool.setuptools.package-data]
+feinsum = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = { attr = "VERSION.VERSION" }
+
+[tool.pytest.ini_options]
+addopts = "--verbose"
+norecursedirs = ["dist", "build", ".tox"]
+testpaths = ["test"]
+
+[tool.flake8]
+ignore = [
+    "E126","E127","E128","E123","E203","E226","E241","E242","E265","E704",
+    "N802","W503","E402","N806","N814","N817","W504","B023","B024"
+]
+max-line-length = 85
+inline-quotes = "\""
+docstring-quotes = "\"\"\""
+multiline-quotes = "\"\"\""
+exclude = ["build", "dist", ".eggs", "doc/conf.py"]
+
+[tool.mypy]
+
+[[tool.mypy.overrides]]
+module = "islpy"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "loopy.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pynauty.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "numpy"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pymbolic.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pyopencl.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "opt_einsum.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "matchpy.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "multiset.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "opentuner.*"
+ignore_missing_imports = true
+
+[tool.black]
+line-length = 85
