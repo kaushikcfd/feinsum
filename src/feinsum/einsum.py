@@ -20,7 +20,6 @@ Helper routines
 .. autofunction:: get_opt_einsum_contraction_schedule
 """
 
-
 from __future__ import annotations
 
 import abc
@@ -49,6 +48,7 @@ class VeryLongAxis:
     """
     Describes a dimension length which is to be assumed to be very large.
     """
+
     # TODO: Record the threshold over which an axis could be considered as
     # "VeryLong."
 
@@ -81,6 +81,7 @@ class FreeAxis(EinsumAxisAccess):
 
         Position of the corresponding index in the einsum's output.
     """
+
     output_index: int
 
 
@@ -95,6 +96,7 @@ class SummationAxis(EinsumAxisAccess):
 
         An integer which is unique to a reduction index of an einsum.
     """
+
     index: int
 
 
@@ -109,6 +111,7 @@ class BatchedEinsum:
     .. automethod:: get_subscripts
     .. automethod:: get_arg_shape
     """
+
     arg_shapes: Tuple[ShapeT, ...]
     value_to_dtype: Map[str, np.dtype[Any]]
     access_descriptors: Tuple[Tuple[EinsumAxisAccess, ...], ...]
@@ -122,8 +125,7 @@ class BatchedEinsum:
     @memoize_method
     def index_to_dim_length(self) -> Map[EinsumAxisAccess, ShapeComponentT]:
         index_to_dim = {}
-        for arg_shape, arg_axes in zip(self.arg_shapes,
-                                       self.access_descriptors):
+        for arg_shape, arg_axes in zip(self.arg_shapes, self.access_descriptors):
             for dim, index in zip(arg_shape, arg_axes):
                 if dim not in index_to_dim:
                     index_to_dim[index] = dim
@@ -134,15 +136,22 @@ class BatchedEinsum:
 
     @cached_property
     def shape(self) -> ShapeT:
-        free_index_to_dim = {idx: dim
-                             for idx, dim in self.index_to_dim_length().items()
-                             if isinstance(idx, FreeAxis)}
-        assert all(FreeAxis(idim) in free_index_to_dim
-                   for idim in range(len(free_index_to_dim)))
+        free_index_to_dim = {
+            idx: dim
+            for idx, dim in self.index_to_dim_length().items()
+            if isinstance(idx, FreeAxis)
+        }
+        assert all(
+            FreeAxis(idim) in free_index_to_dim
+            for idim in range(len(free_index_to_dim))
+        )
 
-        return tuple(dim
-                     for _, dim in sorted(free_index_to_dim.items(),
-                                          key=lambda x: x[0].output_index))
+        return tuple(
+            dim
+            for _, dim in sorted(
+                free_index_to_dim.items(), key=lambda x: x[0].output_index
+            )
+        )
 
     @property
     def ndim(self) -> int:
@@ -153,13 +162,14 @@ class BatchedEinsum:
         """
         Returns the subscripts used in the building the *einsum* from it.
         """
-        return (",".join("".join(self.index_names[axis]
-                                 for axis in axes)
-                        for axes in self.access_descriptors)
-                + "->"
-                + "".join(self.index_names[FreeAxis(i)]
-                          for i in range(self.ndim))
-                )
+        return (
+            ",".join(
+                "".join(self.index_names[axis] for axis in axes)
+                for axes in self.access_descriptors
+            )
+            + "->"
+            + "".join(self.index_names[FreeAxis(i)] for i in range(self.ndim))
+        )
 
     @memoize_method
     def get_arg_shape(self, name: str) -> ShapeT:
@@ -167,17 +177,20 @@ class BatchedEinsum:
         Returns the shape for argument named *name*.
         """
         for argument_row in self.use_matrix:
-            for arguments, access_descrs in zip(argument_row,
-                                                self.access_descriptors):
+            for arguments, access_descrs in zip(
+                argument_row, self.access_descriptors
+            ):
                 if name in arguments:
                     return tuple(
                         self.index_to_dim_length()[acc_descr]
-                        for acc_descr in access_descrs)
+                        for acc_descr in access_descrs
+                    )
 
         raise ValueError(f"'{name}' is not one of the arguments.")
 
     def copy(self, **kwargs: Any) -> BatchedEinsum:
         from dataclasses import replace
+
         return replace(self, **kwargs)
 
 
@@ -194,6 +207,7 @@ class IntermediateResult(Argument):
     An :class:`Argument` representing an intermediate result available during
     the current contraction.
     """
+
     name: str
 
 
@@ -204,6 +218,7 @@ class EinsumOperand(Argument):
     passed to the parent einsum whose :class:`ContractionSchedule` is being
     specified.
     """
+
     ioperand: int
 
 
@@ -226,6 +241,7 @@ class ContractionSchedule:
 
     .. attribute:: nsteps
     """
+
     subscripts: Tuple[str, ...]
     result_names: Tuple[str, ...]
     arguments: Tuple[Tuple[Argument, ...], ...]
@@ -242,6 +258,7 @@ class ContractionSchedule:
 
     def copy(self, **kwargs: Any) -> ContractionSchedule:
         from dataclasses import replace
+
         return replace(self, **kwargs)
 
 
@@ -250,16 +267,17 @@ def get_trivial_contraction_schedule(einsum: BatchedEinsum) -> ContractionSchedu
     Returns the :class:`ContractionSchedule` for *einsum* scheduled as a single
     contraction.
     """
-    return ContractionSchedule((einsum.get_subscripts(),),
-                               ("_fe_out",),
-                               (tuple(EinsumOperand(i)
-                                      for i, _ in enumerate(einsum.arg_shapes)),)
-                               )
+    return ContractionSchedule(
+        (einsum.get_subscripts(),),
+        ("_fe_out",),
+        (tuple(EinsumOperand(i) for i, _ in enumerate(einsum.arg_shapes)),),
+    )
 
 
-def get_opt_einsum_contraction_schedule(expr: BatchedEinsum,
-                                        **opt_einsum_kwargs: Any,
-                                        ) -> ContractionSchedule:
+def get_opt_einsum_contraction_schedule(
+    expr: BatchedEinsum,
+    **opt_einsum_kwargs: Any,
+) -> ContractionSchedule:
     """
     Returns a :class:`ContractionSchedule` as computed by
     :func:`opt_einsum.contract_path`.
@@ -277,6 +295,7 @@ def get_opt_einsum_contraction_schedule(expr: BatchedEinsum,
     """
     import opt_einsum
     from feinsum.make_einsum import array
+
     long_dim_length = opt_einsum_kwargs.pop("long_dim_length", 1_000_000)
 
     if "optimize" not in opt_einsum_kwargs:
@@ -285,18 +304,24 @@ def get_opt_einsum_contraction_schedule(expr: BatchedEinsum,
     if "use_blas" not in opt_einsum_kwargs:
         opt_einsum_kwargs["use_blas"] = False
 
-    _, path = opt_einsum.contract_path(expr.get_subscripts(),
-                                       *[array([d if isinstance(op_shape,
-                                                                INT_CLASSES)
-                                                else long_dim_length
-                                                for d in op_shape],
-                                               "float64")
-                                         for op_shape in expr.arg_shapes],
-                                       **opt_einsum_kwargs)
+    _, path = opt_einsum.contract_path(
+        expr.get_subscripts(),
+        *[
+            array(
+                [
+                    d if isinstance(op_shape, INT_CLASSES) else long_dim_length
+                    for d in op_shape
+                ],
+                "float64",
+            )
+            for op_shape in expr.arg_shapes
+        ],
+        **opt_einsum_kwargs,
+    )
 
     current_args: List[Argument] = [
-        EinsumOperand(i)
-        for i in range(path.input_subscripts.count(",") + 1)]
+        EinsumOperand(i) for i in range(path.input_subscripts.count(",") + 1)
+    ]
     vng = UniqueNameGenerator()
 
     subscripts: List[str] = []
@@ -304,18 +329,16 @@ def get_opt_einsum_contraction_schedule(expr: BatchedEinsum,
     arguments: List[Tuple[Argument, ...]] = []
     for contraction in path.contraction_list:
         arg_indices, _, subscript, _, _ = contraction
-        arguments.append(tuple(current_args[idx]
-                               for idx in arg_indices))
+        arguments.append(tuple(current_args[idx] for idx in arg_indices))
         subscripts.append(subscript)
         result_names.append(vng("_fe_tmp"))
-        current_args = ([arg
-                         for idx, arg in enumerate(current_args)
-                         if idx not in arg_indices]
-                        + [IntermediateResult(result_names[-1])])
+        current_args = [
+            arg for idx, arg in enumerate(current_args) if idx not in arg_indices
+        ] + [IntermediateResult(result_names[-1])]
 
     assert len(current_args) == 1
     result_names[-1] = vng("_fe_out")
 
-    return ContractionSchedule(tuple(subscripts),
-                               tuple(result_names),
-                               tuple(arguments))
+    return ContractionSchedule(
+        tuple(subscripts), tuple(result_names), tuple(arguments)
+    )

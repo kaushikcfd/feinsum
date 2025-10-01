@@ -33,12 +33,13 @@ THE SOFTWARE.
 
 # transform: (t_unit, insn_match, kernel_name)
 class TransformT(Protocol):
-    def __call__(self, t_unit: lp.TranslationUnit,
-                 insn_match: Optional[Any] = None,
-                 kernel_name: Optional[str] = None) -> lp.TranslationUnit:
-        ...
+    def __call__(
+        self,
+        t_unit: lp.TranslationUnit,
+        insn_match: Optional[Any] = None,
+        kernel_name: Optional[str] = None,
+    ) -> lp.TranslationUnit: ...
 
 
 class ToStr(Protocol):
-    def __str__(self) -> str:
-        ...
+    def __str__(self) -> str: ...

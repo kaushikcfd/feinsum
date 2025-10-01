@@ -38,13 +38,30 @@ import re
 import numpy as np
 import numpy.typing as npt
 
-from typing import (Tuple, Protocol, Any, List, Sequence, Optional, Mapping,
-                    FrozenSet, Union, Dict)
+from typing import (
+    Tuple,
+    Protocol,
+    Any,
+    List,
+    Sequence,
+    Optional,
+    Mapping,
+    FrozenSet,
+    Union,
+    Dict,
+)
 from dataclasses import dataclass
 from immutables import Map
-from feinsum.einsum import (BatchedEinsum, FreeAxis,
-                            SummationAxis, EinsumAxisAccess, VeryLongAxis,
-                            INT_CLASSES, IntegralT, SizeParam)
+from feinsum.einsum import (
+    BatchedEinsum,
+    FreeAxis,
+    SummationAxis,
+    EinsumAxisAccess,
+    VeryLongAxis,
+    INT_CLASSES,
+    IntegralT,
+    SizeParam,
+)
 from more_itertools import zip_equal as szip  # strict zip
 from pytools import UniqueNameGenerator
 
@@ -80,9 +97,9 @@ class Array:
 def _preprocess_component(s: Any) -> ShapeComponentT:
     if isinstance(s, SizeParam):
         return s
-    elif (isinstance(s, VeryLongAxis) or np.isposinf(s)):
+    elif isinstance(s, VeryLongAxis) or np.isposinf(s):
         return VeryLongAxis()
-    elif (isinstance(s, INT_CLASSES) and (s >= 0)):
+    elif isinstance(s, INT_CLASSES) and (s >= 0):
         return s
     else:
         raise ValueError(f"Cannot infer shape component '{s}'.")
@@ -90,8 +107,9 @@ def _preprocess_component(s: Any) -> ShapeComponentT:
 
 def _preprocess_shape(shape: Any) -> ShapeT:
     from collections.abc import Sequence
+
     if not isinstance(shape, Sequence):
-        shape = shape,
+        shape = (shape,)
 
     return tuple(_preprocess_component(d) for d in shape)
 
@@ -103,8 +121,7 @@ def array(shape: Any, dtype: npt.DTypeLike) -> Array:
 EINSUM_FIRST_INDEX = re.compile(r"^\s*((?P<alpha>[a-zA-Z])|(?P<ellipsis>\.\.\.))\s*")
 
 
-def _normalize_einsum_out_subscript(subscript: str) -> Map[str,
-                                                             EinsumAxisAccess]:
+def _normalize_einsum_out_subscript(subscript: str) -> Map[str, EinsumAxisAccess]:
     """
     Normalizes the output subscript of an einsum (provided in the explicit
     mode). Returns a mapping from index name to an instance of
@@ -130,28 +147,31 @@ def _normalize_einsum_out_subscript(subscript: str) -> Map[str,
                 assert "ellipsis" in match.groupdict()
                 raise NotImplementedError("Broadcasting in einsums not supported")
             assert match.span()[0] == 0
-            acc = acc[match.span()[-1]:]
+            acc = acc[match.span()[-1] :]
         else:
-            raise ValueError(f"Cannot parse '{acc}' in provided einsum"
-                             f" '{subscript}'.")
+            raise ValueError(
+                f"Cannot parse '{acc}' in provided einsum" f" '{subscript}'."
+            )
 
     if len(set(normalized_indices)) != len(normalized_indices):
-        raise ValueError("Used an input more than once to refer to the"
-                         f" output axis in '{subscript}")
+        raise ValueError(
+            "Used an input more than once to refer to the"
+            f" output axis in '{subscript}"
+        )
 
-    return Map({idx: FreeAxis(i)
-                 for i, idx in enumerate(normalized_indices)})
+    return Map({idx: FreeAxis(i) for i, idx in enumerate(normalized_indices)})
 
 
-def _normalize_einsum_in_subscript(subscript: str,
-                                   in_operand_shape: ShapeT,
-                                   index_to_descr: Map[str,
-                                                        EinsumAxisAccess],
-                                   index_to_axis_length: Map[str,
-                                                               ShapeComponentT],
-                                   ) -> Tuple[Tuple[EinsumAxisAccess, ...],
-                                              Map[str, EinsumAxisAccess],
-                                              Map[str, ShapeComponentT]]:
+def _normalize_einsum_in_subscript(
+    subscript: str,
+    in_operand_shape: ShapeT,
+    index_to_descr: Map[str, EinsumAxisAccess],
+    index_to_axis_length: Map[str, ShapeComponentT],
+) -> Tuple[
+    Tuple[EinsumAxisAccess, ...],
+    Map[str, EinsumAxisAccess],
+    Map[str, ShapeComponentT],
+]:
     """
     Normalizes the subscript for an input operand in an einsum. Returns
     ``(access_descrs, updated_index_to_descr, updated_to_index_to_axis_length)``,
@@ -179,14 +199,17 @@ def _normalize_einsum_in_subscript(subscript: str,
                 assert "ellipsis" in match.groupdict()
                 raise NotImplementedError("Broadcasting in einsums not supported")
             assert match.span()[0] == 0
-            acc = acc[match.span()[-1]:]
+            acc = acc[match.span()[-1] :]
         else:
-            raise ValueError(f"Cannot parse '{acc}' in provided einsum"
-                             f" '{subscript}'.")
+            raise ValueError(
+                f"Cannot parse '{acc}' in provided einsum" f" '{subscript}'."
+            )
 
     if len(normalized_indices) != len(in_operand_shape):
-        raise ValueError(f"Subscript '{subscript}' doesn't match the dimensionality "
-                         f"of corresponding operand ({len(in_operand_shape)}).")
+        raise ValueError(
+            f"Subscript '{subscript}' doesn't match the dimensionality "
+            f"of corresponding operand ({len(in_operand_shape)})."
+        )
 
     in_operand_axis_descrs = []
 
@@ -201,42 +224,50 @@ def _normalize_einsum_in_subscript(subscript: str,
                         pass
                     elif seen_axis_len == 1:
                         # Broadcast to the length of the current axis
-                        index_to_axis_length = (index_to_axis_length
-                                                .set(index_char, in_axis_len))
+                        index_to_axis_length = index_to_axis_length.set(
+                            index_char, in_axis_len
+                        )
                     else:
-                        raise ValueError("Got conflicting lengths for"
-                                         f" '{index_char}' -- {in_axis_len},"
-                                         f" {seen_axis_len}.")
+                        raise ValueError(
+                            "Got conflicting lengths for"
+                            f" '{index_char}' -- {in_axis_len},"
+                            f" {seen_axis_len}."
+                        )
             else:
-                index_to_axis_length = index_to_axis_length.set(index_char,
-                                                                in_axis_len)
+                index_to_axis_length = index_to_axis_length.set(
+                    index_char, in_axis_len
+                )
         else:
-            redn_sr_no = len([descr for descr in index_to_descr.values()
-                              if isinstance(descr, SummationAxis)])
+            redn_sr_no = len(
+                [
+                    descr
+                    for descr in index_to_descr.values()
+                    if isinstance(descr, SummationAxis)
+                ]
+            )
             redn_axis_descr = SummationAxis(redn_sr_no)
             index_to_descr = index_to_descr.set(index_char, redn_axis_descr)
-            index_to_axis_length = index_to_axis_length.set(index_char,
-                                                             in_axis_len)
+            index_to_axis_length = index_to_axis_length.set(index_char, in_axis_len)
 
         in_operand_axis_descrs.append(index_to_descr[index_char])
 
-    return (tuple(in_operand_axis_descrs),
-            index_to_descr, index_to_axis_length)
+    return (tuple(in_operand_axis_descrs), index_to_descr, index_to_axis_length)
 
 
-def _parse_subscripts(subscripts: str,
-                      operand_shapes: Tuple[ShapeT, ...]
-                      ) -> Tuple[Tuple[Tuple[EinsumAxisAccess, ...], ...],
-                                 Map[str, EinsumAxisAccess]]:
+def _parse_subscripts(
+    subscripts: str, operand_shapes: Tuple[ShapeT, ...]
+) -> Tuple[Tuple[Tuple[EinsumAxisAccess, ...], ...], Map[str, EinsumAxisAccess]]:
     if len(operand_shapes) == 0:
         raise ValueError("must specify at least one operand")
 
     if "->" not in subscripts:
         # implicit-mode: output spec matched by alphabetical ordering of
         # indices (ewwwww)
-        raise NotImplementedError("Implicit mode not supported. 'subscripts'"
-                                  " must contain '->', followed by the output's"
-                                  " indices.")
+        raise NotImplementedError(
+            "Implicit mode not supported. 'subscripts'"
+            " must contain '->', followed by the output's"
+            " indices."
+        )
     in_spec, out_spec = subscripts.split("->")
 
     in_specs = in_spec.split(",")
@@ -255,21 +286,22 @@ def _parse_subscripts(subscripts: str,
 
     for in_spec, in_operand_shape in szip(in_specs, operand_shapes):
         access_descriptor, index_to_descr, index_to_axis_length = (
-            _normalize_einsum_in_subscript(in_spec,
-                                           in_operand_shape,
-                                           index_to_descr,
-                                           index_to_axis_length))
+            _normalize_einsum_in_subscript(
+                in_spec, in_operand_shape, index_to_descr, index_to_axis_length
+            )
+        )
         access_descriptors.append(access_descriptor)
 
     return tuple(access_descriptors), index_to_descr
 
 
-def batched_einsum(subscripts: str,
-                 operand_shapes: Sequence[Any],
-                 use_matrix: Any,
-                 dtypes: Optional[npt.DTypeLike] = None,
-                 value_to_dtype: Optional[Mapping[str, npt.DTypeLike]] = None,
-                 ) -> BatchedEinsum:
+def batched_einsum(
+    subscripts: str,
+    operand_shapes: Sequence[Any],
+    use_matrix: Any,
+    dtypes: Optional[npt.DTypeLike] = None,
+    value_to_dtype: Optional[Mapping[str, npt.DTypeLike]] = None,
+) -> BatchedEinsum:
     """
     Returns a :class:`~feinsum.einsum.BatchedEinsum` with an interface similar to
     :func:`numpy.einsum`.
@@ -291,8 +323,9 @@ def batched_einsum(subscripts: str,
     from functools import reduce
 
     proc_op_shapes = tuple(_preprocess_shape(shape) for shape in operand_shapes)
-    access_descriptors, index_to_descr = _parse_subscripts(subscripts,
-                                                           proc_op_shapes)
+    access_descriptors, index_to_descr = _parse_subscripts(
+        subscripts, proc_op_shapes
+    )
 
     use_matrix = np.array(use_matrix)
 
@@ -302,17 +335,23 @@ def batched_einsum(subscripts: str,
         raise ValueError("``use_matrix`` is not a matrix.")
 
     if not np.all(
-            np.vectorize(lambda x: (isinstance(x, (frozenset, set))
-                                    and all(isinstance(k, str) for k in x))
-                         )(use_matrix)):
-        raise ValueError("Each element of the array-like ``use_matrix`` must be"
-                         " an instance of FrozenSet[str].")
+        np.vectorize(
+            lambda x: (
+                isinstance(x, (frozenset, set))
+                and all(isinstance(k, str) for k in x)
+            )
+        )(use_matrix)
+    ):
+        raise ValueError(
+            "Each element of the array-like ``use_matrix`` must be"
+            " an instance of FrozenSet[str]."
+        )
 
     use_matrix = np.vectorize(lambda x: frozenset(x))(use_matrix)
     assert isinstance(use_matrix, np.ndarray)
-    all_values_from_use_matrix: FrozenSet[str] = reduce(frozenset.union,
-                                                        use_matrix.ravel(),
-                                                        frozenset())
+    all_values_from_use_matrix: FrozenSet[str] = reduce(
+        frozenset.union, use_matrix.ravel(), frozenset()
+    )
     if use_matrix.shape[1] != len(proc_op_shapes):
         raise ValueError("use_matrix.shape[1] != len(proc_op_shapes)")
 
@@ -320,17 +359,21 @@ def batched_einsum(subscripts: str,
         if value_to_dtype is not None:
             raise ValueError("cannot pass both ``dtypes`` and ``value_to_dtype``")
 
-        value_to_proc_dtype = {value: np.dtype(dtypes)
-                               for value in all_values_from_use_matrix}
+        value_to_proc_dtype = {
+            value: np.dtype(dtypes) for value in all_values_from_use_matrix
+        }
     else:
         if value_to_dtype is None:
             raise ValueError("must pass either ``value_to_dtype`` or ``dtypes``")
-        value_to_proc_dtype = {value: np.dtype(dtype)
-                               for value, dtype in value_to_dtype.items()}
+        value_to_proc_dtype = {
+            value: np.dtype(dtype) for value, dtype in value_to_dtype.items()
+        }
 
     if all_values_from_use_matrix != frozenset(value_to_proc_dtype.keys()):
-        raise ValueError("The values inferred via ``value_to_dtype`` do"
-                         " not match the values inferred via ``use_matrix``")
+        raise ValueError(
+            "The values inferred via ``value_to_dtype`` do"
+            " not match the values inferred via ``use_matrix``"
+        )
 
     # }}}
 
@@ -345,8 +388,7 @@ def batched_einsum(subscripts: str,
     size_param_op_shapes = []
     axis_to_dim: Dict[EinsumAxisAccess, ProcessedShapeComponentT] = {}
 
-    for axes, op_shape in szip(access_descriptors,
-                               proc_op_shapes):
+    for axes, op_shape in szip(access_descriptors, proc_op_shapes):
         size_param_op_shape = []
         for axis, dim in szip(axes, op_shape):
             if axis in axis_to_dim:
@@ -367,18 +409,18 @@ def batched_einsum(subscripts: str,
 
     # }}}
 
-    return BatchedEinsum(tuple(size_param_op_shapes),
-                       Map(value_to_proc_dtype),
-                       access_descriptors,
-                       tuple(tuple(use_row)
-                             for use_row in use_matrix),
-                       index_names=axis_to_name,
-                       )
+    return BatchedEinsum(
+        tuple(size_param_op_shapes),
+        Map(value_to_proc_dtype),
+        access_descriptors,
+        tuple(tuple(use_row) for use_row in use_matrix),
+        index_names=axis_to_name,
+    )
 
 
-def einsum(subscripts: str,
-           *operands: ArrayT,
-           arg_names: Optional[Sequence[str]] = None) -> BatchedEinsum:
+def einsum(
+    subscripts: str, *operands: ArrayT, arg_names: Optional[Sequence[str]] = None
+) -> BatchedEinsum:
     """
     Returns a :class:`~feinsum.einsum.BatchedEinsum` with an interface similar to
     :func:`numpy.einsum`.
@@ -391,17 +433,23 @@ def einsum(subscripts: str,
         arg_names = [f"arg_{i}" for i in range(len(operands))]
 
     if len(arg_names) != len(operands):
-        raise ValueError(f"Number of argument names ({len(arg_names)}) "
-                         " does not match the number of operands"
-                         f" ({len(operands)}).")
+        raise ValueError(
+            f"Number of argument names ({len(arg_names)}) "
+            " does not match the number of operands"
+            f" ({len(operands)})."
+        )
 
     use_matrix = [[{arg_name} for arg_name in arg_names]]
-    value_to_dtype = {arg_name: operand.dtype
-                      for arg_name, operand in szip(arg_names, operands)}
+    value_to_dtype = {
+        arg_name: operand.dtype for arg_name, operand in szip(arg_names, operands)
+    }
 
-    return batched_einsum(subscripts,
-                        tuple(op.shape for op in operands),
-                        use_matrix=use_matrix,
-                        value_to_dtype=value_to_dtype)
+    return batched_einsum(
+        subscripts,
+        tuple(op.shape for op in operands),
+        use_matrix=use_matrix,
+        value_to_dtype=value_to_dtype,
+    )
+
 
 # vim: foldmethod=marker
