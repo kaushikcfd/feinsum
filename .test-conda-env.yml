@@ -12,3 +12,11 @@ dependencies:
 - islpy
 - sphinx-autodoc-typehints
 - pynauty
+- sphinx<8.2
+- mypy
+- pip
+- pip:
+  - "pytest"
+  - "sphinx-copybutton"
+  - "sphinx-book-theme"
+  - "ruff"

@@ -1,4 +1,6 @@
-"""
+from __future__ import annotations
+
+__doc__ = """
 .. autofunction:: query
 .. autofunction:: get_timed_einsums_in_db
 .. autofunction:: record_into_db
@@ -10,7 +12,6 @@ import json
 import logging
 import os
 import sqlite3
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from typing import (
@@ -22,7 +23,6 @@ import numpy as np
 import numpy.typing as npt
 from immutables import Map
 
-from feinsum.cl_utils import ContextT, DeviceT
 from feinsum.einsum import INT_CLASSES, BatchedEinsum, SizeParam
 
 logger = logging.getLogger(__name__)
@@ -30,14 +30,16 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     # avoid making pyopencl a hard dep.
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping, Sequence
 
     import loopy as lp
     import pyopencl as cl
 
+    from feinsum.cl_utils import ContextT, DeviceT
+
     # transform: (t_unit, insn_match, kernel_name)
     TransformT = Callable[
-        ["lp.TranslationUnit", Any | None, str | None], "lp.TranslationUnit"
+        [lp.TranslationUnit, Any | None, str | None], lp.TranslationUnit
     ]
 
 
@@ -76,7 +78,7 @@ def dump_use_matrix(einsum: BatchedEinsum) -> str:
     return json.dumps(use_matrix)
 
 
-def dump_cl_version(cl_device: "cl.Device") -> str:
+def dump_cl_version(cl_device: cl.Device) -> str:
     # TODO: needs to consider more things into account
     return f"{cl_device.vendor}-{cl_device.driver_version}"
 
@@ -119,7 +121,7 @@ def load_transform_params(params_str: str) -> Map[str, Any]:
     return Map({k: _process_param(v) for k, v in preprocessed_params.items()})
 
 
-def dump_device_name(cl_device: "cl.Device") -> str:
+def dump_device_name(cl_device: cl.Device) -> str:
     dev_name = cl_device.name
     assert isinstance(dev_name, str)
     return (

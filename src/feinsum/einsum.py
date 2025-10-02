@@ -37,10 +37,6 @@ INT_CLASSES = (int, np.integer)
 SCALAR_CLASSES = (np.number, int, np.bool_, bool, float, complex)
 
 
-ShapeComponentT = IntegralT | "SizeParam"
-ShapeT = tuple[ShapeComponentT, ...]
-
-
 @dataclass(frozen=True, eq=True, repr=True)
 class VeryLongAxis:
     """
@@ -55,12 +51,16 @@ class VeryLongAxis:
 class SizeParam:
     name: str
 
-    def __truediv__(self, other: ShapeComponentT) -> IntegralT:
+    def __truediv__(self, other: IntegralT | SizeParam) -> IntegralT:
         # only present to help writing easier param-getters in the tuner
         # implementations.
         return NotImplemented
 
     __rtruediv__ = __truediv__
+
+
+ShapeComponentT = IntegralT | SizeParam
+ShapeT = tuple[ShapeComponentT, ...]
 
 
 @dataclass(frozen=True)

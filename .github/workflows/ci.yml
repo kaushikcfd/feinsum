@@ -7,84 +7,35 @@ on:
 
 jobs:
   ruff:
-    name: Ruff
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-      - name: Run ruff-check
-        run: |
-          pip install ruff
+      - uses: ./.github/actions/activate-test-conda-env
+      - run: |
+          which python
+          python -V
           ruff check
 
   mypy:
-    name: Mypy
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Conda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          python-version: "3"
-          auto-activate-base: false
-          auto-update-conda: true
-
-      - name: Create test-conda-env, install feinsum, pytest
-        run: |
-          conda init bash
-          source ~/.bashrc
-          conda env create -f .test-conda-env.yml
-          conda activate test-conda-env
-          pip install .
-          python -m pip install mypy
+      - uses: ./.github/actions/activate-test-conda-env
+      - run: |
           mypy --show-error-codes --strict src/feinsum/
 
   pytest:
-    name: Pytest
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Conda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          python-version: "3"
-          auto-activate-base: false
-          auto-update-conda: true
-
-      - name: Create test-conda-env, install feinsum, pytest
-        run: |
-          conda init bash
-          source ~/.bashrc
-          conda env create -f .test-conda-env.yml
-          conda activate test-conda-env
-          pip install .
+      - uses: ./.github/actions/activate-test-conda-env
+      - run: |
           cd test
           pytest -vx .
 
   build-docs:
-    name: Check Documentation
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Conda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          python-version: "3"
-          auto-activate-base: false
-          auto-update-conda: true
-
-      - name: Create test-conda-env, install feinsum, sphinx-build
-        run: |
-          conda init bash
-          source ~/.bashrc
-          conda env create -f .test-conda-env.yml
-          conda activate test-conda-env
-          pip install .
+      - uses: ./.github/actions/activate-test-conda-env
+      - run: |
+          which python
+          python -V
           cd doc
           make html SPHINXOPTS="-W --keep-going -n"
