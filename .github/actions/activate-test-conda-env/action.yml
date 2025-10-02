@@ -1,5 +1,9 @@
-name: "Setup Conda Env, Install feinsum"
-description: "Checkout, activate test conda env, and create test-conda-env"
+name: "Setup Conda Env, Install feinsum."
+description: "Checkout, activate test conda env, and create test-conda-env."
+inputs:
+  run_in_env:
+    required: false
+    description: "Bash commands to run inside the environment."
 runs:
   using: "composite"
   steps:
@@ -7,10 +11,11 @@ runs:
       with:
         python-version: "3"
         auto-activate-base: false
-        activate-environment: test-conda-env
-        environment-file: .test-conda-env.yml
     - run: |
+        conda init bash
+        source ~/.bashrc
+        conda env create -f .test-conda-env.yml
+        conda activate test-conda-env
         pip install .
         ${{ inputs.run_in_env }}
       shell: bash
-
