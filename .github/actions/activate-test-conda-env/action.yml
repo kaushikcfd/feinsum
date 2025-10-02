@@ -3,17 +3,14 @@ description: "Checkout, activate test conda env, and create test-conda-env"
 runs:
   using: "composite"
   steps:
-    - uses: actions/checkout@v5
     - uses: conda-incubator/setup-miniconda@v3
       with:
         python-version: "3"
         auto-activate-base: false
-        auto-update-conda: true
+        activate-environment: test-conda-env
+        environment-file: .test-conda-env.yml
     - run: |
-        conda init bash
-        source ~/.bashrc
-        conda env create -f .test-conda-env.yml
-        conda activate test-conda-env
         pip install .
+        ${{ inputs.run_in_env }}
       shell: bash
 

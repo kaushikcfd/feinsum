@@ -9,33 +9,37 @@ jobs:
   ruff:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/activate-test-conda-env
-      - run: |
-          which python
-          python -V
-          ruff check
+        with:
+          run_in_env: |
+            ruff check
 
   mypy:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/activate-test-conda-env
-      - run: |
-          mypy --show-error-codes --strict src/feinsum/
+        with:
+          run_in_env: |
+            mypy --show-error-codes --strict src/feinsum/
 
   pytest:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/activate-test-conda-env
-      - run: |
-          cd test
-          pytest -vx .
+        with:
+          run_in_env: |
+            cd test
+            pytest -vx .
 
   build-docs:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/activate-test-conda-env
-      - run: |
-          which python
-          python -V
-          cd doc
-          make html SPHINXOPTS="-W --keep-going -n"
+        with:
+          run_in_env: |
+            cd doc
+            make html SPHINXOPTS="-W --keep-going -n"
