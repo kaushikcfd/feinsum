@@ -1,76 +1,90 @@
 name: CI
 on:
-    push:
-        branches:
-        - main
-    pull_request:
+  push:
+    branches:
+    - main
+  pull_request:
 
 jobs:
-    ruff:
-        name: Ruff
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v5
-        -
-            uses: actions/setup-python@v6
-        -   name: "Main Script"
-            run: |
-                pip install ruff
-                ruff check
+  ruff:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+      - name: Run ruff-check
+        run: |
+          pip install ruff
+          ruff check
 
-    mypy:
-        name: Mypy
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v5
-        -
-            uses: actions/setup-python@v1
-            with:
-                python-version: '3.x'
-        -   name: "Main Script"
-            run: |
-                curl -L -O https://tiker.net/ci-support-v0
-                . ./ci-support-v0
-                build_py_project_in_conda_env
-                python -m pip install mypy
-                mypy --show-error-codes --strict src/feinsum/
+  mypy:
+    name: Mypy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    pytest:
-        name: Conda Pytest
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v5
-        -   name: "Main Script"
-            run: |
-                curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project-within-miniconda.sh
-                . ./build-and-test-py-project-within-miniconda.sh
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: "3"
+          auto-activate-base: false
+          auto-update-conda: true
 
-    examples:
-        name: Conda Examples
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v5
-        -   name: "Main Script"
-            run: |
-                curl -L -O -k https://tiker.net/ci-support-v0
-                . ci-support-v0
-                build_py_project_in_conda_env
-                run_examples
+      - name: Create test-conda-env, install feinsum, pytest
+        run: |
+          conda init bash
+          source ~/.bashrc
+          conda env create -f .test-conda-env.yml
+          conda activate test-conda-env
+          pip install .
+          python -m pip install mypy
+          mypy --show-error-codes --strict src/feinsum/
 
-    docs:
-        name: Documentation
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v5
-        -
-            uses: actions/setup-python@v1
-            with:
-                python-version: '3.x'
-        -   name: "Main Script"
-            run: |
-                curl -L -O -k https://tiker.net/ci-support-v0
-                . ci-support-v0
-                build_py_project_in_conda_env
-                with_echo $PY_EXE -m pip install sphinx-book-theme sphinx-copybutton "sphinx<5"
-                with_echo cd doc
-                with_echo make html SPHINXOPTS="-W --keep-going -n"
+  pytest:
+    name: Pytest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: "3"
+          auto-activate-base: false
+          auto-update-conda: true
+
+      - name: Create test-conda-env, install feinsum, pytest
+        run: |
+          conda init bash
+          source ~/.bashrc
+          conda env create -f .test-conda-env.yml
+          conda activate test-conda-env
+          pip install .
+          cd tests
+          pytest -vx .
+
+  build-docs:
+    name: Check Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: "3"
+          auto-activate-base: false
+          auto-update-conda: true
+
+      - name: Create test-conda-env, install feinsum, sphinx-build
+        run: |
+          conda init bash
+          source ~/.bashrc
+          conda env create -f .test-conda-env.yml
+          conda activate test-conda-env
+          pip install .
+          cd docs
+          make html SPHINXOPTS="-W --keep-going -n"

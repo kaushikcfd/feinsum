@@ -16,8 +16,8 @@ author = "feinsum Contributors"
 ver_dic = {}
 exec(compile(open("../src/VERSION.py").read(), "../src/VERSION.py",
     "exec"), ver_dic)
-version = ".".join(str(x) for x in ver_dic["VERSION"])
-release = ver_dic["VERSION_TEXT"]
+release = ver_dic["VERSION"]
+release = ver_dic["VERSION"]
 
 intersphinx_mapping = {
     "https://docs.python.org/3/": None,

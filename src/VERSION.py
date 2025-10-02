@@ -21,6 +21,4 @@ THE SOFTWARE.
 """
 
 
-VERSION = (2025, 0)
-VERSION_STATUS = ""
-VERSION_TEXT = ".".join(str(x) for x in VERSION) + VERSION_STATUS
+VERSION = "2025.0"
