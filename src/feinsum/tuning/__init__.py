@@ -16,30 +16,31 @@ __doc__ = """
     See :attr:`transform_param.func`.
 """
 import abc
+import logging
 import os
 import sqlite3
-import numpy as np
-import pyopencl as cl
-import loopy as lp
-import opentuner
-
-from typing import (
-    Callable,
-    Any,
-    Tuple,
-    Mapping,
-    Optional,
-    Sequence,
-    Union,
-    FrozenSet,
-)
-from immutables import Map
 from dataclasses import dataclass
-from functools import cached_property, cache
-from feinsum.einsum import BatchedEinsum, IntegralT, ShapeComponentT, INT_CLASSES
+from functools import cache, cached_property
+from typing import (
+    TYPE_CHECKING,
+    Any,
+)
+
+import numpy as np
+import opentuner
+from immutables import Map
+
+from feinsum.einsum import INT_CLASSES, BatchedEinsum, IntegralT, ShapeComponentT
 from feinsum.sql_utils import DEFAULT_DB, TIMINGS_TABLENAME
-from feinsum.typing import TransformT
-import logging
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+
+    import loopy as lp
+    import pyopencl as cl
+
+    from feinsum.typing import TransformT
+
 
 logger = logging.getLogger(__name__)
 
@@ -91,13 +92,13 @@ class TupleParameter(TuningParameter):
     the individual elements of the tuple.
     """
 
-    _data: Tuple[TuningParameter, ...]
+    _data: tuple[TuningParameter, ...]
 
 
 # }}}
 
 
-ConvertibleToTuningParamT = Union[Tuple[Any, ...], TuningParameter]
+ConvertibleToTuningParamT = tuple[Any, ...] | TuningParameter
 
 
 # {{{ einsum_arg/transform_param
@@ -119,11 +120,11 @@ class einsum_arg:  # noqa: N801
     var_name: str
     func: Callable[[BatchedEinsum], Any]
 
-    def __call__(self, fn: Callable[..., Any]) -> "ParametrizedTransform":
+    def __call__(self, fn: Callable[..., Any]) -> ParametrizedTransform:
         if isinstance(fn, ParametrizedTransform):
             return ParametrizedTransform(
                 fn.transform,
-                (self,) + fn.einsum_derivative_args,
+                (self, *fn.einsum_derivative_args),
                 fn.transform_params,
             )
         else:
@@ -153,12 +154,12 @@ class transform_param:  # noqa: N801
 
     def __call__(
         self, fn: Callable[..., lp.TranslationUnit]
-    ) -> "ParametrizedTransform":
+    ) -> ParametrizedTransform:
         if isinstance(fn, ParametrizedTransform):
             return ParametrizedTransform(
                 fn.transform,
                 fn.einsum_derivative_args,
-                (self,) + fn.transform_params,
+                (self, *fn.transform_params),
             )
         else:
             from functools import cache
@@ -169,8 +170,8 @@ class transform_param:  # noqa: N801
 @dataclass(frozen=True, repr=True)
 class ParametrizedTransform:
     transform: Callable[..., lp.TranslationUnit]
-    einsum_derivative_args: Tuple[einsum_arg, ...]
-    transform_params: Tuple[transform_param, ...]
+    einsum_derivative_args: tuple[einsum_arg, ...]
+    transform_params: tuple[transform_param, ...]
 
     def __call__(self, *args: Any, **kwargs: Any) -> lp.TranslationUnit:
         return self.transform(*args, **kwargs)
@@ -246,13 +247,13 @@ def _convert_to_tuning_param(param: ConvertibleToTuningParamT) -> TuningParamete
         )
 
 
-def _get_opentuner_param_name(key: Tuple[str, ...]) -> str:
+def _get_opentuner_param_name(key: tuple[str, ...]) -> str:
     return "_".join(key)
 
 
 def _get_opentuner_params_from_tuning_param(
-    key: Tuple[str, ...], tuning_param: TuningParameter
-) -> FrozenSet[opentuner.manipulator.Parameter]:
+    key: tuple[str, ...], tuning_param: TuningParameter
+) -> frozenset[opentuner.manipulator.Parameter]:
     if isinstance(tuning_param, IntParameter):
         from opentuner.search.manipulator import IntegerParameter
 
@@ -275,7 +276,7 @@ def _get_opentuner_params_from_tuning_param(
         return reduce(
             frozenset.union,
             (
-                _get_opentuner_params_from_tuning_param(key + (f"_fetup_{i}",), k)
+                _get_opentuner_params_from_tuning_param((*key, f"_fetup_{i}"), k)
                 for i, k in enumerate(tuning_param._data)
             ),
             frozenset(),
@@ -288,17 +289,17 @@ def _get_opentuner_params_from_tuning_param(
 
 def _reconstruct_transform_params_from_opentuner_config(
     config: Mapping[str, Any],
-    transform_params: Tuple[transform_param, ...],
+    transform_params: tuple[transform_param, ...],
     ensm: BatchedEinsum,
 ) -> Mapping[str, Any]:
 
-    def rec(key: Tuple[str, ...], tuning_param: TuningParameter) -> Any:
+    def rec(key: tuple[str, ...], tuning_param: TuningParameter) -> Any:
         if isinstance(tuning_param, (IntParameter, BoolParameter)):
             param_name = _get_opentuner_param_name(key)
             return config[param_name]
         elif isinstance(tuning_param, TupleParameter):
             return tuple(
-                rec(key + ((f"_fetup_{isubparam}",)), subparam)
+                rec((*key, f"_fetup_{isubparam}"), subparam)
                 for isubparam, subparam in enumerate(tuning_param._data)
             )
         elif isinstance(tuning_param, TuningParameter):
@@ -319,13 +320,13 @@ def _get_opentuner_config_from_transform_config(
 ) -> Map[str, Any]:
     result = {}
 
-    def rec(key: Tuple[str, ...], param: Any) -> None:
+    def rec(key: tuple[str, ...], param: Any) -> None:
         if isinstance(param, (INT_CLASSES, bool)):
             result[_get_opentuner_param_name(key)] = param
             return
         elif isinstance(param, tuple):
             for ipar, par in enumerate(param):
-                rec(key + (f"_fetup_{ipar}",), par)
+                rec((*key, f"_fetup_{ipar}"), par)
         else:
             raise NotImplementedError(type(param))
 
@@ -350,12 +351,12 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         db_path: str,
         *,
         # Args to super class ->
-        project_name: Optional[str] = None,
+        project_name: str | None = None,
         program_name: str = "unknown",
         program_version: str = "unknown",
-        manipulator: Optional[Any] = None,
-        objective: Optional[Any] = None,
-        input_manager: Optional[Any] = None,
+        manipulator: Any | None = None,
+        objective: Any | None = None,
+        input_manager: Any | None = None,
     ) -> None:
         from feinsum.canonicalization import canonicalize_einsum
 
@@ -397,7 +398,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
             # device table not available
             logger.info(f"Table {TIMINGS_TABLENAME} not in DB, creating one.")
             cursor.execute(
-                "CREATE TABLE {TIMINGS_TABLENAME} ("
+                f"CREATE TABLE {TIMINGS_TABLENAME} ("
                 " ID INTEGER PRIMARY KEY AUTOINCREMENT,"
                 " subscripts TEXT,"
                 " index_to_length TEXT,"
@@ -418,7 +419,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
     def transform_func(self) -> ParametrizedTransform:
         return get_transform_func_from_module_path(self.module_path)
 
-    def manipulator(self) -> "opentuner.ConfigurationManipulator":
+    def manipulator(self) -> opentuner.ConfigurationManipulator:
         from opentuner import ConfigurationManipulator
 
         manipulator = ConfigurationManipulator()
@@ -435,11 +436,11 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
     def seed_configurations(self) -> Sequence[Mapping[str, Any]]:
         from feinsum.sql_utils import (
+            dump_device_name,
             dump_index_to_length,
+            dump_op_info,
             dump_use_matrix,
             dump_value_to_dtype,
-            dump_op_info,
-            dump_device_name,
             load_transform_params,
         )
 
@@ -488,12 +489,13 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
     def query_from_db(self, parameters: Mapping[str, Any]) -> float:
         import json
+
         from feinsum.sql_utils import (
-            dump_index_to_length,
-            dump_use_matrix,
-            dump_op_info,
-            dump_value_to_dtype,
             dump_device_name,
+            dump_index_to_length,
+            dump_op_info,
+            dump_use_matrix,
+            dump_value_to_dtype,
         )
 
         cursor = self.conn.cursor()
@@ -544,13 +546,14 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
     def record_into_db(self, runtime: float, parameters: Mapping[str, Any]) -> None:
         import json
+
         from feinsum.sql_utils import (
+            dump_cl_version,
+            dump_device_name,
             dump_index_to_length,
+            dump_op_info,
             dump_use_matrix,
             dump_value_to_dtype,
-            dump_device_name,
-            dump_cl_version,
-            dump_op_info,
         )
 
         cursor = self.conn.cursor()
@@ -566,8 +569,9 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
         # {{{ compute timestamp in Chicago
 
-        import pytz
         from datetime import datetime
+
+        import pytz
 
         timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime(
             "%Y_%m_%d_%H%M%S"
@@ -600,10 +604,10 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         self.conn.commit()
 
     def run(
-        self, desired_result: "opentuner.DesiredResult", input: Any, limit: Any
-    ) -> "opentuner.Result":
-        from feinsum.measure import timeit, stringify_comparison_vs_roofline
+        self, desired_result: opentuner.DesiredResult, input: Any, limit: Any
+    ) -> opentuner.Result:
         from feinsum.diagnostics import InvalidParameterError
+        from feinsum.measure import stringify_comparison_vs_roofline, timeit
 
         cfg = _reconstruct_transform_params_from_opentuner_config(
             desired_result.configuration.data,
@@ -660,9 +664,9 @@ def autotune(
     module_path: str,
     cl_ctx: cl.Context,
     *,
-    db_path: Optional[str] = None,
+    db_path: str | None = None,
     long_dim_length: int = 100_000,
-    stop_after: Optional[int] = None,
+    stop_after: int | None = None,
 ) -> None:
     """
     For a transform space specified in *module_path*, searches the parameter

@@ -50,8 +50,8 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
 
     # {{{ prefetch 'J * vec'
 
-    from pymbolic import variables
     from loopy.symbolic import get_dependencies
+    from pymbolic import variables
 
     knl = t_unit.default_entrypoint
 
@@ -87,8 +87,8 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
 
 
 def test_hoist_reduction_invariant_terms(ctx_factory):
-    from pymbolic import variables
     from loopy.symbolic import Reduction
+    from pymbolic import variables
 
     cl_ctx = ctx_factory()
     nel = 1

@@ -1,9 +1,10 @@
-import feinsum as fnsm
+from typing import Any
+
 import loopy as lp
 import numpy as np
 
+import feinsum as fnsm
 from feinsum.tuning import IntParameter
-from typing import Any, Optional
 
 
 @fnsm.tuning.einsum_arg("j_len", lambda e: e.shape[1])
@@ -14,8 +15,8 @@ def transform(
     j_len: int,
     l_0_size: int,
     l_1_size: int,
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
     if l_1_size * l_0_size > 550:
         raise fnsm.InvalidParameterError(
@@ -37,8 +38,9 @@ def transform(
 
 
 if __name__ == "__main__":
-    import pyopencl as cl
     import os
+
+    import pyopencl as cl
 
     n_j = 4
     cl_ctx = cl.create_some_context()

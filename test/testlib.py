@@ -1,7 +1,9 @@
-import numpy as np
-import loopy as lp
-import feinsum as fnsm
 import logging
+
+import loopy as lp
+import numpy as np
+
+import feinsum as fnsm
 
 logging.basicConfig(level="INFO")
 logger = logging.getLogger(__name__)

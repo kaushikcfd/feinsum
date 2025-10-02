@@ -20,8 +20,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import feinsum as f
 import numpy as np
+
+import feinsum as f
 
 
 def are_einsums_isomorphic(e1: f.BatchedEinsum, e2: f.BatchedEinsum) -> bool:

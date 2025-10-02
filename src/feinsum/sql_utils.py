@@ -6,44 +6,39 @@
 .. autoclass:: QueryInfo
 """
 
-import sys
-import os
-import logging
-import sqlite3
-import numpy as np
-import loopy as lp
-import numpy.typing as npt
 import json
-
+import logging
+import os
+import sqlite3
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 from typing import (
     TYPE_CHECKING,
-    Optional,
-    Callable,
-    Tuple,
     Any,
-    List,
-    Sequence,
-    Mapping,
-    Union,
 )
-from functools import cached_property
+
+import numpy as np
+import numpy.typing as npt
 from immutables import Map
-from feinsum.einsum import BatchedEinsum, INT_CLASSES, SizeParam
+
 from feinsum.cl_utils import ContextT, DeviceT
+from feinsum.einsum import INT_CLASSES, BatchedEinsum, SizeParam
 
 logger = logging.getLogger(__name__)
 
 
-if TYPE_CHECKING or getattr(sys, "FEINSUM_BUILDING_SPHINX_DOCS", False):
+if TYPE_CHECKING:
     # avoid making pyopencl a hard dep.
+    from collections.abc import Callable
+
+    import loopy as lp
     import pyopencl as cl
 
-
-# transform: (t_unit, insn_match, kernel_name)
-TransformT = Callable[
-    ["lp.TranslationUnit", Optional[Any], Optional[str]], "lp.TranslationUnit"
-]
+    # transform: (t_unit, insn_match, kernel_name)
+    TransformT = Callable[
+        ["lp.TranslationUnit", Any | None, str | None], "lp.TranslationUnit"
+    ]
 
 
 DEFAULT_DB = os.path.join(
@@ -87,8 +82,9 @@ def dump_cl_version(cl_device: "cl.Device") -> str:
 
 
 def dump_op_info(einsum: BatchedEinsum, long_dim_length: int) -> str:
-    from feinsum.measure import _get_giga_ops_from_einsum
     from pymbolic.mapper.evaluator import evaluate_to_float
+
+    from feinsum.measure import _get_giga_ops_from_einsum
 
     eval_context = {
         dim.name: long_dim_length
@@ -151,8 +147,8 @@ class QueryInfo:
     @cached_property
     def transform(self) -> TransformT:
         from feinsum.tuning import (
-            get_transform_func_from_module_path,
             _get_impls_path,
+            get_transform_func_from_module_path,
         )
 
         module_path = os.path.join(_get_impls_path(), self.transform_id)
@@ -167,7 +163,7 @@ def query(
     *,
     database: str = DEFAULT_DB,
     err_if_no_results: bool = False,
-) -> Tuple[QueryInfo, ...]:
+) -> tuple[QueryInfo, ...]:
     """
     Returns facts of previous recorded runs of *einsum* on *cl_ctx*.
 
@@ -256,7 +252,7 @@ def query(
 
 def get_timed_einsums_in_db(
     cl_device: DeviceT, database: str = DEFAULT_DB
-) -> Tuple[BatchedEinsum, ...]:
+) -> tuple[BatchedEinsum, ...]:
     r"""
     Returns a :class:`tuple` of :class:`~feinsum.einsum.BatchedEinsum`\ s for
     which some timing data is available on the OpenCL device *device* in the
@@ -283,13 +279,13 @@ def get_timed_einsums_in_db(
     )
 
     facts = set(cursor.fetchall())
-    seen_einsums: List[BatchedEinsum] = []
+    seen_einsums: list[BatchedEinsum] = []
     conn.close()
 
     for subscripts, index_to_length_str, use_matrix, value_to_dtype in facts:
         input_subscripts, _ = subscripts.split("->")
         index_to_length: Mapping[str, int] = json.loads(index_to_length_str)
-        arg_shapes: List[Sequence[Union[int, float]]] = []
+        arg_shapes: list[Sequence[int | float]] = []
         processed_use_matrix = [
             [frozenset(uses) for uses in use_row]
             for use_row in json.loads(use_matrix)
@@ -355,9 +351,9 @@ def record_into_db(
     the transformation in *module_path* along with *transform_params* and
     records it in the SQL database *database*.
     """
-    from feinsum.tuning import get_transform_func_from_module_path, _get_impls_path
     from feinsum.canonicalization import canonicalize_einsum
-    from feinsum.measure import timeit, stringify_comparison_vs_roofline
+    from feinsum.measure import stringify_comparison_vs_roofline, timeit
+    from feinsum.tuning import _get_impls_path, get_transform_func_from_module_path
 
     dirpath, transform_space_id = os.path.split(module_path)
     assert dirpath == _get_impls_path()
@@ -395,8 +391,9 @@ def record_into_db(
 
     # {{{ compute timestamp in Chicago
 
-    import pytz
     from datetime import datetime
+
+    import pytz
 
     timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime(
         "%Y_%m_%d_%H%M%S"

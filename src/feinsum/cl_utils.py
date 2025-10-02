@@ -4,8 +4,9 @@
 .. autoclass:: DeviceT
 """
 
-from typing import Protocol, Sequence, Tuple, Union
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 
 class DeviceT(Protocol):
@@ -38,10 +39,10 @@ class FakeDevice:
 
 @dataclass(frozen=True, repr=True, eq=True)
 class FakeContext:
-    devices: Tuple[FakeDevice, ...]
+    devices: tuple[FakeDevice, ...]
 
 
-def make_fake_cl_context(devices: Union[str, Sequence[str]]) -> FakeContext:
+def make_fake_cl_context(devices: str | Sequence[str]) -> FakeContext:
     if isinstance(devices, str):
         devices = (devices,)
 

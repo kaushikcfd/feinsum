@@ -1,5 +1,4 @@
-from typing import Mapping
-
+from collections.abc import Mapping
 
 # Mapping from device name to peak flop rate in GFlOps/s
 DEV_TO_PEAK_GFLOPS: Mapping[str, Mapping[str, float]]

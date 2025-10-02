@@ -1,9 +1,11 @@
+import logging
+
+import loopy as lp
+import numpy as np
+import pyopencl as cl
+
 import feinsum as f
 from feinsum.tuning import IntParameter
-import pyopencl as cl
-import numpy as np
-import logging
-import loopy as lp
 
 logging.basicConfig(level="INFO")
 

@@ -5,33 +5,33 @@
 .. autofunction:: generate_loopy_with_opt_einsum_schedule
 """
 
-import loopy as lp
-import islpy as isl
-import pymbolic.primitives as p
-import numpy as np
+from typing import Any
 
-from typing import Union, Tuple, Optional, Any, Dict
+import islpy as isl
+import loopy as lp
+import numpy as np
+import pymbolic.primitives as p
+from immutables import Map
+from more_itertools import zip_equal as szip
 from pytools import UniqueNameGenerator, memoize_on_first_arg
+
 from feinsum.einsum import (
-    BatchedEinsum,
-    FreeAxis,
-    SummationAxis,
-    EinsumAxisAccess,
-    IntegralT,
     INT_CLASSES,
-    ContractionSchedule,
-    EinsumOperand,
-    IntermediateResult,
-    SizeParam,
     Argument,
+    BatchedEinsum,
+    ContractionSchedule,
+    EinsumAxisAccess,
+    EinsumOperand,
+    FreeAxis,
+    IntegralT,
+    IntermediateResult,
     ShapeT,
+    SizeParam,
+    SummationAxis,
     get_opt_einsum_contraction_schedule,
     get_trivial_contraction_schedule,
 )
 from feinsum.make_einsum import batched_einsum
-from more_itertools import zip_equal as szip
-from immutables import Map
-
 
 LOOPY_LANG_VERSION = (2018, 2)
 
@@ -41,7 +41,7 @@ def get_isl_basic_set(einsum: BatchedEinsum) -> isl.BasicSet:
 
     for idx, dim in einsum.index_to_dim_length().items():
         if isinstance(dim, SizeParam):
-            proc_dim: Union[str, IntegralT] = dim.name
+            proc_dim: str | IntegralT = dim.name
         else:
             proc_dim = dim
 
@@ -78,7 +78,7 @@ def get_isl_basic_set(einsum: BatchedEinsum) -> isl.BasicSet:
 
 def make_subscript(
     name: str,
-    axes: Tuple[EinsumAxisAccess, ...],
+    axes: tuple[EinsumAxisAccess, ...],
     einsum: BatchedEinsum,
 ) -> p.Subscript:
     return p.Variable(name)[
@@ -88,7 +88,7 @@ def make_subscript(
 
 def make_access_expr(
     name: str,
-    axes: Tuple[EinsumAxisAccess, ...],
+    axes: tuple[EinsumAxisAccess, ...],
     einsum: BatchedEinsum,
 ) -> p.Call:
     return p.Variable(_get_input_subst_name(name))(
@@ -98,8 +98,8 @@ def make_access_expr(
 
 def _generate_trivial_einsum(
     einsum: BatchedEinsum,
-    output_names: Tuple[str, ...],
-) -> Tuple[isl.BasicSet, "lp.TranslationUnit"]:
+    output_names: tuple[str, ...],
+) -> tuple[isl.BasicSet, "lp.TranslationUnit"]:
     assert len(output_names) == einsum.noutputs
 
     domain = get_isl_basic_set(einsum)
@@ -121,10 +121,10 @@ def _generate_trivial_einsum(
                 (
                     p.Sum(tuple(make_access_expr(dep, axes, einsum) for dep in deps))
                     if len(deps) > 1
-                    else make_access_expr(list(deps)[0], axes, einsum)
+                    else make_access_expr(next(iter(deps)), axes, einsum)
                 )
                 for deps, axes in zip(
-                    einsum.use_matrix[i_out], einsum.access_descriptors
+                    einsum.use_matrix[i_out], einsum.access_descriptors, strict=False
                 )
             )
         )
@@ -144,7 +144,7 @@ def _get_input_subst_name(x: str) -> str:
 
 @memoize_on_first_arg
 def generate_loopy(
-    einsum: BatchedEinsum, schedule: Optional[ContractionSchedule] = None
+    einsum: BatchedEinsum, schedule: ContractionSchedule | None = None
 ) -> "lp.TranslationUnit":
     """
     Returns a :class:`loopy.TranslationUnit` with the reductions scheduled by
@@ -172,7 +172,7 @@ def generate_loopy(
 
     # {{{ start holding a mapping from argument to shapes
 
-    arg_to_shape: Dict[Argument, ShapeT] = {}
+    arg_to_shape: dict[Argument, ShapeT] = {}
 
     for ioperand, arg_shape in enumerate(einsum.arg_shapes):
         arg_to_shape[EinsumOperand(ioperand)] = arg_shape
@@ -205,7 +205,7 @@ def generate_loopy(
     value_to_dtype = einsum.value_to_dtype
 
     for i_output in range(einsum.noutputs):
-        arg_to_dtype: Dict[Argument, np.dtype[Any]] = {
+        arg_to_dtype: dict[Argument, np.dtype[Any]] = {
             EinsumOperand(ioperand): np.result_type(
                 *{value_to_dtype[use] for use in uses}
             )
@@ -216,6 +216,7 @@ def generate_loopy(
             result_name_in_lpy_knl[i_output],
             schedule.result_names,
             schedule.arguments,
+            strict=False,
         ):
             dtype = np.result_type(*{arg_to_dtype[arg] for arg in args})
             value_to_dtype = value_to_dtype.set(name_in_lpy_knl, dtype)
@@ -228,7 +229,12 @@ def generate_loopy(
     kernel_data = []
 
     for istep, (name_in_feinsum, subscripts, args) in enumerate(
-        zip(schedule.result_names, schedule.subscripts, schedule.arguments)
+        zip(
+            schedule.result_names,
+            schedule.subscripts,
+            schedule.arguments,
+            strict=False,
+        )
     ):
 
         subeinsum_value_to_dtype = {}
@@ -260,7 +266,7 @@ def generate_loopy(
         subeinsum = subeinsum.copy(
             index_names=Map(
                 {
-                    idx: name if istep == 0 else f"{name}_{istep-1}"
+                    idx: name if istep == 0 else f"{name}_{istep - 1}"
                     for idx, name in subeinsum.index_names.items()
                 }
             )
@@ -270,10 +276,8 @@ def generate_loopy(
         subeinsum_domain, subeinsum_statements = _generate_trivial_einsum(
             subeinsum,
             tuple(
-                [
-                    result_name_in_lpy_knl[i_output][istep]
-                    for i_output in range(einsum.noutputs)
-                ]
+                result_name_in_lpy_knl[i_output][istep]
+                for i_output in range(einsum.noutputs)
             ),
         )
 
@@ -306,7 +310,7 @@ def generate_loopy(
     # }}}
 
     # Substitutions
-    substitutions: Dict[str, lp.SubstitutionRule] = {}
+    substitutions: dict[str, lp.SubstitutionRule] = {}
     for val in einsum.value_to_dtype:
         val_ndim = len(einsum.get_arg_shape(val))
         subst_name = _get_input_subst_name(val)
@@ -335,7 +339,7 @@ def generate_loopy(
     t_unit = lp.make_kernel(
         domains,
         statements,
-        kernel_data=kernel_data + [...],
+        kernel_data=[*kernel_data, ...],
         substitutions=substitutions,
         lang_version=LOOPY_LANG_VERSION,
     )

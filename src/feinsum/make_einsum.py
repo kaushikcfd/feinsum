@@ -35,39 +35,32 @@ THE SOFTWARE.
 
 
 import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import (
+    Any,
+    Protocol,
+)
+
 import numpy as np
 import numpy.typing as npt
-
-from typing import (
-    Tuple,
-    Protocol,
-    Any,
-    List,
-    Sequence,
-    Optional,
-    Mapping,
-    FrozenSet,
-    Union,
-    Dict,
-)
-from dataclasses import dataclass
 from immutables import Map
-from feinsum.einsum import (
-    BatchedEinsum,
-    FreeAxis,
-    SummationAxis,
-    EinsumAxisAccess,
-    VeryLongAxis,
-    INT_CLASSES,
-    IntegralT,
-    SizeParam,
-)
 from more_itertools import zip_equal as szip  # strict zip
 from pytools import UniqueNameGenerator
 
+from feinsum.einsum import (
+    INT_CLASSES,
+    BatchedEinsum,
+    EinsumAxisAccess,
+    FreeAxis,
+    IntegralT,
+    SizeParam,
+    SummationAxis,
+    VeryLongAxis,
+)
 
-ShapeComponentT = Union[VeryLongAxis, IntegralT, SizeParam]
-ShapeT = Tuple[ShapeComponentT, ...]
+ShapeComponentT = VeryLongAxis | IntegralT | SizeParam
+ShapeT = tuple[ShapeComponentT, ...]
 
 
 class ArrayT(Protocol):
@@ -136,7 +129,7 @@ def _normalize_einsum_out_subscript(subscript: str) -> Map[str, EinsumAxisAccess
         (FreeAxis(dim=1), FreeAxis(dim=2), FreeAxis(dim=0))
     """
 
-    normalized_indices: List[str] = []
+    normalized_indices: list[str] = []
     acc = subscript.strip()
     while acc:
         match = EINSUM_FIRST_INDEX.match(acc)
@@ -167,8 +160,8 @@ def _normalize_einsum_in_subscript(
     in_operand_shape: ShapeT,
     index_to_descr: Map[str, EinsumAxisAccess],
     index_to_axis_length: Map[str, ShapeComponentT],
-) -> Tuple[
-    Tuple[EinsumAxisAccess, ...],
+) -> tuple[
+    tuple[EinsumAxisAccess, ...],
     Map[str, EinsumAxisAccess],
     Map[str, ShapeComponentT],
 ]:
@@ -188,7 +181,7 @@ def _normalize_einsum_in_subscript(
         These constraints would most likely recorded during normalizing other
         parts of an einsum's subscripts.
     """
-    normalized_indices: List[str] = []
+    normalized_indices: list[str] = []
     acc = subscript.strip()
     while acc:
         match = EINSUM_FIRST_INDEX.match(acc)
@@ -255,8 +248,8 @@ def _normalize_einsum_in_subscript(
 
 
 def _parse_subscripts(
-    subscripts: str, operand_shapes: Tuple[ShapeT, ...]
-) -> Tuple[Tuple[Tuple[EinsumAxisAccess, ...], ...], Map[str, EinsumAxisAccess]]:
+    subscripts: str, operand_shapes: tuple[ShapeT, ...]
+) -> tuple[tuple[tuple[EinsumAxisAccess, ...], ...], Map[str, EinsumAxisAccess]]:
     if len(operand_shapes) == 0:
         raise ValueError("must specify at least one operand")
 
@@ -299,8 +292,8 @@ def batched_einsum(
     subscripts: str,
     operand_shapes: Sequence[Any],
     use_matrix: Any,
-    dtypes: Optional[npt.DTypeLike] = None,
-    value_to_dtype: Optional[Mapping[str, npt.DTypeLike]] = None,
+    dtypes: npt.DTypeLike | None = None,
+    value_to_dtype: Mapping[str, npt.DTypeLike] | None = None,
 ) -> BatchedEinsum:
     """
     Returns a :class:`~feinsum.einsum.BatchedEinsum` with an interface similar to
@@ -349,7 +342,7 @@ def batched_einsum(
 
     use_matrix = np.vectorize(lambda x: frozenset(x))(use_matrix)
     assert isinstance(use_matrix, np.ndarray)
-    all_values_from_use_matrix: FrozenSet[str] = reduce(
+    all_values_from_use_matrix: frozenset[str] = reduce(
         frozenset.union, use_matrix.ravel(), frozenset()
     )
     if use_matrix.shape[1] != len(proc_op_shapes):
@@ -386,18 +379,18 @@ def batched_einsum(
     from feinsum.einsum import ShapeComponentT as ProcessedShapeComponentT
 
     size_param_op_shapes = []
-    axis_to_dim: Dict[EinsumAxisAccess, ProcessedShapeComponentT] = {}
+    axis_to_dim: dict[EinsumAxisAccess, ProcessedShapeComponentT] = {}
 
     for axes, op_shape in szip(access_descriptors, proc_op_shapes):
         size_param_op_shape = []
         for axis, dim in szip(axes, op_shape):
             if axis in axis_to_dim:
-                if isinstance(dim, INT_CLASSES + (SizeParam,)):
+                if isinstance(dim, (*INT_CLASSES, SizeParam)):
                     assert axis_to_dim[axis] == dim
                 else:
                     assert isinstance(dim, VeryLongAxis)
             else:
-                if isinstance(dim, INT_CLASSES + (SizeParam,)):
+                if isinstance(dim, (*INT_CLASSES, SizeParam)):
                     axis_to_dim[axis] = dim
                 else:
                     assert isinstance(dim, VeryLongAxis)
@@ -419,7 +412,7 @@ def batched_einsum(
 
 
 def einsum(
-    subscripts: str, *operands: ArrayT, arg_names: Optional[Sequence[str]] = None
+    subscripts: str, *operands: ArrayT, arg_names: Sequence[str] | None = None
 ) -> BatchedEinsum:
     """
     Returns a :class:`~feinsum.einsum.BatchedEinsum` with an interface similar to

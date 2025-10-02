@@ -21,12 +21,13 @@ THE SOFTWARE.
 """
 
 
+import loopy as lp
 import numpy as np
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests,
 )
+
 import feinsum as f
-import loopy as lp
 
 
 def test_simple_matvec(ctx_factory):

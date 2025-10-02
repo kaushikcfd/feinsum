@@ -22,25 +22,23 @@ Helper routines
 
 from __future__ import annotations
 
-import abc
-import numpy as np
-
-from immutables import Map
-from typing import Union, Tuple, Any, FrozenSet, List
 from dataclasses import dataclass
 from functools import cached_property
+from typing import Any
+
+import numpy as np
+from immutables import Map
 from more_itertools import zip_equal as zip
 from pytools import UniqueNameGenerator, memoize_method
 
-
-IntegralT = Union[int, np.integer]
-ScalarT = Union[np.number, int, np.bool_, bool, float, complex]
+IntegralT = int | np.integer
+ScalarT = np.number | int, np.bool_ | bool | float | complex
 INT_CLASSES = (int, np.integer)
 SCALAR_CLASSES = (np.number, int, np.bool_, bool, float, complex)
 
 
-ShapeComponentT = Union[IntegralT, "SizeParam"]
-ShapeT = Tuple[ShapeComponentT, ...]
+ShapeComponentT = IntegralT | "SizeParam"
+ShapeT = tuple[ShapeComponentT, ...]
 
 
 @dataclass(frozen=True, eq=True, repr=True)
@@ -66,10 +64,17 @@ class SizeParam:
 
 
 @dataclass(frozen=True)
-class EinsumAxisAccess(abc.ABC):
+class EinsumAxisAccess:
     """
     Base class for axis access types in an einsum expression.
     """
+
+    def __new__(cls, *args, **kwargs):
+        if cls is EinsumAxisAccess:
+            raise TypeError(
+                "EinsumAxisAccess is abstract and cannot be instantiated directly"
+            )
+        return super().__new__(cls)
 
 
 @dataclass(frozen=True)
@@ -112,10 +117,10 @@ class BatchedEinsum:
     .. automethod:: get_arg_shape
     """
 
-    arg_shapes: Tuple[ShapeT, ...]
+    arg_shapes: tuple[ShapeT, ...]
     value_to_dtype: Map[str, np.dtype[Any]]
-    access_descriptors: Tuple[Tuple[EinsumAxisAccess, ...], ...]
-    use_matrix: Tuple[Tuple[FrozenSet[str], ...], ...]
+    access_descriptors: tuple[tuple[EinsumAxisAccess, ...], ...]
+    use_matrix: tuple[tuple[frozenset[str], ...], ...]
     index_names: Map[EinsumAxisAccess, str]
 
     @property
@@ -194,11 +199,18 @@ class BatchedEinsum:
         return replace(self, **kwargs)
 
 
-class Argument(abc.ABC):
+class Argument:
     """
     An abstract class denoting an argument to an einsum in
     :class:`ContractionSchedule`. See :attr:`ContractionSchedule.arguments`.
     """
+
+    def __new__(cls, *args, **kwargs):
+        if cls is Argument:
+            raise TypeError(
+                "EinsumAxisAccess is abstract and cannot be instantiated directly"
+            )
+        return super().__new__(cls)
 
 
 @dataclass(frozen=True)
@@ -242,9 +254,9 @@ class ContractionSchedule:
     .. attribute:: nsteps
     """
 
-    subscripts: Tuple[str, ...]
-    result_names: Tuple[str, ...]
-    arguments: Tuple[Tuple[Argument, ...], ...]
+    subscripts: tuple[str, ...]
+    result_names: tuple[str, ...]
+    arguments: tuple[tuple[Argument, ...], ...]
 
     def __post_init__(self) -> None:
         assert len(self.subscripts) == len(self.result_names) == len(self.arguments)
@@ -294,6 +306,7 @@ def get_opt_einsum_contraction_schedule(
         - ``use_blas=False``
     """
     import opt_einsum
+
     from feinsum.make_einsum import array
 
     long_dim_length = opt_einsum_kwargs.pop("long_dim_length", 1_000_000)
@@ -319,14 +332,14 @@ def get_opt_einsum_contraction_schedule(
         **opt_einsum_kwargs,
     )
 
-    current_args: List[Argument] = [
+    current_args: list[Argument] = [
         EinsumOperand(i) for i in range(path.input_subscripts.count(",") + 1)
     ]
     vng = UniqueNameGenerator()
 
-    subscripts: List[str] = []
-    result_names: List[str] = []
-    arguments: List[Tuple[Argument, ...]] = []
+    subscripts: list[str] = []
+    result_names: list[str] = []
+    arguments: list[tuple[Argument, ...]] = []
     for contraction in path.contraction_list:
         arg_indices, _, subscript, _, _ = contraction
         arguments.append(tuple(current_args[idx] for idx in arg_indices))

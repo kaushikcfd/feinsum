@@ -25,27 +25,28 @@ THE SOFTWARE.
 """
 
 import abc
-import numpy as np
 import functools
-import pynauty as nauty
-
-from typing import Dict, Set, Mapping, List, Any, Union, Sequence, Tuple, FrozenSet
-from feinsum.einsum import (
-    BatchedEinsum,
-    ShapeT,
-    ShapeComponentT,
-    EinsumAxisAccess,
-    IntegralT,
-    SizeParam,
-    INT_CLASSES,
-)
-from feinsum.make_einsum import batched_einsum
-from immutables import Map
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+import pynauty as nauty
+from bidict import frozenbidict
+from immutables import Map
 from more_itertools import zip_equal as szip
 from pytools import UniqueNameGenerator
-from bidict import frozenbidict
 
+from feinsum.einsum import (
+    INT_CLASSES,
+    BatchedEinsum,
+    EinsumAxisAccess,
+    IntegralT,
+    ShapeComponentT,
+    ShapeT,
+    SizeParam,
+)
+from feinsum.make_einsum import batched_einsum
 
 # {{{ private interface to build an einsum graph
 
@@ -149,7 +150,7 @@ class SizeParamNode(EinsumGraphNode):
 
 
 def visualize_einsum_graph(
-    graph: Mapping[EinsumGraphNode, Set[EinsumGraphNode]],
+    graph: Mapping[EinsumGraphNode, set[EinsumGraphNode]],
 ) -> None:
     """
     Opens an Xwindow with the einsum graph connectivity
@@ -157,13 +158,13 @@ def visualize_einsum_graph(
     """
     from pymbolic.imperative.utils import show_dot
 
-    node_to_name: Dict[EinsumGraphNode, str] = {}
+    node_to_name: dict[EinsumGraphNode, str] = {}
     vng = UniqueNameGenerator({"node"})
 
     all_nodes = frozenset(graph)
     assert all(val <= all_nodes for val in graph.values())
-    graphviz_node_lines: List[str] = []
-    graphviz_edge_lines: List[str] = []
+    graphviz_node_lines: list[str] = []
+    graphviz_edge_lines: list[str] = []
 
     for node in all_nodes:
         name = vng("node")
@@ -186,7 +187,7 @@ def visualize_einsum_graph(
 
 def _get_use_matrix_col_permutation(
     einsum: BatchedEinsum, sorted_index_names: Sequence[str]
-) -> Tuple[int, ...]:
+) -> tuple[int, ...]:
     acc_descr_to_rank = {
         acc_descr: sorted_index_names.index(name)
         for acc_descr, name in einsum.index_names.items()
@@ -202,9 +203,9 @@ def _get_use_matrix_col_permutation(
 
 def _group_same_access_descriptors(einsum: BatchedEinsum) -> BatchedEinsum:
 
-    new_arg_shapes: List[ShapeT] = []
-    new_acc_descrs: List[Tuple[EinsumAxisAccess, ...]] = []
-    acc_descrs_to_i_new_col: Dict[Tuple[EinsumAxisAccess, ...], int] = {}
+    new_arg_shapes: list[ShapeT] = []
+    new_acc_descrs: list[tuple[EinsumAxisAccess, ...]] = []
+    acc_descrs_to_i_new_col: dict[tuple[EinsumAxisAccess, ...], int] = {}
     n_unique = 0
 
     for arg_shape, acc_descrs in szip(einsum.arg_shapes, einsum.access_descriptors):
@@ -221,7 +222,7 @@ def _group_same_access_descriptors(einsum: BatchedEinsum) -> BatchedEinsum:
     assert n_unique == len(acc_descrs_to_i_new_col)
     assert n_unique <= len(einsum.access_descriptors)
 
-    new_use_matrix: List[List[Set[str]]] = [
+    new_use_matrix: list[list[set[str]]] = [
         [set() for icol in range(n_unique)] for irow in range(einsum.noutputs)
     ]
 
@@ -243,19 +244,19 @@ def _group_same_access_descriptors(einsum: BatchedEinsum) -> BatchedEinsum:
 
 def get_einsum_dag(
     einsum: BatchedEinsum,
-) -> Map[EinsumGraphNode, FrozenSet[EinsumGraphNode]]:
+) -> Map[EinsumGraphNode, frozenset[EinsumGraphNode]]:
 
     output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(einsum.noutputs - 1)]
-    einsum_dag: Dict[EinsumGraphNode, Set[EinsumGraphNode]] = {}
+    einsum_dag: dict[EinsumGraphNode, set[EinsumGraphNode]] = {}
 
     # {{{ compute acc_descr_to_node, array_to_node
 
-    acc_descr_to_node: Dict[EinsumAxisAccess, IndexNode] = {}
-    access_to_node: Dict[Tuple[str, EinsumAxisAccess, int], AccessNode] = {}
-    array_to_node: Dict[str, ArrayNode] = {}
-    axis_to_node: Dict[int, AxisNode] = {}
-    shape_dim_to_node: Dict[ShapeComponentT, Union[LiteralNode, SizeParamNode]] = {}
-    dtype_to_node: Dict[np.dtype[Any], DtypeNode] = {}
+    acc_descr_to_node: dict[EinsumAxisAccess, IndexNode] = {}
+    access_to_node: dict[tuple[str, EinsumAxisAccess, int], AccessNode] = {}
+    array_to_node: dict[str, ArrayNode] = {}
+    axis_to_node: dict[int, AxisNode] = {}
+    shape_dim_to_node: dict[ShapeComponentT, LiteralNode | SizeParamNode] = {}
+    dtype_to_node: dict[np.dtype[Any], DtypeNode] = {}
 
     for acc_descrs in einsum.access_descriptors:
         for acc_descr in acc_descrs:
@@ -280,7 +281,7 @@ def get_einsum_dag(
     for output_name in output_names:
         for acc_descrs in einsum.access_descriptors:
             for idim, acc_descr in enumerate(acc_descrs):
-                access_to_node[(output_name, acc_descr, idim)] = AccessNode(
+                access_to_node[output_name, acc_descr, idim] = AccessNode(
                     output_name, einsum.index_names[acc_descr], idim
                 )
 
@@ -307,7 +308,7 @@ def get_einsum_dag(
     for output_name, use_row in szip(output_names, einsum.use_matrix):
         for acc_descrs, uses in szip(einsum.access_descriptors, use_row):
             acc_nodes = {
-                access_to_node[(output_name, acc_descr, idim)]
+                access_to_node[output_name, acc_descr, idim]
                 for idim, acc_descr in enumerate(acc_descrs)
             }
 
@@ -333,7 +334,7 @@ def get_einsum_dag(
         einsum_dag[dtype_to_node[dtype]].add(array_to_node[ary_name])
 
     for output_name, use_row in szip(output_names, einsum.use_matrix):
-        use_dtypes: FrozenSet[np.dtype[Any]] = functools.reduce(
+        use_dtypes: frozenset[np.dtype[Any]] = functools.reduce(
             frozenset.union,
             (
                 frozenset(einsum.value_to_dtype[use] for use in uses)
@@ -351,7 +352,7 @@ def get_einsum_dag(
 
 def _get_canonicalized_einsum_with_subst_mapping(
     einsum: BatchedEinsum,
-) -> Tuple[BatchedEinsum, frozenbidict[str, str]]:
+) -> tuple[BatchedEinsum, frozenbidict[str, str]]:
     """
     Returns a tuple of the form ``(canonicalized_einsum, subst_map)`` where
     *canonicalized_einsum* is an instance of :class:`BatchedEinsum` which is the
@@ -372,14 +373,14 @@ def _get_canonicalized_einsum_with_subst_mapping(
 
     # {{{ compute vertex coloring
 
-    input_array_nodes: Set[int] = set()
-    output_array_nodes: Set[int] = set()
-    size_param_nodes: Set[int] = set()
-    axis_nodes: Dict[int, Set[int]] = {}
-    access_nodes: Set[int] = set()
-    index_nodes: Set[int] = set()
-    dtype_nodes: Dict[np.dtype[Any], Set[int]] = {}
-    literal_nodes: Dict[IntegralT, Set[int]] = {}
+    input_array_nodes: set[int] = set()
+    output_array_nodes: set[int] = set()
+    size_param_nodes: set[int] = set()
+    axis_nodes: dict[int, set[int]] = {}
+    access_nodes: set[int] = set()
+    index_nodes: set[int] = set()
+    dtype_nodes: dict[np.dtype[Any], set[int]] = {}
+    literal_nodes: dict[IntegralT, set[int]] = {}
 
     # all input arrays => first color
     for node, idx in node_to_idx.items():
@@ -404,7 +405,7 @@ def _get_canonicalized_einsum_with_subst_mapping(
         else:
             raise NotImplementedError(type(node))
 
-    vertex_coloring: List[Set[int]] = []
+    vertex_coloring: list[set[int]] = []
 
     vertex_coloring.append(input_array_nodes)
     vertex_coloring.append(output_array_nodes)
@@ -448,12 +449,12 @@ def _get_canonicalized_einsum_with_subst_mapping(
     node_to_idx = {node: reindex_map[idx] for node, idx in node_to_idx.items()}
     del reindex_map
 
-    idx_to_new_idx: Dict[str, str] = {}
-    input_ary_name_to_new_ary_name: Dict[str, str] = {}
+    idx_to_new_idx: dict[str, str] = {}
+    input_ary_name_to_new_ary_name: dict[str, str] = {}
 
-    sorted_index_names: List[str] = []
-    sorted_input_arys: List[str] = []
-    sorted_output_arys: List[str] = []
+    sorted_index_names: list[str] = []
+    sorted_input_arys: list[str] = []
+    sorted_output_arys: list[str] = []
 
     for node in sorted(einsum_dag.keys(), key=lambda node_: node_to_idx[node_]):
         if isinstance(node, IndexNode):

@@ -1,13 +1,14 @@
-import feinsum as fnsm
-import numpy as np
-import loopy as lp
 import logging
 import math
+from typing import Any
+
+import loopy as lp
+import numpy as np
 from more_itertools import zip_equal as szip
 
-from typing import Optional, Any, Tuple, List
-from feinsum.einsum import SizeParam, INT_CLASSES
-from feinsum.tuning import einsum_arg, transform_param, IntParameter
+import feinsum as fnsm
+from feinsum.einsum import INT_CLASSES, SizeParam
+from feinsum.tuning import IntParameter, einsum_arg, transform_param
 from feinsum.utils import get_n_redn_dim
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ def _is_ensm_tensor_contraction(ensm: fnsm.BatchedEinsum) -> bool:
 
 def _get_indices(
     ensm: fnsm.BatchedEinsum,
-) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     from feinsum.einsum import FreeAxis, SummationAxis
 
     nredn_dim = len(
@@ -75,7 +76,7 @@ def _get_indices(
     )
 
 
-def _get_operand_names(ensm: fnsm.BatchedEinsum) -> Tuple[str, str]:
+def _get_operand_names(ensm: fnsm.BatchedEinsum) -> tuple[str, str]:
     assert ensm.noutputs == 1
     assert len(ensm.access_descriptors) == 2
     (operand1,) = ensm.use_matrix[0][0]
@@ -100,10 +101,10 @@ def transform(
     t_unit: lp.TranslationUnit,
     ensm: fnsm.BatchedEinsum,
     i_axis_mapping_perm: int,
-    output_tile_lengths: Tuple[int, ...],
-    t_redns: Tuple[int, ...],
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    output_tile_lengths: tuple[int, ...],
+    t_redns: tuple[int, ...],
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
     if ensm.ndim < 2:
         raise ValueError(
@@ -119,8 +120,8 @@ def transform(
 
     i_tx: int
     i_ty: int
-    i_rx: Optional[int]
-    i_ry: Optional[int]
+    i_rx: int | None
+    i_ry: int | None
 
     for i, index_mapping in enumerate(
         itertools.permutations(list(range(ensm.ndim)), min(4, ensm.ndim))
@@ -144,8 +145,8 @@ def transform(
         )
     tx: int
     ty: int
-    rx: Optional[int]
-    ry: Optional[int]
+    rx: int | None
+    ry: int | None
     if len(output_tile_lengths) == 4:
         tx, ty, rx, ry = output_tile_lengths
     elif len(output_tile_lengths) == 3:
@@ -256,7 +257,7 @@ def transform(
     assert len(new_t_redns) == len(t_redns)
     assert all(
         new_t_redn <= old_t_redn
-        for new_t_redn, old_t_redn in zip(new_t_redns, t_redns)
+        for new_t_redn, old_t_redn in zip(new_t_redns, t_redns, strict=False)
     )
     t_redns = tuple(new_t_redns)
     del new_t_redns
@@ -360,10 +361,10 @@ def transform(
         }
     )
 
-    A_sweep_inames: List[str] = []
-    A_prftch_inames: List[Optional[str]] = []
-    B_sweep_inames: List[str] = []
-    B_prftch_inames: List[Optional[str]] = []
+    A_sweep_inames: list[str] = []
+    A_prftch_inames: list[str | None] = []
+    B_sweep_inames: list[str] = []
+    B_prftch_inames: list[str | None] = []
 
     for (sweep_inames, prftch_inames), acc_descrs in szip(
         ((A_sweep_inames, A_prftch_inames), (B_sweep_inames, B_prftch_inames)),
@@ -524,8 +525,9 @@ def transform(
 
 
 if __name__ == "__main__":
-    import pyopencl as cl
     import os
+
+    import pyopencl as cl
 
     cl_ctx = cl.create_some_context()
 

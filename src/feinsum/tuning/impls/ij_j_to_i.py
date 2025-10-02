@@ -1,14 +1,17 @@
-import feinsum as fnsm
+from typing import Any
+
 import loopy as lp
 import numpy as np
 
+import feinsum as fnsm
 from feinsum.tuning import IntParameter
-from typing import Any, Optional
 
 
 def _get_scale_dtype(einsum: fnsm.BatchedEinsum) -> np.dtype[Any]:
     assert len(einsum.use_matrix) == 1
-    for arg_shape, uses in zip(einsum.arg_shapes, einsum.use_matrix[0]):
+    for arg_shape, uses in zip(
+        einsum.arg_shapes, einsum.use_matrix[0], strict=False
+    ):
         if len(arg_shape) == 1:
             (use,) = uses
             return einsum.value_to_dtype[use]
@@ -26,8 +29,8 @@ def transform(
     j_len: int,
     arg_2_dtype: np.dtype[Any],
     l_0_size: int,
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
     if l_0_size > 500:
         raise fnsm.InvalidParameterError(
@@ -48,8 +51,9 @@ def transform(
 
 
 if __name__ == "__main__":
-    import pyopencl as cl
     import os
+
+    import pyopencl as cl
 
     n_j = 35
     cl_ctx = cl.create_some_context()

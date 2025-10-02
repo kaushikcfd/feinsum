@@ -1,6 +1,5 @@
 import feinsum as f
 
-
 print(
     f.einsum(
         "ij,j->i",

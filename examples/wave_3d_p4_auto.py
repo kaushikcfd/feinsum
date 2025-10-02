@@ -1,11 +1,12 @@
-import numpy as np
-import pyopencl as cl
-import loopy as lp
-import feinsum as f
 import logging
 import os
 
+import loopy as lp
+import numpy as np
+import pyopencl as cl
 from loopy.match import Tagged
+
+import feinsum as f
 
 logging.basicConfig(level="INFO")
 logger = logging.getLogger(__name__)
@@ -80,9 +81,9 @@ def main(cl_ctx):
     # {{{ auto-tune
 
     from feinsum.tuning.impls import (
+        ifj_fe_fej_to_ei,
         xre_rij_ej_to_xei,
         xre_rij_xej_to_ei,
-        ifj_fe_fej_to_ei,
     )
 
     f.autotune(

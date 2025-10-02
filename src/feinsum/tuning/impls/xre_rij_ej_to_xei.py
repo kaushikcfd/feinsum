@@ -1,11 +1,12 @@
-from feinsum.tuning import IntParameter
-from typing import Optional, Any
+import logging
+import math
+from typing import Any
+
+import loopy as lp
+import numpy as np
 
 import feinsum as fnsm
-import numpy as np
-import loopy as lp
-import math
-import logging
+from feinsum.tuning import IntParameter
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,8 @@ def transform(
     j_tiles: int,
     # FIXME: Making this is BoolParameters leads to an error in validation.
     prftch_u_to_local: bool = False,
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
 
     if n_e_per_wg * nwork_items_per_e > 600:
@@ -53,7 +54,6 @@ def transform(
 
     within = parse_match(insn_match)
     knl = t_unit[kernel_name]
-    (insn_id,) = [insn.id for insn in knl.instructions if within(knl, insn)]
     del knl
 
     ref_einsum = fnsm.einsum(
@@ -277,9 +277,10 @@ def transform(
 
 
 if __name__ == "__main__":
-    import pyopencl as cl
     import os
     from functools import partial
+
+    import pyopencl as cl
 
     Ndim = 3
     Ndof = 35

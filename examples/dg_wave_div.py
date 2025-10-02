@@ -1,8 +1,10 @@
-import feinsum as f
+import logging
+
+import loopy as lp
 import numpy as np
 import pyopencl as cl
-import loopy as lp
-import logging
+
+import feinsum as f
 
 logger = logging.getLogger(__name__)
 

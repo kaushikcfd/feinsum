@@ -1,10 +1,11 @@
-import feinsum as fnsm
+from typing import Any
+
 import loopy as lp
 import loopy.match as lp_match
 import numpy as np
 
+import feinsum as fnsm
 from feinsum.tuning import IntParameter
-from typing import Optional, Any
 
 
 @fnsm.tuning.einsum_arg("noutputs", lambda e: e.noutputs)
@@ -17,8 +18,8 @@ def transform(
     noutputs: int,
     n_e_per_wg: int,
     nworkitems_per_e: int,
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
     if n_e_per_wg * nworkitems_per_e > 600:
         raise fnsm.InvalidParameterError("Block dimension limit exceeded")
@@ -82,8 +83,9 @@ def transform(
 
 
 if __name__ == "__main__":
-    import pyopencl as cl
     import os
+
+    import pyopencl as cl
 
     Ndof = 4
     Nfields = 16

@@ -1,15 +1,16 @@
-import pyopencl as cl
-import feinsum as fnsm
 import os
 
+import pyopencl as cl
+
+import feinsum as fnsm
 
 NEW_DB_NAME = "transform_archive_v5.db"
 TOP_K = 10  # how many entries to reevaluate
 
 
 def main():
-    from feinsum.tuning import _get_impls_path
     from feinsum.sql_utils import get_timed_einsums_in_db, record_into_db
+    from feinsum.tuning import _get_impls_path
 
     cl_ctx = cl.create_some_context()
     cq = cl.CommandQueue(cl_ctx)

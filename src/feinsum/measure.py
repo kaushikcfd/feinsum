@@ -6,26 +6,28 @@
 .. autofunction:: stringify_comparison_vs_roofline
 """
 
+import logging
+from collections.abc import Mapping
+from typing import Any
+
+import loopy as lp
 import numpy as np
 import numpy.typing as npt
-import pyopencl as cl
 import pymbolic.primitives as prim
-import loopy as lp
+import pyopencl as cl
 import pyopencl.array as cla
-
-from typing import Dict, Any, Optional, Mapping, Tuple
 from immutables import Map
+from more_itertools import zip_equal as zip
+
+from feinsum.diagnostics import NoDevicePeaksInfoError
 from feinsum.einsum import (
-    BatchedEinsum,
     INT_CLASSES,
-    SizeParam,
+    BatchedEinsum,
     ContractionSchedule,
     IntegralT,
+    SizeParam,
 )
 from feinsum.typing import ToStr, TransformT
-from more_itertools import zip_equal as zip
-from feinsum.diagnostics import NoDevicePeaksInfoError
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +62,7 @@ def generate_out_arrays(
 def _generate_random_np_array(
     rng: "np.random._generator.Generator",
     dtype: np.dtype[Any],
-    shape: Tuple[IntegralT, ...],
+    shape: tuple[IntegralT, ...],
 ) -> npt.NDArray[Any]:
     if dtype.kind == "c":
         real_dtype = get_real_dtype(dtype)
@@ -84,12 +86,12 @@ def generate_input_arrays(
 
     # {{{ compute val_to_shape
 
-    val_to_shape: Dict[str, Tuple[IntegralT, ...]] = {}
+    val_to_shape: dict[str, tuple[IntegralT, ...]] = {}
 
     for use_row in einsum.use_matrix:
         for values, op_shape in zip(use_row, einsum.arg_shapes):
             # concrete_op_shape: shape after getting rid of SizeParams
-            concrete_op_shape: Tuple[IntegralT, ...] = tuple(
+            concrete_op_shape: tuple[IntegralT, ...] = tuple(
                 dim if isinstance(dim, INT_CLASSES) else long_dim_length
                 for dim in op_shape
             )
@@ -116,7 +118,7 @@ def validate_batched_einsum_transform(
     einsum: BatchedEinsum,
     cl_ctx: cl.Context,
     transform: TransformT,
-    schedule: Optional[ContractionSchedule] = None,
+    schedule: ContractionSchedule | None = None,
 ) -> None:
     """
     If the :class:`loopy.LoopKernel` generated from *einsum* does not replicate
@@ -133,7 +135,7 @@ def validate_batched_einsum_transform(
     long_dim_length = 100
 
     arg_dict = generate_input_arrays(cq, einsum, long_dim_length).update(
-        {p: long_dim_length for p in ref_t_unit.default_entrypoint.all_params()}
+        dict.fromkeys(ref_t_unit.default_entrypoint.all_params(), long_dim_length)
     )
 
     t_unit = transform(ref_t_unit, insn_match=None, kernel_name=None)
@@ -144,10 +146,7 @@ def validate_batched_einsum_transform(
         cq,
         lp.fix_parameters(
             t_unit,
-            **{
-                name: long_dim_length
-                for name in (t_unit.default_entrypoint.all_params())
-            },
+            **dict.fromkeys(t_unit.default_entrypoint.all_params(), long_dim_length),
         ),
     )
     transform_outs = Map(
@@ -198,7 +197,7 @@ def timeit(
     transform: TransformT,
     cl_ctx: cl.Context,
     long_dim_length: int = 100000,
-    schedule: Optional[ContractionSchedule] = None,
+    schedule: ContractionSchedule | None = None,
 ) -> float:
     """
     Returns the runtime in seconds for executing *einsum* on OpenCL context
@@ -208,6 +207,7 @@ def timeit(
         :class:`loopy.TranslationUnit` lowered from *einsum*.
     """
     from time import time
+
     from feinsum.codegen.loopy import generate_loopy
 
     # Validate the transformation before fusing it
@@ -223,10 +223,7 @@ def timeit(
         cq,
         lp.fix_parameters(
             t_unit,
-            **{
-                name: long_dim_length
-                for name in (t_unit.default_entrypoint.all_params())
-            },
+            **dict.fromkeys(t_unit.default_entrypoint.all_params(), long_dim_length),
         ),
     )
 
@@ -267,8 +264,9 @@ def timeit(
 def _get_giga_ops_from_einsum(
     expr: BatchedEinsum,
 ) -> Map[np.dtype[Any], prim.Expression]:
-    from feinsum.codegen.loopy import generate_loopy_with_opt_einsum_schedule
     from loopy.symbolic import qpolynomial_to_expr
+
+    from feinsum.codegen.loopy import generate_loopy_with_opt_einsum_schedule
 
     t_unit = generate_loopy_with_opt_einsum_schedule(
         expr, use_blas=False, optimize="optimal"
@@ -277,13 +275,16 @@ def _get_giga_ops_from_einsum(
     kernel = t_unit.default_entrypoint
     kernel = kernel.copy(
         silenced_warnings=(
-            kernel.silenced_warnings
-            + ["insn_count_subgroups_upper_bound", "summing_if_branches_ops"]
+            [
+                *kernel.silenced_warnings,
+                "insn_count_subgroups_upper_bound",
+                "summing_if_branches_ops",
+            ]
         )
     )
     t_unit = t_unit.with_kernel(kernel)
     op_map = lp.get_op_map(t_unit, subgroup_size=1)
-    new_op_map: Dict[np.dtype[Any], prim.Expression] = {}
+    new_op_map: dict[np.dtype[Any], prim.Expression] = {}
 
     for dtype in {op.dtype.numpy_dtype for op in op_map.keys()}:
         if dtype.kind == "c":
@@ -322,10 +323,7 @@ def _get_footprint_gbytes(expr: BatchedEinsum, long_dim_length: int) -> float:
     t_unit = generate_loopy(expr)
     t_unit = lp.fix_parameters(
         t_unit,
-        **{
-            name: long_dim_length
-            for name in (t_unit.default_entrypoint.all_params())
-        },
+        **dict.fromkeys(t_unit.default_entrypoint.all_params(), long_dim_length),
     )
     t_unit = lp.infer_unknown_types(t_unit)
     kernel = t_unit.default_entrypoint
@@ -345,7 +343,7 @@ def measure_giga_op_rate(
     transform: TransformT,
     cl_ctx: cl.Context,
     long_dim_length: int = 100000,
-    schedule: Optional[ContractionSchedule] = None,
+    schedule: ContractionSchedule | None = None,
 ) -> Map[np.dtype[Any], float]:
     """
     Returns the arithmetic operations rate (in Giga Ops per second) by
@@ -378,8 +376,9 @@ def get_roofline_flop_rate(
     expr: BatchedEinsum, dev_name: str, long_dim_length: int = 100_000
 ) -> Map[np.dtype[Any], float]:
 
-    from feinsum.data.device_info import DEV_TO_PEAK_GFLOPS, DEV_TO_PEAK_BW
     from pymbolic.mapper.evaluator import evaluate_to_float
+
+    from feinsum.data.device_info import DEV_TO_PEAK_BW, DEV_TO_PEAK_GFLOPS
 
     dtype_to_gflops_expr = _get_giga_ops_from_einsum(expr)
     ngbs = _get_footprint_gbytes(expr, long_dim_length)
@@ -401,8 +400,8 @@ def get_roofline_flop_rate(
             for dtype, ngflops in dtype_to_gflops.items()
         )
         roofline_time_due_to_global_bw = ngbs / DEV_TO_PEAK_BW[dev_name]
-    except KeyError:
-        raise NoDevicePeaksInfoError
+    except KeyError as exc:
+        raise NoDevicePeaksInfoError from exc
     roofline_time = max(roofline_time_due_to_flops, roofline_time_due_to_global_bw)
 
     return Map(
@@ -416,11 +415,11 @@ def _strify_measured_vs_roofline(
 ) -> str:
     try:
         from tabulate import tabulate
-    except ImportError:
+    except ImportError as exc:
         raise ImportError(
             "`tabulate` is need for pretty printing."
             " Install via `pip install tabulate`."
-        )
+        ) from exc
     assert set(measured_flop_rate.keys()) == set(roofline_flop_rate.keys())
     perf_table = [["Dtype", "Measured GOps/s", "Roofline GOps/s"]]
     for dtype in sorted(measured_flop_rate.keys(), key=lambda x: x.itemsize):
@@ -443,7 +442,7 @@ def _strify_measured_vs_roofline(
 def stringify_comparison_vs_roofline(
     expr: BatchedEinsum,
     *,
-    schedule: Optional[ContractionSchedule] = None,
+    schedule: ContractionSchedule | None = None,
     transform: TransformT,
     cl_ctx: cl.Context,
     long_dim_length: int = 100000,
@@ -474,7 +473,7 @@ def stringify_comparison_vs_roofline(
         roofline_flop_rate = get_roofline_flop_rate(expr, dev.name)
     except NoDevicePeaksInfoError:
         return _strify_measured_vs_roofline(
-            measured_flop_rate, {k: "N/A" for k in measured_flop_rate.keys()}
+            measured_flop_rate, dict.fromkeys(measured_flop_rate.keys(), "N/A")
         )
     else:
         return _strify_measured_vs_roofline(measured_flop_rate, roofline_flop_rate)

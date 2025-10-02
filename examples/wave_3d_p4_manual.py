@@ -1,8 +1,10 @@
+import logging
+
+import loopy as lp
 import numpy as np
 import pyopencl as cl
-import loopy as lp
+
 import feinsum as fnsm
-import logging
 
 logging.basicConfig(level="INFO")
 logger = logging.getLogger(__name__)
@@ -100,8 +102,8 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
 
     # {{{ term hoisting to match the flop count of opt_einsum
 
-    from pymbolic import variables
     from loopy.symbolic import get_dependencies
+    from pymbolic import variables
 
     knl = t_unit[kernel_name]
 
@@ -326,8 +328,8 @@ def transform_face_mass(t_unit, insn_match=None, kernel_name=None):
 
     # }}}
 
-    from pymbolic import variables
     from loopy.symbolic import get_dependencies
+    from pymbolic import variables
 
     knl = t_unit[kernel_name]
 

@@ -40,4 +40,5 @@ nitpick_ignore_regex = [
 ]
 
 import sys
-sys.FEINSUM_BUILDING_SPHINX_DOCS = True
+
+sys.TYPE_CHECKING = True

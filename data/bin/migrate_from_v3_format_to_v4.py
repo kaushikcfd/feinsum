@@ -1,7 +1,9 @@
-import sqlite3 as sql
-import feinsum as f
-import numpy as np
 import json
+import sqlite3 as sql
+
+import numpy as np
+
+import feinsum as f
 
 
 def record_into_db(

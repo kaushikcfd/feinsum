@@ -1,15 +1,16 @@
-from feinsum.tuning import IntParameter
-from typing import Optional, Any
+import logging
+import math
+from typing import Any
+
+import islpy as isl
+import loopy as lp
+import loopy.match as lp_match
+import numpy as np
 from more_itertools import chunked
 from more_itertools import zip_equal as szip
 
 import feinsum as fnsm
-import numpy as np
-import loopy as lp
-import math
-import logging
-import loopy.match as lp_match
-import islpy as isl
+from feinsum.tuning import IntParameter
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,8 @@ def transform(
     j_tiles: int,
     # FIXME: Making this is BoolParameters leads to an error in validation.
     prftch_u_to_local: bool = False,
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
 
     if n_e_per_wg * nwork_items_per_e > 600:
@@ -251,7 +252,9 @@ def transform(
         else:
             jprftch_u = vng("j_prftch_u")
             for u, ufetch_id in zip(
-                i_stmt_tile_to_fields[istmt_tile], ufetch_ids[istmt_tile]
+                i_stmt_tile_to_fields[istmt_tile],
+                ufetch_ids[istmt_tile],
+                strict=False,
             ):
                 t_unit = lp.precompute(
                     t_unit,
@@ -438,9 +441,10 @@ def transform(
 
 
 if __name__ == "__main__":
-    import pyopencl as cl
     import os
     from functools import partial
+
+    import pyopencl as cl
 
     Ndim = 3
     Ndof = 4

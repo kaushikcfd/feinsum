@@ -1,10 +1,11 @@
-import feinsum as fnsm
-import loopy as lp
-import numpy as np
-import loopy.match as lp_match
+from typing import Any
 
+import loopy as lp
+import loopy.match as lp_match
+import numpy as np
+
+import feinsum as fnsm
 from feinsum.tuning import IntParameter
-from typing import Optional, Any
 
 
 @fnsm.tuning.einsum_arg("ndofs", lambda e: e.shape[1])
@@ -17,8 +18,8 @@ def transform(
     ndofs: int,
     n_e_per_wg: int,
     nworkitems_per_e: int,
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
 
     kernel_name = kernel_name or t_unit.default_entrypoint.name
@@ -129,8 +130,9 @@ def transform(
 
 
 if __name__ == "__main__":
-    import pyopencl as cl
     import os
+
+    import pyopencl as cl
 
     Ndof = 15
     Nfields = 1

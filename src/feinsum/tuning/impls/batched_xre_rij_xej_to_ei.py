@@ -1,15 +1,16 @@
-from feinsum.tuning import IntParameter
-from typing import Optional, Any
+import logging
+import math
+from typing import Any
+
+import islpy as isl
+import loopy as lp
+import loopy.match as lp_match
+import numpy as np
 from more_itertools import chunked
 from more_itertools import zip_equal as szip
 
 import feinsum as fnsm
-import numpy as np
-import loopy as lp
-import loopy.match as lp_match
-import islpy as isl
-import math
-import logging
+from feinsum.tuning import IntParameter
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,8 @@ def transform(
     n_stmt_tile: int,
     i_tiles: int,
     j_tiles: int,
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
 
     if n_e_per_wg * nwork_items_per_e > 600:
@@ -200,8 +201,8 @@ def transform(
 
         # {{{ term hoisting to match the flop count of opt_einsum
 
-        from pymbolic import variables
         from loopy.symbolic import get_dependencies
+        from pymbolic import variables
 
         knl = t_unit[kernel_name]
 
@@ -277,7 +278,7 @@ def transform(
         # {{{ precompute hoisted substs
 
         for isubst, (subst_name, tmp_name) in enumerate(
-            zip(subst_names, hoisted_tmp_names)
+            zip(subst_names, hoisted_tmp_names, strict=False)
         ):
             t_unit = lp.precompute(
                 t_unit,
@@ -411,9 +412,10 @@ def transform(
 
 
 if __name__ == "__main__":
-    import pyopencl as cl
     import os
     from functools import partial
+
+    import pyopencl as cl
 
     Ndim = 3
     Ndof = 4

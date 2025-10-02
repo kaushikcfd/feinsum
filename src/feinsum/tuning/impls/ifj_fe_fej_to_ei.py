@@ -1,13 +1,14 @@
-from feinsum.tuning import IntParameter
-from typing import Optional, Any
+import logging
+import math
+from typing import Any
+
+import islpy as isl
+import loopy as lp
+import numpy as np
 from more_itertools import zip_equal as szip
 
 import feinsum as fnsm
-import numpy as np
-import loopy as lp
-import math
-import logging
-import islpy as isl
+from feinsum.tuning import IntParameter
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,13 @@ def transform_with_single_j_tile_i_tile(
     n_e_per_wg: int,
     nwork_items_per_e: int,
     n_stmt_tile: int,
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
     import loopy.match as lp_match
+    from loopy.symbolic import get_dependencies
     from more_itertools import chunked
     from pymbolic import variables
-    from loopy.symbolic import get_dependencies
 
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
@@ -288,13 +289,13 @@ def transform(
     n_stmt_tile: int,
     n_i_tile: int,
     n_j_tile: int,
-    insn_match: Optional[Any] = None,
-    kernel_name: Optional[str] = None,
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
     import loopy.match as lp_match
+    from loopy.symbolic import get_dependencies
     from more_itertools import chunked
     from pymbolic import variables
-    from loopy.symbolic import get_dependencies
 
     n_stmt_tile = math.ceil(nfields / math.ceil(nfields / n_stmt_tile))
 
@@ -618,7 +619,7 @@ def transform(
                 )
             ),
             new_inames=[new_iname_names_map[iname] for iname in inames_to_duplicate],
-            tags={iname: "unr" for iname in inames_to_duplicate},
+            tags=dict.fromkeys(inames_to_duplicate, "unr"),
         )
 
         new_iname_names_map = {
@@ -640,7 +641,7 @@ def transform(
                 )
             ),
             new_inames=[new_iname_names_map[iname] for iname in inames_to_duplicate],
-            tags={iname: "unr" for iname in inames_to_duplicate},
+            tags=dict.fromkeys(inames_to_duplicate, "unr"),
         )
 
     for i_stmt_tile in range(1, n_stmt_tile):
@@ -652,9 +653,10 @@ def transform(
 
 
 if __name__ == "__main__":
-    import pyopencl as cl
     import os
     from functools import partial
+
+    import pyopencl as cl
 
     Nfields = 4
     Nface = 4

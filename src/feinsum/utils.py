@@ -6,11 +6,11 @@
 .. autoclass:: IndexNameGenerator
 """
 
-from feinsum.einsum import BatchedEinsum, SummationAxis, SizeParam
-from feinsum import array
-from feinsum.make_einsum import einsum as build_einsum
-from typing import FrozenSet
 import dataclasses as dc
+
+from feinsum import array
+from feinsum.einsum import BatchedEinsum, SizeParam, SummationAxis
+from feinsum.make_einsum import einsum as build_einsum
 
 
 def has_similar_subscript(einsum: BatchedEinsum, subscript: str) -> bool:
@@ -83,9 +83,9 @@ def is_any_redn_dim_parametric(einsum: BatchedEinsum) -> bool:
     """
 
     for arg_shape, access_descrs in zip(
-        einsum.arg_shapes, einsum.access_descriptors
+        einsum.arg_shapes, einsum.access_descriptors, strict=False
     ):
-        for access_descr, dim in zip(access_descrs, arg_shape):
+        for access_descr, dim in zip(access_descrs, arg_shape, strict=False):
             if isinstance(access_descr, SummationAxis) and isinstance(
                 dim, SizeParam
             ):
@@ -128,7 +128,7 @@ class IndexNameGenerator:
         'd'
     """
 
-    banned_names: FrozenSet[str] = dc.field(default=frozenset())
+    banned_names: frozenset[str] = dc.field(default=frozenset())
     counter: int = dc.field(init=False, default=0)
 
     def __call__(self) -> str:
