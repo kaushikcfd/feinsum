@@ -62,7 +62,7 @@ jobs:
           conda env create -f .test-conda-env.yml
           conda activate test-conda-env
           pip install .
-          cd tests
+          cd test
           pytest -vx .
 
   build-docs:
@@ -86,5 +86,5 @@ jobs:
           conda env create -f .test-conda-env.yml
           conda activate test-conda-env
           pip install .
-          cd docs
+          cd doc
           make html SPHINXOPTS="-W --keep-going -n"
