@@ -156,7 +156,7 @@ def visualize_einsum_graph(
     Opens an Xwindow with the einsum graph connectivity
     as visualized by DOT.
     """
-    from pymbolic.imperative.utils import show_dot
+    from pytools.graphviz import show_dot
 
     node_to_name: dict[EinsumGraphNode, str] = {}
     vng = UniqueNameGenerator({"node"})

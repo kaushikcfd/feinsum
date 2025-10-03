@@ -28,8 +28,7 @@ from feinsum.einsum import BatchedEinsum, IntegralT
 # {{{ matching loopy kernel against a ref. einsum
 
 
-# type-ignore-reason: deriving from Any
-class ReductionCollector(CombineMapper):  # type: ignore[misc]
+class ReductionCollector(CombineMapper[frozenset[p.Expression], []]):
     """
     A mapper that collects all instances of :class:`loopy.symbolic.Reduction`
     in an expression.
@@ -62,7 +61,7 @@ def _get_indices_from_assignee(assignee: p.Expression) -> tuple[str, ...]:
     elif isinstance(assignee, p.Subscript) and all(
         isinstance(idx, p.Variable) for idx in assignee.index_tuple
     ):
-        return tuple(idx.name for idx in assignee.index_tuple)
+        return tuple(cast("p.Variable", idx).name for idx in assignee.index_tuple)
     else:
         raise EinsumTunitMatchError(
             "Not all instructions assign to Variable or"
@@ -128,7 +127,7 @@ def _get_dtype_for_subst_argument(
 
     t_unit = _infer_lp_types(t_unit)
     knl = t_unit.default_entrypoint
-    type_reader = TypeReader(knl, t_unit.callables_table)
+    type_reader = TypeReader(knl, t_unit.callables_table)  # type: ignore[no-untyped-call]
     subst = knl.substitutions[rule_name]
     subst_expr = subst.expression
     # submap1: expand substitution invocations (expected by type inference mapper)
@@ -146,11 +145,10 @@ def _get_dtype_for_subst_argument(
 
     subst_dtype = type_reader(submap2(submap1(subst_expr)))
     # type-ignore-reason: missing precise typing information in loopy
-    return subst_dtype.numpy_dtype  # type: ignore[no-any-return]
+    return subst_dtype.numpy_dtype
 
 
-# type-ignore-reason: deriving from Any
-class SubstitutionInvocationGetter(CombineMapper):  # type: ignore[misc]
+class SubstitutionInvocationGetter(CombineMapper[frozenset[p.Call], []]):
     """
     Mapper to collect all the substitution invocations in an expression.
 
@@ -169,12 +167,10 @@ class SubstitutionInvocationGetter(CombineMapper):  # type: ignore[misc]
         return reduce(frozenset.union, values, frozenset())
 
     def map_call(self, expr: p.Call) -> frozenset[p.Call]:
-        if expr.function.name in self.argument_substs:
+        if cast("p.Variable", expr.function).name in self.argument_substs:
             return frozenset([expr])
         else:
-            # type-ignore-reason: CombineMapper.map_call does not provide type
-            # information
-            return super().map_call(expr)  # type: ignore[no-any-return]
+            return super().map_call(expr)
 
     def map_algebraic_leaf(self, expr: Any) -> frozenset[p.Call]:
         return frozenset()
@@ -320,7 +316,7 @@ def get_a_matched_einsum(
 
             access_index_tuple_var: tuple[p.Variable, ...] = next(
                 iter(subst_invokes)
-            ).parameters
+            ).parameters  # type: ignore[assignment]
 
             if any(
                 subst_invoke.parameters != access_index_tuple_var
@@ -337,7 +333,8 @@ def get_a_matched_einsum(
                 idx.name for idx in access_index_tuple_var
             )
             subst_names = {
-                subst_invoke.function.name for subst_invoke in subst_invokes
+                cast("p.Variable", subst_invoke.function).name
+                for subst_invoke in subst_invokes
             }
             (
                 access_to_operands.setdefault(access_index_tuple, set()).update(
@@ -419,7 +416,7 @@ def get_a_matched_einsum(
     # Step 6. Construct the batched einsum.
     from feinsum.make_einsum import batched_einsum
 
-    batched_einsum = batched_einsum(
+    beinsum = batched_einsum(
         einsum_subscripts,
         arg_shapes,
         use_matrix=use_matrix,
@@ -439,7 +436,7 @@ def get_a_matched_einsum(
             },
         }
     )
-    return batched_einsum, subst_map
+    return beinsum, subst_map
 
 
 def match_t_unit_to_einsum(
@@ -482,8 +479,7 @@ def match_t_unit_to_einsum(
 # {{{ get_call_ids
 
 
-# type-ignore-reason: deriving from CombineMapper (i.e. Any)
-class CallCollector(CombineMapper):  # type: ignore[misc]
+class CallCollector(CombineMapper[frozenset[str], []]):
     def combine(self, values: Iterable[frozenset[str]]) -> frozenset[str]:
         from functools import reduce
 
@@ -491,13 +487,9 @@ class CallCollector(CombineMapper):  # type: ignore[misc]
 
     def map_call(self, expr: p.Call) -> frozenset[str]:
         if isinstance(expr.function, p.Variable):
-            return frozenset(
-                [expr.function.name]
-            ) | super().map_call(  # type: ignore[no-any-return]
-                expr
-            )
+            return frozenset([expr.function.name]) | super().map_call(expr)
         else:
-            return super().map_call(expr)  # type: ignore[no-any-return]
+            return super().map_call(expr)
 
     def map_constant(self, expr: Any) -> frozenset[str]:
         return frozenset()
@@ -510,7 +502,7 @@ def get_call_ids(expr: p.Expression) -> frozenset[str]:
     """
     Returns the identifiers of the invoked functions in *expr*.
     """
-    return CallCollector()(expr)  # type: ignore[no-any-return]
+    return CallCollector()(expr)
 
 
 # }}}

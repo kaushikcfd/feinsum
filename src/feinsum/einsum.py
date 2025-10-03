@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any
+from typing import Any, Self
 
 import numpy as np
 from immutables import Map
@@ -69,7 +69,7 @@ class EinsumAxisAccess:
     Base class for axis access types in an einsum expression.
     """
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls: type[Self]) -> Self:
         if cls is EinsumAxisAccess:
             raise TypeError(
                 "EinsumAxisAccess is abstract and cannot be instantiated directly"
@@ -205,10 +205,10 @@ class Argument:
     :class:`ContractionSchedule`. See :attr:`ContractionSchedule.arguments`.
     """
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls: type[Self]) -> Self:
         if cls is Argument:
             raise TypeError(
-                "EinsumAxisAccess is abstract and cannot be instantiated directly"
+                "Argument is abstract and cannot be instantiated directly"
             )
         return super().__new__(cls)
 
