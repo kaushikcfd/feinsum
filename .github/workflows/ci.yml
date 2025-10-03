@@ -32,7 +32,7 @@ jobs:
         with:
           run_in_env: |
             cd test
-            pytest -vx .
+            pytest -v .
 
   build-docs:
     runs-on: ubuntu-latest
