@@ -121,7 +121,7 @@ def load_transform_params(params_str: str) -> Map[str, Any]:
     return Map({k: _process_param(v) for k, v in preprocessed_params.items()})
 
 
-def dump_device_name(cl_device: cl.Device) -> str:
+def dump_device_name(cl_device: DeviceT) -> str:
     dev_name = cl_device.name
     assert isinstance(dev_name, str)
     return (
@@ -342,7 +342,7 @@ def _create_timings_table_if_non_existent(conn: sqlite3.Connection) -> None:
 
 def record_into_db(
     einsum: BatchedEinsum,
-    cl_ctx: ContextT,
+    cl_ctx: cl.Context,
     module_path: str,
     transform_params: Mapping[str, Any],
     database: str = DEFAULT_DB,

@@ -22,3 +22,5 @@ dependencies:
   - "ruff"
   - "types-pytz"
   - "types-tabulate"
+  - "tabulate"
+  - "pytz"

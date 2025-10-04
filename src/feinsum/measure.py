@@ -8,7 +8,7 @@
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import loopy as lp
 import numpy as np
@@ -42,7 +42,7 @@ def get_real_dtype(dtype: np.dtype[Any]) -> np.dtype[Any]:
 
 
 def generate_out_arrays(
-    queue: cl.CommandQueue, t_unit: "lp.TranslationUnit"
+    queue: cl.CommandQueue, t_unit: lp.TranslationUnit
 ) -> Map[str, cla.Array]:
     t_unit = lp.preprocess_kernel(t_unit)
     knl = t_unit.default_entrypoint
@@ -52,8 +52,9 @@ def generate_out_arrays(
     for arg in knl.args:
         if arg.is_output:
             assert all(isinstance(dim, INT_CLASSES) for dim in arg.shape)
+            assert arg.dtype is not None
             out_buffers[arg.name] = cla.zeros(
-                queue, shape=arg.shape, dtype=arg.dtype
+                queue, shape=arg.shape, dtype=arg.dtype.numpy_dtype
             )
 
     return Map(out_buffers)
@@ -67,8 +68,8 @@ def _generate_random_np_array(
     if dtype.kind == "c":
         real_dtype = get_real_dtype(dtype)
         # type-ignored because numpy addition types not quite precise
-        return rng.random(
-            size=shape, dtype=real_dtype  # type: ignore[no-any-return]
+        return rng.random(  # type: ignore[no-any-return]
+            size=shape, dtype=real_dtype
         ) + dtype.type(1j) * rng.random(size=shape, dtype=real_dtype)
     elif dtype.kind == "i":
         return rng.integers(low=-100, high=100, size=shape, dtype=dtype)
@@ -134,7 +135,10 @@ def validate_batched_einsum_transform(
     ref_t_unit = lp.set_options(ref_t_unit, no_numpy=True, return_dict=True)
     long_dim_length = 100
 
-    arg_dict = generate_input_arrays(cq, einsum, long_dim_length).update(
+    arg_dict: dict[str, cla.Array | int] = dict(
+        generate_input_arrays(cq, einsum, long_dim_length)
+    )
+    arg_dict.update(
         dict.fromkeys(ref_t_unit.default_entrypoint.all_params(), long_dim_length)
     )
 
@@ -146,11 +150,16 @@ def validate_batched_einsum_transform(
         cq,
         lp.fix_parameters(
             t_unit,
+            within=None,
             **dict.fromkeys(t_unit.default_entrypoint.all_params(), long_dim_length),
         ),
     )
     transform_outs = Map(
-        {name: cla.zeros_like(ary) for name, ary in ref_outs.items()}
+        {
+            # TODO: type-ignore should be removed in pyopencl=2025.3
+            name: cast("cla.Array", cla.zeros_like(ary))  # type: ignore[no-untyped-call]
+            for name, ary in ref_outs.items()
+        }
     )
 
     # }}}
@@ -223,6 +232,7 @@ def timeit(
         cq,
         lp.fix_parameters(
             t_unit,
+            within=None,
             **dict.fromkeys(t_unit.default_entrypoint.all_params(), long_dim_length),
         ),
     )
@@ -312,7 +322,7 @@ def _get_giga_ops_from_einsum(
 
         if pwqpoly.n_piece() > 0:
             ((_, qpoly),) = pwqpoly.get_pieces()
-            new_op_map[dtype] = new_op_map[dtype] + qpolynomial_to_expr(qpoly) * 1e-9
+            new_op_map[dtype] = new_op_map[dtype] + qpolynomial_to_expr(qpoly) * 1e-9  # type: ignore[no-untyped-call]
 
     return Map(new_op_map)
 
@@ -323,18 +333,21 @@ def _get_footprint_gbytes(expr: BatchedEinsum, long_dim_length: int) -> float:
     t_unit = generate_loopy(expr)
     t_unit = lp.fix_parameters(
         t_unit,
+        within=None,
         **dict.fromkeys(t_unit.default_entrypoint.all_params(), long_dim_length),
     )
     t_unit = lp.infer_unknown_types(t_unit)
     kernel = t_unit.default_entrypoint
 
-    # TODO: mypy is right arg.shape can be 'Any' expression
-    return (
-        sum(  # type: ignore[no-any-return]
-            np.prod(arg.shape) * arg.dtype.itemsize for arg in kernel.args
+    result = (
+        sum(
+            np.prod(arg.shape) * cast("lp.LoopyType", arg.dtype).itemsize
+            for arg in kernel.args
         )
         * 1e-9
     )
+    assert isinstance(result, float)
+    return result
 
 
 def measure_giga_op_rate(

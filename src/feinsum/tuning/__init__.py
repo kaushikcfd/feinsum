@@ -532,17 +532,12 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                 device_name,
             ),
         )
-        stored_results = cursor.fetchall()
+        stored_results: list[Sequence[float]] = cursor.fetchall()
 
         if not stored_results:
             raise ConfigurationNotInDBError
         else:
-            # mypy is probably right as the type parsed from the sql is not
-            # obvious to be a float.
-            return min(
-                stored_result[0]  # type: ignore[no-any-return]
-                for stored_result in stored_results
-            )
+            return min(stored_result[0] for stored_result in stored_results)
 
     def record_into_db(self, runtime: float, parameters: Mapping[str, Any]) -> None:
         import json

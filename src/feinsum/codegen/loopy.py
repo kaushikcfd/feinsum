@@ -5,6 +5,7 @@
 .. autofunction:: generate_loopy_with_opt_einsum_schedule
 """
 
+from collections.abc import Sequence
 from typing import Any
 
 import islpy as isl
@@ -81,9 +82,10 @@ def make_subscript(
     axes: tuple[EinsumAxisAccess, ...],
     einsum: BatchedEinsum,
 ) -> p.Subscript:
-    return p.Variable(name)[
-        tuple(p.Variable(einsum.index_names[axis]) for axis in axes)
-    ]
+    return p.Subscript(
+        p.Variable(name),
+        tuple(p.Variable(einsum.index_names[axis]) for axis in axes),
+    )
 
 
 def make_access_expr(
@@ -91,15 +93,16 @@ def make_access_expr(
     axes: tuple[EinsumAxisAccess, ...],
     einsum: BatchedEinsum,
 ) -> p.Call:
-    return p.Variable(_get_input_subst_name(name))(
-        *tuple(p.Variable(einsum.index_names[axis]) for axis in axes)
+    return p.Call(
+        p.Variable(_get_input_subst_name(name)),
+        tuple(p.Variable(einsum.index_names[axis]) for axis in axes),
     )
 
 
 def _generate_trivial_einsum(
     einsum: BatchedEinsum,
     output_names: tuple[str, ...],
-) -> tuple[isl.BasicSet, "lp.TranslationUnit"]:
+) -> tuple[isl.BasicSet, Sequence[lp.InstructionBase]]:
     assert len(output_names) == einsum.noutputs
 
     domain = get_isl_basic_set(einsum)
@@ -116,7 +119,7 @@ def _generate_trivial_einsum(
         lhs = make_subscript(
             output_name, tuple(FreeAxis(idim) for idim in range(einsum.ndim)), einsum
         )
-        rhs = p.Product(
+        rhs: p.ExpressionNode = p.Product(
             tuple(
                 (
                     p.Sum(tuple(make_access_expr(dep, axes, einsum) for dep in deps))
@@ -224,9 +227,9 @@ def generate_loopy(
 
     # }}}
 
-    statements = []
+    statements: list[lp.InstructionBase] = []
     domains = []
-    kernel_data = []
+    kernel_data: list[lp.ArrayArg | lp.TemporaryVariable] = []
 
     for istep, (name_in_feinsum, subscripts, args) in enumerate(
         zip(
