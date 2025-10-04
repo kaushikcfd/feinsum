@@ -318,6 +318,7 @@ def transform(
         inner_tag="l.1",
     )
     if i_rx is not None:
+        assert rx is not None
         t_unit = lp.split_iname(
             t_unit,
             free_indices[i_rx],
@@ -326,6 +327,7 @@ def transform(
             outer_iname=rx_outer,
         )
     if i_ry is not None:
+        assert ry is not None
         t_unit = lp.split_iname(
             t_unit,
             free_indices[i_ry],
@@ -412,7 +414,7 @@ def transform(
                 raise AssertionError(type(acc_descr))
 
     # precompute A
-    t_unit = lp.precompute(
+    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         A,
         sweep_inames=A_sweep_inames,
@@ -430,7 +432,7 @@ def transform(
     logger.info("Precomputed A")
 
     # prefetch B
-    t_unit = lp.precompute(
+    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         B,
         sweep_inames=B_sweep_inames,
