@@ -55,7 +55,7 @@ def transform(
     jprftch_u = vng("jprftch_u")
     iprftch_D, jprftch_D = vng("iprftch_D"), vng("jprftch_D")
 
-    t_unit = lp.precompute(
+    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         u,
         sweep_inames=[j],
@@ -76,7 +76,7 @@ def transform(
 
     # {{{ prefetch "D"
 
-    t_unit = lp.precompute(
+    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         D,
         sweep_inames=[i, j],

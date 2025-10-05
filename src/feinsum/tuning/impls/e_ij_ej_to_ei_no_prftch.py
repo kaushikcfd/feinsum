@@ -5,6 +5,7 @@ import loopy.match as lp_match
 import numpy as np
 
 import feinsum as fnsm
+import feinsum.loopy_utils as lp_utils
 from feinsum.tuning import IntParameter
 
 
@@ -49,7 +50,7 @@ def transform(
     del ref_outs
 
     t_unit = t_unit.with_kernel(
-        lp.hoist_invariant_multiplicative_terms_in_sum_reduction(
+        lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(
             t_unit[kernel_name], j
         )
     )
@@ -59,7 +60,7 @@ def transform(
         t_unit, i, nworkitems_per_e, inner_tag="l.0", outer_tag="unr"
     )
 
-    t_unit = lp.precompute(
+    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         J,
         sweep_inames=[],

@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import islpy as isl
 import loopy as lp
@@ -10,7 +10,11 @@ from more_itertools import chunked
 from more_itertools import zip_equal as szip
 
 import feinsum as fnsm
+import feinsum.loopy_utils as lp_utils
 from feinsum.tuning import IntParameter
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 logger = logging.getLogger(__name__)
 
@@ -128,13 +132,14 @@ def transform(
             new_inames=[new_i, new_j, new_x, new_r, new_e],
         )
         t_unit = t_unit.with_kernel(
-            lp.decouple_domain(
+            lp_utils.decouple_domain(
                 t_unit[kernel_name],
                 [new_i, new_j, new_x, new_r, new_e],
-                parent_inames=(
+                parent_inames=cast(
+                    "Collection[str]",
                     t_unit[kernel_name]
                     .get_inames_domain(e)
-                    .get_var_names(isl.dim_type.param)
+                    .get_var_names(isl.dim_type.param),
                 ),
             )
         )
@@ -207,9 +212,9 @@ def transform(
         knl = t_unit[kernel_name]
 
         knl = lp.split_reduction_inward(knl, x)
-        knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, x)
+        knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, x)
         for subst_name, output in szip(subst_names, outputs_in_tile):
-            knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+            knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
                 knl,
                 subst_name=subst_name,
                 arguments=variables(f"{e} {j} {r}"),
@@ -251,7 +256,7 @@ def transform(
             outer_iname=i_tile,
             outer_tag="unr",
         )
-        t_unit = lp.precompute(
+        t_unit = lp.precompute(  # type: ignore[no-untyped-call]
             t_unit,
             D,
             [i_inner, r, j_inner],
@@ -280,7 +285,7 @@ def transform(
         for isubst, (subst_name, tmp_name) in enumerate(
             zip(subst_names, hoisted_tmp_names, strict=False)
         ):
-            t_unit = lp.precompute(
+            t_unit = lp.precompute(  # type: ignore[no-untyped-call]
                 t_unit,
                 subst_name,
                 sweep_inames=[r, j_inner, e_inner],
@@ -320,7 +325,7 @@ def transform(
 
         for field in fields_in_tile:
             u_fetch = vng("u_fetch")
-            t_unit = lp.precompute(
+            t_unit = lp.precompute(  # type: ignore[no-untyped-call]
                 t_unit,
                 field,
                 sweep_inames=[x, j_prcmpt_subst_outer],

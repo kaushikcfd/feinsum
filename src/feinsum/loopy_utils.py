@@ -820,10 +820,11 @@ def extract_multiplicative_terms_in_sum_reduction_as_subst(
 
 # {{{ decouple_domain
 
+
 @for_each_kernel
-def decouple_domain(kernel: LoopKernel,
-                    inames: Collection[str],
-                    parent_inames: Collection[str]) -> LoopKernel:
+def decouple_domain(
+    kernel: LoopKernel, inames: Collection[str], parent_inames: Collection[str]
+) -> LoopKernel:
     r"""
     Returns a copy of *kernel* with altered domains. The home domain of
     *inames* i.e. :math:`\mathcal{D}^{\text{home}}({\text{inames}})` is
@@ -849,8 +850,9 @@ def decouple_domain(kernel: LoopKernel,
     # {{{ sanity checks
 
     if not inames:
-        raise LoopyError("No inames were provided to decouple into"
-                         " a different domain.")
+        raise LoopyError(
+            "No inames were provided to decouple into" " a different domain."
+        )
     if frozenset(parent_inames) & frozenset(inames):
         raise LoopyError("Inames cannot be appear in `inames` and `parent_inames`.")
 
@@ -864,8 +866,10 @@ def decouple_domain(kernel: LoopKernel,
     all_dims = frozenset(kernel.domains[hdi].get_var_dict())
     for parent_iname in parent_inames:
         if parent_iname not in all_dims:
-            raise LoopyError(f"Parent iname '{parent_iname}' not a part of the"
-                             f" corresponding home domain '{kernel.domains[hdi]}'.")
+            raise LoopyError(
+                f"Parent iname '{parent_iname}' not a part of the"
+                f" corresponding home domain '{kernel.domains[hdi]}'."
+            )
 
     dom1 = kernel.domains[hdi]
     dom2 = kernel.domains[hdi]
@@ -888,6 +892,7 @@ def decouple_domain(kernel: LoopKernel,
     new_domains.append(dom2)
     kernel = kernel.copy(domains=new_domains)
     return kernel
+
 
 # }}}
 

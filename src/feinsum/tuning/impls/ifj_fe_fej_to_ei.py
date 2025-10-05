@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import islpy as isl
 import loopy as lp
@@ -8,14 +8,18 @@ import numpy as np
 from more_itertools import zip_equal as szip
 
 import feinsum as fnsm
+import feinsum.loopy_utils as lp_utils
 from feinsum.tuning import IntParameter
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 logger = logging.getLogger(__name__)
 
 
 def transform_with_single_j_tile_i_tile(
     t_unit: lp.TranslationUnit,
-    nface: lp.TranslationUnit,
+    nface: int,
     nvoldof: int,
     nfacedof: int,
     nfields: int,
@@ -108,7 +112,7 @@ def transform_with_single_j_tile_i_tile(
         for field, output in szip(fields_in_tile, outputs_in_tile):
             subst_name = subst_names[field]
             insn_match = lp_match.And((within, lp_match.Writes(output)))
-            knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+            knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
                 knl,
                 within=insn_match,
                 subst_name=subst_name,
@@ -124,7 +128,7 @@ def transform_with_single_j_tile_i_tile(
         vng(f"{j}prftch{L}"),
     )
 
-    t_unit = lp.precompute(
+    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         L,
         sweep_inames=[f, i, j],
@@ -169,16 +173,19 @@ def transform_with_single_j_tile_i_tile(
             within=outputs_insn_match,
             new_inames=[new_e, new_f, new_i, new_j],
         )
+        parent_inames = cast(
+            "Collection[str]",
+            t_unit[kernel_name]
+            .get_inames_domain(e)
+            .get_var_names(isl.dim_type.param),
+        )
+        assert all(isinstance(parent_iname, str) for parent_iname in parent_inames)
         t_unit = t_unit.with_kernel(
-            lp.decouple_domain(
+            lp_utils.decouple_domain(
                 t_unit[kernel_name],
                 [new_e, new_f, new_i, new_j],
-                parent_inames=(
-                    t_unit[kernel_name]
-                    .get_inames_domain(e)
-                    .get_var_names(isl.dim_type.param)
-                ),
-            )
+                parent_inames=parent_inames,
+            ),
         )
 
         t_unit = lp.split_iname(
@@ -193,7 +200,7 @@ def transform_with_single_j_tile_i_tile(
 
         for istmt, field in enumerate(fields_in_tile):
             subst_name = subst_names[field]
-            t_unit = lp.precompute(
+            t_unit = lp.precompute(  # type: ignore[no-untyped-call]
                 t_unit,
                 subst_name,
                 sweep_inames=[e_inner, new_j, new_f],
@@ -421,13 +428,14 @@ def transform(
             new_inames=[new_i, new_f, new_e, new_j],
         )
         t_unit = t_unit.with_kernel(
-            lp.decouple_domain(
+            lp_utils.decouple_domain(
                 t_unit[kernel_name],
                 [new_e, new_i, new_j, new_f],
-                parent_inames=(
+                parent_inames=cast(
+                    "Collection[str]",
                     t_unit[kernel_name]
                     .get_inames_domain(e)
-                    .get_var_names(isl.dim_type.param)
+                    .get_var_names(isl.dim_type.param),
                 ),
             )
         )
@@ -467,7 +475,7 @@ def transform(
 
             insn_match = lp_match.And((within, lp_match.Writes(output)))
 
-            knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+            knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
                 knl,
                 within=insn_match,
                 subst_name=subst_name,
@@ -501,7 +509,7 @@ def transform(
             outer_tag="g.0",
             inner_tag="l.1",
         )
-        t_unit = lp.precompute(
+        t_unit = lp.precompute(  # type: ignore[no-untyped-call]
             t_unit,
             L,
             sweep_inames=[j_inner_name, i_inner_name, new_f],
@@ -524,7 +532,7 @@ def transform(
 
         for istmt, field in enumerate(fields_in_tile):
             subst_name = subst_names[field]
-            t_unit = lp.precompute(
+            t_unit = lp.precompute(  # type: ignore[no-untyped-call]
                 t_unit,
                 subst_name,
                 sweep_inames=[
