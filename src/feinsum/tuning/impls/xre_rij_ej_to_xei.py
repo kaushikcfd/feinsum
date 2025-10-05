@@ -6,6 +6,7 @@ import loopy as lp
 import numpy as np
 
 import feinsum as fnsm
+import feinsum.loopy_utils as lp_utils
 from feinsum.tuning import IntParameter
 
 logger = logging.getLogger(__name__)
@@ -106,8 +107,8 @@ def transform(
 
     knl = t_unit[kernel_name]
     knl = lp.split_reduction_inward(knl, j)
-    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
-    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+    knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
+    knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
         knl,
         subst_name="subst",
         arguments=variables(f"{e} {i} {r}"),
@@ -137,7 +138,7 @@ def transform(
 
     if prftch_u_to_local:
         eprftch_u, jprftch_u = vng("eprftch_u"), vng("jprftch_u")
-        t_unit = lp.precompute(
+        t_unit = lp.precompute(  # type: ignore[no-untyped-call]
             t_unit,
             u,
             sweep_inames=[e_inner, j],
@@ -154,7 +155,7 @@ def transform(
         )
     else:
         jprftch_u = vng("j_prftch_u")
-        t_unit = lp.precompute(
+        t_unit = lp.precompute(  # type: ignore[no-untyped-call]
             t_unit,
             u,
             sweep_inames=[j],
@@ -197,7 +198,7 @@ def transform(
         inner_tag="unr",
         outer_tag="unr",
     )
-    t_unit = lp.precompute(
+    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         D,
         [i_inner, r, j_inner],
@@ -225,7 +226,7 @@ def transform(
         outer_tag="unr",
     )
 
-    t_unit = lp.precompute(
+    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         "subst",
         sweep_inames=[r, i_inner_outer],

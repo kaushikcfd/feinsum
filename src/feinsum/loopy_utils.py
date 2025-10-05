@@ -519,9 +519,9 @@ def get_call_ids(expr: p.Expression) -> frozenset[str]:
 Tpart = TypeVar("Tpart")
 
 
-def partition(pred: Callable[[Tpart], bool],
-              iterable: Iterable[Tpart]) -> tuple[list[Tpart],
-                                                  list[Tpart]]:
+def partition(
+    pred: Callable[[Tpart], bool], iterable: Iterable[Tpart]
+) -> tuple[list[Tpart], list[Tpart]]:
     """
     Use a predicate to partition entries into false entries and true
     entries
@@ -529,13 +529,16 @@ def partition(pred: Callable[[Tpart], bool],
     # Inspired from https://docs.python.org/3/library/itertools.html
     # partition(is_odd, range(10)) --> 0 2 4 6 8   and  1 3 5 7 9
     from itertools import filterfalse, tee
+
     t1, t2 = tee(iterable)
     return list(filterfalse(pred, t1)), list(filter(pred, t2))
+
 
 # }}}
 
 
 # {{{ hoist_reduction_invariant_terms
+
 
 class EinsumTermsHoister(IdentityMapper[[]]):
     """
@@ -545,21 +548,23 @@ class EinsumTermsHoister(IdentityMapper[[]]):
 
         Inames of the reduction expressions to perform the hoisting.
     """
+
     def __init__(self, reduction_inames: frozenset[str]):
         super().__init__()
         self.reduction_inames = reduction_inames
 
-    def map_reduction(self, expr: Reduction
-                      ) -> p.Expression:
+    def map_reduction(self, expr: Reduction) -> p.Expression:
         if frozenset(expr.inames) != self.reduction_inames:
             return super().map_reduction(expr)
 
         from loopy.library.reduction import SumReductionOperation
         from loopy.symbolic import get_dependencies
+
         if isinstance(expr.operation, SumReductionOperation):
             rec_inner = self.rec(expr.expr)
             if isinstance(rec_inner, p.Product):
                 from pymbolic.primitives import flattened_product
+
                 flattened = flattened_product(rec_inner.children)
                 if isinstance(flattened, p.Product):
                     multiplicative_terms: tuple[p.Expression, ...] = (
@@ -590,21 +595,21 @@ class EinsumTermsHoister(IdentityMapper[[]]):
                     expr.operation,
                     inames=tuple(expr.inames),
                     expr=self.rec(expr.expr),
-                    allow_simultaneous=expr.allow_simultaneous)
+                    allow_simultaneous=expr.allow_simultaneous,
+                )
 
             return p.Product(tuple(invariants)) * Reduction(
                 expr.operation,
                 inames=tuple(expr.inames),
                 expr=p.Product(tuple(variants)),
-                allow_simultaneous=expr.allow_simultaneous)
+                allow_simultaneous=expr.allow_simultaneous,
+            )
         else:
             return super().map_reduction(expr)
 
 
 def hoist_invariant_multiplicative_terms_in_sum_reduction(
-    kernel: LoopKernel,
-    reduction_inames: str | frozenset[str],
-    within: Any = None
+    kernel: LoopKernel, reduction_inames: str | frozenset[str], within: Any = None
 ) -> LoopKernel:
     """
     Hoists loop-invariant multiplicative terms in a sum-reduction expression.
@@ -616,12 +621,14 @@ def hoist_invariant_multiplicative_terms_in_sum_reduction(
         performed.
     """
     from loopy.transform.instruction import map_instructions
+
     if isinstance(reduction_inames, str):
         reduction_inames = frozenset([reduction_inames])
 
     if not (reduction_inames <= kernel.all_inames()):
-        raise ValueError(f"Some inames in '{reduction_inames}' not a part of"
-                         " the kernel.")
+        raise ValueError(
+            f"Some inames in '{reduction_inames}' not a part of" " the kernel."
+        )
 
     term_hoister = EinsumTermsHoister(reduction_inames)
 
@@ -632,23 +639,28 @@ def hoist_invariant_multiplicative_terms_in_sum_reduction(
     )
     return kernel
 
+
 # }}}
 
 
 # {{{ extract_multiplicative_terms_in_sum_reduction_as_subst
+
 
 class ContainsSumReduction(CombineMapper[bool, []]):
     """
     Returns *True* only if the mapper maps over an expression containing a
     SumReduction operation.
     """
+
     def combine(self, values: Iterable[bool]) -> bool:
         return any(values)
 
     def map_reduction(self, expr: Reduction) -> bool:
         from loopy.library.reduction import SumReductionOperation
-        return (isinstance(expr.operation, SumReductionOperation)
-                or self.rec(expr.expr))
+
+        return isinstance(expr.operation, SumReductionOperation) or self.rec(
+            expr.expr
+        )
 
     def map_variable(self, expr: p.Variable) -> bool:
         return False
@@ -662,11 +674,14 @@ class MultiplicativeTermReplacer(IdentityMapper[[]]):
     Primary mapper of
     :func:`extract_multiplicative_terms_in_sum_reduction_as_subst`.
     """
-    def __init__(self,
-                 *,
-                 terms_filter: Callable[[p.Expression], bool],
-                 subst_name: str,
-                 subst_arguments: tuple[p.Expression, ...]) -> None:
+
+    def __init__(
+        self,
+        *,
+        terms_filter: Callable[[p.Expression], bool],
+        subst_name: str,
+        subst_arguments: tuple[p.Expression, ...],
+    ) -> None:
         self.subst_name = subst_name
         self.subst_arguments = subst_arguments
         self.terms_filter = terms_filter
@@ -678,14 +693,17 @@ class MultiplicativeTermReplacer(IdentityMapper[[]]):
     def map_reduction(self, expr: Reduction) -> p.Expression:
         from loopy.library.reduction import SumReductionOperation
         from loopy.symbolic import SubstitutionMapper
+
         if isinstance(expr.operation, SumReductionOperation):
             if self.collected_subst_rule is not None:
                 # => there was already a sum-reduction operation -> raise
-                raise ValueError("Multiple sum reduction expressions found -> not"
-                                 " allowed.")
+                raise ValueError(
+                    "Multiple sum reduction expressions found -> not" " allowed."
+                )
 
             if isinstance(expr.expr, p.Product):
                 from pymbolic.primitives import flattened_product
+
                 flattened = flattened_product(expr.expr.children)
                 if isinstance(flattened, p.Product):
                     terms: tuple[p.Expression, ...] = flattened.children
@@ -695,22 +713,30 @@ class MultiplicativeTermReplacer(IdentityMapper[[]]):
                 terms = (expr.expr,)
 
             unfiltered_terms, filtered_terms = partition(self.terms_filter, terms)
-            submap = SubstitutionMapper({
-                argument_expr: p.Variable(f"arg{i}")
-                for i, argument_expr in enumerate(self.subst_arguments)}.get)
+            submap = SubstitutionMapper(
+                {
+                    argument_expr: p.Variable(f"arg{i}")
+                    for i, argument_expr in enumerate(self.subst_arguments)
+                }.get
+            )
             self.collected_subst_rule = SubstitutionRule(
                 name=self.subst_name,
                 arguments=tuple(f"arg{i}" for i in range(len(self.subst_arguments))),
-                expression=submap(p.Product(tuple(filtered_terms))
-                                  if filtered_terms
-                                  else 1)
+                expression=submap(
+                    p.Product(tuple(filtered_terms)) if filtered_terms else 1
+                ),
             )
             return Reduction(
                 expr.operation,
                 tuple(expr.inames),
-                p.Product((p.Variable(self.subst_name)(*self.subst_arguments),
-                           *unfiltered_terms)),
-                expr.allow_simultaneous)
+                p.Product(
+                    (
+                        p.Variable(self.subst_name)(*self.subst_arguments),
+                        *unfiltered_terms,
+                    )
+                ),
+                expr.allow_simultaneous,
+            )
         else:
             return super().map_reduction(expr)
 
@@ -741,38 +767,52 @@ def extract_multiplicative_terms_in_sum_reduction_as_subst(
         appear in *within*.
     """
     from loopy.match import parse_match
+
     within = parse_match(within)
 
     matched_insns = [
         insn
         for insn in kernel.instructions
-        if within(kernel, insn) and ContainsSumReduction()((insn.expression,
-                                                            tuple(insn.predicates)))
+        if within(kernel, insn)
+        and ContainsSumReduction()((insn.expression, tuple(insn.predicates)))
     ]
 
     if len(matched_insns) == 0:
-        raise LoopyError(f"No instructions found matching '{within}'"
-                         " with sum-reductions found.")
+        raise LoopyError(
+            f"No instructions found matching '{within}'"
+            " with sum-reductions found."
+        )
     if len(matched_insns) > 1:
-        raise LoopyError(f"More than one instruction found matching '{within}'"
-                         " with sum-reductions found -> not allowed.")
+        raise LoopyError(
+            f"More than one instruction found matching '{within}'"
+            " with sum-reductions found -> not allowed."
+        )
 
-    insn, = matched_insns
-    replacer = MultiplicativeTermReplacer(subst_name=subst_name,
-                                          subst_arguments=tuple(arguments),
-                                          terms_filter=terms_filter)
+    (insn,) = matched_insns
+    replacer = MultiplicativeTermReplacer(
+        subst_name=subst_name,
+        subst_arguments=tuple(arguments),
+        terms_filter=terms_filter,
+    )
     new_insn = insn.with_transformed_expressions(replacer)
     new_rule = replacer.collected_subst_rule
     new_substitutions = dict(kernel.substitutions).copy()
     if subst_name in new_substitutions:
-        raise LoopyError(f"Kernel '{kernel.name}' already contains a substitution"
-                         f" rule named '{subst_name}'.")
+        raise LoopyError(
+            f"Kernel '{kernel.name}' already contains a substitution"
+            f" rule named '{subst_name}'."
+        )
     assert new_rule is not None
     new_substitutions[subst_name] = new_rule
 
-    return kernel.copy(instructions=[new_insn if insn.id == new_insn.id else insn
-                                     for insn in kernel.instructions],
-                       substitutions=new_substitutions)
+    return kernel.copy(
+        instructions=[
+            new_insn if insn.id == new_insn.id else insn
+            for insn in kernel.instructions
+        ],
+        substitutions=new_substitutions,
+    )
+
 
 # }}}
 
