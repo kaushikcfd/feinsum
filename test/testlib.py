@@ -4,6 +4,7 @@ import loopy as lp
 import numpy as np
 
 import feinsum as fnsm
+import feinsum.loopy_utils as lp_utils
 
 logging.basicConfig(level="INFO")
 logger = logging.getLogger(__name__)
@@ -84,8 +85,8 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
     knl = t_unit.default_entrypoint
 
     knl = lp.split_reduction_inward(knl, j)
-    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
-    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+    knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
+    knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
         knl,
         within=None,
         subst_name="subst",

@@ -28,6 +28,7 @@ from pyopencl.tools import (  # noqa
 import feinsum as f
 import loopy as lp
 import numpy as np
+import feinsum.loopy_utils as lp_utils
 
 
 def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
@@ -56,7 +57,7 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
     knl = t_unit.default_entrypoint
 
     for i in range(4):
-        knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+        knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
             knl,
             within=f"writes:{output_names[i]}",
             subst_name=f"subst_{i}",
@@ -107,8 +108,8 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
     knl = t_unit.default_entrypoint
     knl = lp.split_reduction_inward(knl, "j")
 
-    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, "j")
-    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+    knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, "j")
+    knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
         knl,
         within=None,
         subst_name="grad_without_jacobi_subst",
@@ -225,22 +226,20 @@ def test_sum_redn_algebraic_transforms(ctx_factory):
         """
         y[i] = sum([r,j], J[x, r, e]*D[r,i,j]*u[e,j])
         """,
-        [lp.GlobalArg("J,D,u", dtype=np.float64, shape=lp.auto),
-         ...],
+        [lp.GlobalArg("J,D,u", dtype=np.float64, shape=lp.auto), ...],
     )
     knl = t_unit.default_entrypoint
 
     knl = lp.split_reduction_inward(knl, "j")
-    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(
-        knl,
-        reduction_inames="j"
+    knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(
+        knl, reduction_inames="j"
     )
-    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+    knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
         knl,
         within=None,
         subst_name="grad_without_jacobi_subst",
         arguments=variables("r i e"),
-        terms_filter=lambda x: isinstance(x, Reduction)
+        terms_filter=lambda x: isinstance(x, Reduction),
     )
 
     transformed_t_unit = t_unit.with_kernel(knl)
@@ -249,7 +248,8 @@ def test_sum_redn_algebraic_transforms(ctx_factory):
         "grad_without_jacobi_subst",
         sweep_inames=["r", "i"],
         precompute_outer_inames=frozenset({"e"}),
-        temporary_address_space=lp.AddressSpace.PRIVATE)
+        temporary_address_space=lp.AddressSpace.PRIVATE,
+    )
 
     x1 = lp.get_op_map(t_unit, subgroup_size=1).eval_and_sum({"N_e": 1})
     x2 = lp.get_op_map(transformed_t_unit, subgroup_size=1).eval_and_sum({"N_e": 1})
