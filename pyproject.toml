@@ -74,39 +74,11 @@ ignore = ["B023", "C901", "N806"]
 [tool.mypy]
 
 [[tool.mypy.overrides]]
-module = "islpy"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "loopy.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "pynauty.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "numpy"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "pymbolic.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "pyopencl.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = "opt_einsum.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "matchpy.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "multiset.*"
+module = "pynauty.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
