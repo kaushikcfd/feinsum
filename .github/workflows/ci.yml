@@ -24,6 +24,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: ".test-conda-env.yml"
+          activate-environment: "test-conda-env"
+          auto-activate-base: false
+          auto-update-conda: true
       - name: Install feinsum
         run: pip install .
         shell: bash -l {0}
