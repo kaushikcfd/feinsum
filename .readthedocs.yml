@@ -1,10 +1,21 @@
 version: 2
 
+submodules:
+  include: all
+  recursive: true
+
 conda:
-  environment: doc/.rtd-env-py3.yml
+  environment: .test-conda-env.yml
+
+build:
+  os: "ubuntu-22.04"
+  tools:
+    python: "mambaforge-latest"
+
+sphinx:
+  configuration: docs/conf.py
 
 python:
   install:
-    - requirements: requirements.txt
     - method: pip
       path: .

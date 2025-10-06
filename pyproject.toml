@@ -1,4 +1,89 @@
 [build-system]
-# AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
-requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "feinsum"
+version = "2025.1"
+description = "Fast(er?) Einsum"
+authors = [
+    { name = "Kaushik Kulkarni", email = "kaushikcfd@gmail.com" },
+]
+license = { file = "LICENSE.txt" }
+readme = "README.md"
+urls = { Homepage = "https://github.com/kaushikcfd/feinsum/" }
+requires-python = ">=3.12"
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries",
+]
+
+dependencies = [
+    "numpy>=1.20",
+    "loopy",
+    "pytools",
+    "islpy",
+    "more-itertools",
+    "pytz",
+    "opentuner",
+    "pyopencl",
+    "immutables",
+    "tabulate",
+    "pynauty",
+    "bidict",
+    "opt_einsum",
+]
+
+
+[tool.ruff]
+preview = true
+line-length = 85
+exclude = [
+    "doc/conf.py",
+    # FIXME: Remove this once the revamp is done.
+    "src/feinsum/canonicalization.py"
+]
+
+[tool.ruff.lint]
+extend-select = [
+  "B",   # flake8-bugbear
+  "C",   # flake8-comprehensions
+  "E",   # pycodestyle
+  "F",   # pyflakes
+
+  "I",   # flake8-isort
+
+  "N",   # pep8-naming
+  "NPY", # numpy
+  "Q",   # flake8-quotes
+  "W",   # pycodestyle
+
+  "UP",  # pyupgrade
+  "RUF",  # ruff
+  "FA",
+  "TC",
+]
+
+ignore = ["B023", "C901", "N806"]
+
+[tool.mypy]
+
+[[tool.mypy.overrides]]
+module = "opt_einsum.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pynauty.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "opentuner.*"
+ignore_missing_imports = true
+
+[tool.black]
+line-length = 85

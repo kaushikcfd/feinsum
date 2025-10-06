@@ -22,46 +22,48 @@ THE SOFTWARE.
 
 
 from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+    pytest_generate_tests_for_pyopencl as pytest_generate_tests,
+)
 
 import feinsum as f
 import loopy as lp
 import numpy as np
+import feinsum.loopy_utils as lp_utils
 
 
 def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
     nface = 4
     nvoldofs = 35
     nfacedofs = 15
-    face_mass = f.fused_einsum("ef, fij, fej -> ei",
-                               [(np.inf, nface),
-                                (nface, nvoldofs, nfacedofs),
-                                (nface, np.inf, nfacedofs)],
-                               dtypes="float64",
-                               use_matrix=[
-                                   [{"J"}, {"R"}, {"v0"}],
-                                   [{"J"}, {"R"}, {"v1"}],
-                                   [{"J"}, {"R"}, {"v2"}],
-                                   [{"J"}, {"R"}, {"v3"}],
-                               ])
+    face_mass = f.batched_einsum(
+        "ef, fij, fej -> ei",
+        [(np.inf, nface), (nface, nvoldofs, nfacedofs), (nface, np.inf, nfacedofs)],
+        dtypes="float64",
+        use_matrix=[
+            [{"J"}, {"R"}, {"v0"}],
+            [{"J"}, {"R"}, {"v1"}],
+            [{"J"}, {"R"}, {"v2"}],
+            [{"J"}, {"R"}, {"v3"}],
+        ],
+    )
     t_unit = f.generate_loopy(face_mass)
     output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(3)]
 
     # {{{ prefetch 'J * vec'
 
-    from pymbolic import variables
     from loopy.symbolic import get_dependencies
+    from pymbolic import variables
 
     knl = t_unit.default_entrypoint
 
     for i in range(4):
-        knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+        knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
             knl,
             within=f"writes:{output_names[i]}",
             subst_name=f"subst_{i}",
             arguments=variables("f e j"),
-            terms_filter=lambda x: (get_dependencies(x)
-                                    & knl.all_inames()) <= set("fej")
+            terms_filter=lambda x: (get_dependencies(x) & knl.all_inames())
+            <= set("fej"),
         )
 
     t_unit = t_unit.with_kernel(knl)
@@ -73,34 +75,32 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
             sweep_inames=["f", "j"],
             precompute_outer_inames=frozenset({"e"}),
             default_tag=None,
-            temporary_address_space=lp.AddressSpace.PRIVATE)
+            temporary_address_space=lp.AddressSpace.PRIVATE,
+        )
 
     # }}}
 
     opt_einsum_t_unit = f.generate_loopy_with_opt_einsum_schedule(face_mass)
 
-    assert ((lp.get_op_map(t_unit, subgroup_size=1)
-             .eval_and_sum({"N_e": 1}))
-            == (lp.get_op_map(opt_einsum_t_unit, subgroup_size=1)
-                .eval_and_sum({"N_e": 1})))
+    assert (lp.get_op_map(t_unit, subgroup_size=1).eval_and_sum({"N_e": 1})) == (
+        lp.get_op_map(opt_einsum_t_unit, subgroup_size=1).eval_and_sum({"N_e": 1})
+    )
 
 
 def test_hoist_reduction_invariant_terms(ctx_factory):
-    from pymbolic import variables
     from loopy.symbolic import Reduction
+    from pymbolic import variables
 
     cl_ctx = ctx_factory()
     nel = 1
     ndim = 3
     ndofs = 35
-    expr = f.fused_einsum("xre, rij, ej->xei",
-                          ((ndim, ndim, nel),
-                           (ndim, ndofs, ndofs),
-                           (nel, ndofs)),
-                          dtypes="float32",
-                          use_matrix=[
-                              [{"J"}, {"R"}, {"u"}]
-                          ])
+    expr = f.batched_einsum(
+        "xre, rij, ej->xei",
+        ((ndim, ndim, nel), (ndim, ndofs, ndofs), (nel, ndofs)),
+        dtypes="float32",
+        use_matrix=[[{"J"}, {"R"}, {"u"}]],
+    )
     t_unit = f.generate_loopy(expr)
 
     # {{{ hoist the "j" redn-loop over "x" loop
@@ -108,21 +108,23 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
     knl = t_unit.default_entrypoint
     knl = lp.split_reduction_inward(knl, "j")
 
-    knl = lp.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, "j")
-    knl = lp.extract_multiplicative_terms_in_sum_reduction_as_subst(
+    knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, "j")
+    knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
         knl,
         within=None,
         subst_name="grad_without_jacobi_subst",
         arguments=variables("r i e"),
-        terms_filter=lambda x: isinstance(x, Reduction)
+        terms_filter=lambda x: isinstance(x, Reduction),
     )
 
     hoisted_t_unit = t_unit.with_kernel(knl)
 
-    hoisted_t_unit = lp.precompute(hoisted_t_unit,
-                                   "grad_without_jacobi_subst",
-                                   sweep_inames=["r", "i"],
-                                   precompute_outer_inames=frozenset("e"))
+    hoisted_t_unit = lp.precompute(
+        hoisted_t_unit,
+        "grad_without_jacobi_subst",
+        sweep_inames=["r", "i"],
+        precompute_outer_inames=frozenset("e"),
+    )
 
     # }}}
 
@@ -134,6 +136,7 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
 
 def test_wave_grad_transform_knowledge_transfer(ctx_factory):
     from testlib import transform_3d_p4_grad
+
     cl_ctx = ctx_factory()
 
     t_unit = lp.make_kernel(
@@ -146,12 +149,16 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
 
         grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
                                            jac_subst(x_1, iel_1, r_1)*D_subst(r_1, idof_1, jdof_1)*u_subst(iel_1, jdof_1))
-        """  # noqa: E501
+        """,  # noqa: E501
     )
-    t_unit = lp.add_dtypes(t_unit,
-                           {arg.name: np.float64
-                            for arg in t_unit.default_entrypoint.args
-                            if arg.is_input and arg.name != "Nel"})
+    t_unit = lp.add_dtypes(
+        t_unit,
+        {
+            arg.name: np.float64
+            for arg in t_unit.default_entrypoint.args
+            if arg.is_input and arg.name != "Nel"
+        },
+    )
     ref_t_unit = t_unit
     t_unit = transform_3d_p4_grad(t_unit, "writes:grad_out")
     lp.auto_test_vs_ref(ref_t_unit, cl_ctx, t_unit, parameters={"Nel": 100})
@@ -177,29 +184,75 @@ def test_einsum_matching():
                                     face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_2(iface, iel_2, ifacedof))
         lift_3[iel_2, idof_2] = sum([iface, ifacedof],
                                     face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_3(iface, iel_2, ifacedof))
-        """  # noqa: E501
+        """,  # noqa: E501
     )
 
-    t_unit = lp.add_dtypes(t_unit,
-                        {arg.name: np.float64
-                            for arg in t_unit.default_entrypoint.args
-                            if arg.is_input})
+    t_unit = lp.add_dtypes(
+        t_unit,
+        {
+            arg.name: np.float64
+            for arg in t_unit.default_entrypoint.args
+            if arg.is_input
+        },
+    )
 
     nvoldofs = 35
     nfacedofs = 15
     nface = 4
-    ref_einsum = f.fused_einsum("ef, fij, fej -> ei",
-                                [(np.inf, nface),
-                                (nface, nvoldofs, nfacedofs),
-                                (nface, np.inf, nfacedofs)],
-                                dtypes="float64",
-                                use_matrix=[
-                                    [{"J"}, {"R"}, {"v0"}],
-                                    [{"J"}, {"R"}, {"v1"}],
-                                    [{"J"}, {"R"}, {"v2"}],
-                                    [{"J"}, {"R"}, {"v3"}],
-                                ])
+    ref_einsum = f.batched_einsum(
+        "ef, fij, fej -> ei",
+        [(np.inf, nface), (nface, nvoldofs, nfacedofs), (nface, np.inf, nfacedofs)],
+        dtypes="float64",
+        use_matrix=[
+            [{"J"}, {"R"}, {"v0"}],
+            [{"J"}, {"R"}, {"v1"}],
+            [{"J"}, {"R"}, {"v2"}],
+            [{"J"}, {"R"}, {"v3"}],
+        ],
+    )
 
     inferred_einsum, _ = f.get_a_matched_einsum(t_unit)
-    assert (f.canonicalize_einsum(inferred_einsum)
-            == f.canonicalize_einsum(ref_einsum))
+    assert f.canonicalize_einsum(inferred_einsum) == f.canonicalize_einsum(
+        ref_einsum
+    )
+
+
+def test_sum_redn_algebraic_transforms(ctx_factory):
+    from loopy.symbolic import Reduction
+    from pymbolic import variables
+
+    t_unit = lp.make_kernel(
+        "{[e,i,j,x,r]: 0<=e<N_e and 0<=i,j<35 and 0<=x,r<3}",
+        """
+        y[i] = sum([r,j], J[x, r, e]*D[r,i,j]*u[e,j])
+        """,
+        [lp.GlobalArg("J,D,u", dtype=np.float64, shape=lp.auto), ...],
+    )
+    knl = t_unit.default_entrypoint
+
+    knl = lp.split_reduction_inward(knl, "j")
+    knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(
+        knl, reduction_inames="j"
+    )
+    knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
+        knl,
+        within=None,
+        subst_name="grad_without_jacobi_subst",
+        arguments=variables("r i e"),
+        terms_filter=lambda x: isinstance(x, Reduction),
+    )
+
+    transformed_t_unit = t_unit.with_kernel(knl)
+    transformed_t_unit = lp.precompute(
+        transformed_t_unit,
+        "grad_without_jacobi_subst",
+        sweep_inames=["r", "i"],
+        precompute_outer_inames=frozenset({"e"}),
+        temporary_address_space=lp.AddressSpace.PRIVATE,
+    )
+
+    x1 = lp.get_op_map(t_unit, subgroup_size=1).eval_and_sum({"N_e": 1})
+    x2 = lp.get_op_map(transformed_t_unit, subgroup_size=1).eval_and_sum({"N_e": 1})
+
+    assert x1 == 33075
+    assert x2 == 7980  # i.e. this demonstrates a 4.14x reduction in flops

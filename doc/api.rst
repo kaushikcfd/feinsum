@@ -14,8 +14,8 @@ Routines for empirical evaluation
 
 .. automodule:: feinsum.measure
 
-Helpers to build :class:`feinsum.einsum.FusedEinsum`
-----------------------------------------------------
+Helpers to build :class:`feinsum.einsum.BatchedEinsum`
+------------------------------------------------------
 
 .. automodule:: feinsum.make_einsum
 

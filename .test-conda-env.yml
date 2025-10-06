@@ -1,0 +1,27 @@
+name: test-conda-env
+channels:
+- conda-forge
+- nodefaults
+
+dependencies:
+- python=3
+- numpy
+- pocl
+- mako
+- pyopencl
+- islpy
+- sphinx-autodoc-typehints
+- pynauty
+- sphinx<8.2
+- mypy
+- pip
+- pip:
+  - "pytest"
+  - "sphinx-copybutton"
+  - "sphinx-book-theme"
+  - "ruff"
+  - "types-pytz"
+  - "types-tabulate"
+  - "tabulate"
+  - "pytz"
+  - "mypy"

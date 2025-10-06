@@ -1,97 +1,76 @@
 name: CI
 on:
-    push:
-        branches:
-        - main
-    pull_request:
-    schedule:
-        - cron:  '17 3 * * 0'
+  push:
+    branches:
+    - main
+  pull_request:
 
 jobs:
-    flake8:
-        name: Flake8
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v2
-        -
-            uses: actions/setup-python@v1
-            with:
-                # matches compat target in setup.py
-                python-version: '3.8'
-        -   name: "Main Script"
-            run: |
-                curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/prepare-and-run-flake8.sh
-                . ./prepare-and-run-flake8.sh src/feinsum test examples
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: ".test-conda-env.yml"
+          activate-environment: "test-conda-env"
+          auto-activate-base: false
+          auto-update-conda: true
+      - name: Run ruff.
+        run: ruff check
+        shell: bash -l {0}
 
-    pylint:
-        name: Pylint
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v2
-        -
-            uses: actions/setup-python@v1
-            with:
-                python-version: '3.x'
-        -   name: "Main Script"
-            run: |
-                curl -L -O -k https://tiker.net/ci-support-v0
-                . ci-support-v0
-                build_py_project_in_conda_env
-                run_pylint src/feinsum test/test_*.py examples
+  mypy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: ".test-conda-env.yml"
+          activate-environment: "test-conda-env"
+          auto-activate-base: false
+          auto-update-conda: true
+      - name: Install feinsum
+        run: pip install .
+        shell: bash -l {0}
+      - name: Run mypy.
+        run: mypy --show-error-codes --strict src/feinsum/
+        shell: bash -l {0}
 
-    mypy:
-        name: Mypy
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v2
-        -
-            uses: actions/setup-python@v1
-            with:
-                python-version: '3.x'
-        -   name: "Main Script"
-            run: |
-                curl -L -O https://tiker.net/ci-support-v0
-                . ./ci-support-v0
-                build_py_project_in_conda_env
-                python -m pip install mypy
-                ./run-mypy.sh
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: ".test-conda-env.yml"
+          activate-environment: "test-conda-env"
+          auto-activate-base: false
+          auto-update-conda: true
+      - name: Install feinsum
+        run: pip install .
+        shell: bash -l {0}
+      - name: Run pytest.
+        run: |
+          cd test
+          pytest -v .
+        shell: bash -l {0}
 
-    pytest:
-        name: Conda Pytest
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v2
-        -   name: "Main Script"
-            run: |
-                curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project-within-miniconda.sh
-                . ./build-and-test-py-project-within-miniconda.sh
-
-    examples:
-        name: Conda Examples
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v2
-        -   name: "Main Script"
-            run: |
-                curl -L -O -k https://tiker.net/ci-support-v0
-                . ci-support-v0
-                build_py_project_in_conda_env
-                run_examples
-
-    docs:
-        name: Documentation
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v2
-        -
-            uses: actions/setup-python@v1
-            with:
-                python-version: '3.x'
-        -   name: "Main Script"
-            run: |
-                curl -L -O -k https://tiker.net/ci-support-v0
-                . ci-support-v0
-                build_py_project_in_conda_env
-                with_echo $PY_EXE -m pip install sphinx-book-theme sphinx-copybutton "sphinx<5"
-                with_echo cd doc
-                with_echo make html SPHINXOPTS="-W --keep-going -n"
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: ".test-conda-env.yml"
+          activate-environment: "test-conda-env"
+          auto-activate-base: false
+          auto-update-conda: true
+      - name: Install feinsum
+        run: pip install .
+        shell: bash -l {0}
+      - name: Build docs.
+        run: |
+          cd doc
+          make html SPHINXOPTS="-W --keep-going -n"
+        shell: bash -l {0}

@@ -1,21 +1,26 @@
+from typing import Any
+
 import loopy as lp
-from typing import Tuple, Optional, Any
-import feinsum as f
 import numpy as np
-from feinsum.tuning import transform_param, IntParameter
 from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+    pytest_generate_tests_for_pyopencl as pytest_generate_tests,
+)
+
+import feinsum as f
+from feinsum.tuning import IntParameter, transform_param
 
 
 @transform_param("wg_size", lambda ensm: (IntParameter(8, 16), IntParameter(8, 16)))
-def transform(t_unit: lp.TranslationUnit,
-              wg_size: Tuple[int, int],
-              insn_match: Optional[Any] = None,
-              kernel_name: Optional[str] = None) -> lp.TranslationUnit:
-    ref_einsum = f.einsum("ijk->ij", f.array((np.inf, 72,  4), np.float64))
-    subst_map = f.match_t_unit_to_einsum(t_unit, ref_einsum,
-                                         insn_match=insn_match,
-                                         kernel_name=kernel_name)
+def transform(
+    t_unit: lp.TranslationUnit,
+    wg_size: tuple[int, int],
+    insn_match: Any | None = None,
+    kernel_name: str | None = None,
+) -> lp.TranslationUnit:
+    ref_einsum = f.einsum("ijk->ij", f.array((np.inf, 72, 4), np.float64))
+    subst_map = f.match_t_unit_to_einsum(
+        t_unit, ref_einsum, insn_match=insn_match, kernel_name=kernel_name
+    )
     i = subst_map["i"]
     j = subst_map["j"]
 
@@ -31,7 +36,8 @@ def transform(t_unit: lp.TranslationUnit,
 
 def test_transform(ctx_factory):
     import os
+
     cl_ctx = ctx_factory()
 
-    expr = f.einsum("ijk->ij", f.array((np.inf, 72,  4), np.float64))
+    expr = f.einsum("ijk->ij", f.array((np.inf, 72, 4), np.float64))
     f.autotune(expr, os.path.abspath(__file__), cl_ctx, stop_after=3)

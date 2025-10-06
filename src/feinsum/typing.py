@@ -2,9 +2,9 @@
 .. autoclass:: TransformT
 """
 
-import loopy as lp
-from typing import Protocol, Optional, Any
+from typing import Any, Protocol
 
+import loopy as lp
 
 __copyright__ = """
 Copyright (C) 2022 Kaushik Kulkarni
@@ -33,12 +33,13 @@ THE SOFTWARE.
 
 # transform: (t_unit, insn_match, kernel_name)
 class TransformT(Protocol):
-    def __call__(self, t_unit: lp.TranslationUnit,
-                 insn_match: Optional[Any] = None,
-                 kernel_name: Optional[str] = None) -> lp.TranslationUnit:
-        ...
+    def __call__(
+        self,
+        t_unit: lp.TranslationUnit,
+        insn_match: Any | None = None,
+        kernel_name: str | None = None,
+    ) -> lp.TranslationUnit: ...
 
 
 class ToStr(Protocol):
-    def __str__(self) -> str:
-        ...
+    def __str__(self) -> str: ...

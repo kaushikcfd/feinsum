@@ -5,67 +5,82 @@ upstreaming the heavy lifting parts to :mod:`loopy` itself.
 .. autofunction:: get_a_matched_einsum
 .. autofunction:: match_t_unit_to_einsum
 .. autofunction:: get_call_ids
+.. autofunction:: hoist_invariant_multiplicative_terms_in_sum_reduction
+.. autofunction:: extract_multiplicative_terms_in_sum_reduction_as_subst
 """
 
-import numpy as np
-import loopy as lp
-import pymbolic.primitives as p
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from typing import (
+    Any,
+    TypeVar,
+    cast,
+)
 
-from typing import (Union, Optional, Tuple, FrozenSet, Any, Dict, List, Iterable,
-                    Set, Mapping, cast)
-from immutables import Map
+import islpy as isl
+import loopy as lp
+import numpy as np
+import pymbolic.primitives as p
 from bidict import frozenbidict
-from feinsum.einsum import FusedEinsum, IntegralT
-from feinsum.diagnostics import EinsumTunitMatchError
-from loopy.symbolic import CombineMapper, Reduction
+from immutables import Map
+from loopy.diagnostic import LoopyError
+from loopy.kernel import LoopKernel
+from loopy.kernel.data import SubstitutionRule
+from loopy.symbolic import CombineMapper, IdentityMapper, Reduction
+from loopy.translation_unit import for_each_kernel
 from more_itertools import zip_equal as szip
 from pytools import memoize_on_first_arg
 
+from feinsum.diagnostics import EinsumTunitMatchError
+from feinsum.einsum import BatchedEinsum, IntegralT
 
 # {{{ matching loopy kernel against a ref. einsum
 
-# type-ignore-reason: deriving from Any
-class ReductionCollector(CombineMapper):  # type: ignore[misc]
+
+class ReductionCollector(CombineMapper[frozenset[p.Expression], []]):
     """
     A mapper that collects all instances of :class:`loopy.symbolic.Reduction`
     in an expression.
     """
-    def combine(self,
-                values: Iterable[FrozenSet[p.Expression]]
-                ) -> FrozenSet[p.Expression]:
+
+    def combine(
+        self, values: Iterable[frozenset[p.Expression]]
+    ) -> frozenset[p.Expression]:
         from functools import reduce
+
         return reduce(frozenset.union, values, frozenset())
 
-    def map_reduction(self, expr: Reduction) -> FrozenSet[p.Expression]:
-        return self.combine([frozenset([expr]),
-                             super().map_reduction(expr)])
+    def map_reduction(self, expr: Reduction) -> frozenset[p.Expression]:
+        return self.combine([frozenset([expr]), super().map_reduction(expr)])
 
-    def map_algebraic_leaf(self, expr: Any) -> FrozenSet[p.Expression]:
+    def map_algebraic_leaf(self, expr: Any) -> frozenset[p.Expression]:
         return frozenset()
 
-    def map_constant(self, expr: Any) -> FrozenSet[p.Expression]:
+    def map_constant(self, expr: Any) -> frozenset[p.Expression]:
         return frozenset()
 
 
-def _get_indices_from_assignee(assignee: p.Expression) -> Tuple[str, ...]:
+def _get_indices_from_assignee(assignee: p.Expression) -> tuple[str, ...]:
     r"""
     Returns the accessed indices in assignee. Expects the assignee to be seen in a
     batched-einsum matchable :class:`~loopy.LoopKernel`\ 's expression.
     """
     if isinstance(assignee, p.Variable):
         return ()
-    elif (isinstance(assignee, p.Subscript)
-              and all(isinstance(idx, p.Variable)
-                      for idx in assignee.index_tuple)):
-        return tuple(idx.name for idx in assignee.index_tuple)
+    elif isinstance(assignee, p.Subscript) and all(
+        isinstance(idx, p.Variable) for idx in assignee.index_tuple
+    ):
+        return tuple(cast("p.Variable", idx).name for idx in assignee.index_tuple)
     else:
-        raise EinsumTunitMatchError("Not all instructions assign to Variable or"
-                                    " a Subscript with free indices --"
-                                    " not allowed.")
+        raise EinsumTunitMatchError(
+            "Not all instructions assign to Variable or"
+            " a Subscript with free indices --"
+            " not allowed."
+        )
 
 
-def _get_iname_length(kernel: lp.LoopKernel, iname: str, long_dim_length: IntegralT
-                      ) -> Union[float, IntegralT]:
+def _get_iname_length(
+    kernel: lp.LoopKernel, iname: str, long_dim_length: IntegralT
+) -> float | IntegralT:
     r"""
     Returns :math:`\mathcal{L}(\text{iname})`. In order to have the same iteration
     domain as that of an einsum, we enforce that *iname* has a zero lower bound
@@ -73,16 +88,18 @@ def _get_iname_length(kernel: lp.LoopKernel, iname: str, long_dim_length: Integr
     \text{long\_dim\_length}` or when the *iname*'s domain size is parametric we
     return :data:`numpy.inf` to denote an :math:`\infty`-long dimension.
     """
-    from loopy.isl_helpers import static_min_of_pw_aff, static_max_of_pw_aff
+    from loopy.isl_helpers import static_max_of_pw_aff, static_min_of_pw_aff
+
     bounds = kernel.get_iname_bounds(iname)
     lbound_pwaff = bounds.lower_bound_pw_aff
-    static_min_lbound_pwaff = static_min_of_pw_aff(lbound_pwaff,
-                                                   constants_only=True)
+    static_min_lbound_pwaff = static_min_of_pw_aff(lbound_pwaff, constants_only=True)
     if static_min_lbound_pwaff.get_constant_val().to_python() != 0:
-        raise EinsumTunitMatchError(f"Iname {iname} that appears as an einsum index"
-                                    f" in {kernel.name} does not have '0' as its"
-                                    " lower bound -> not allowed in feinsum"
-                                    " grammar.")
+        raise EinsumTunitMatchError(
+            f"Iname {iname} that appears as an einsum index"
+            f" in {kernel.name} does not have '0' as its"
+            " lower bound -> not allowed in feinsum"
+            " grammar."
+        )
 
     ubound_pw_aff = bounds.upper_bound_pw_aff
     ubound = static_max_of_pw_aff(ubound_pw_aff, constants_only=False)
@@ -93,7 +110,7 @@ def _get_iname_length(kernel: lp.LoopKernel, iname: str, long_dim_length: Integr
         if ubound_val >= long_dim_length:
             return np.inf
         else:
-            return ubound_val+1
+            return ubound_val + 1
     else:
         # Parametric upper bound => infty
         return np.inf
@@ -104,21 +121,21 @@ def _infer_lp_types(t_unit: lp.TranslationUnit) -> lp.TranslationUnit:
     return lp.infer_unknown_types(t_unit)
 
 
-def _get_dtype_for_subst_argument(t_unit: lp.TranslationUnit,
-                                  kernel_name: str,
-                                  rule_name: str) -> np.dtype[Any]:
+def _get_dtype_for_subst_argument(
+    t_unit: lp.TranslationUnit, kernel_name: str, rule_name: str
+) -> np.dtype[Any]:
     """
     Returns the inferred data type for *rule_name*'s expression when all the
     arguments passed to it are equal to it kernel's
     :attr:`loopy.LoopKernel.index_dtype`.
     """
+    from loopy.symbolic import SubstitutionMapper, SubstitutionRuleExpander
     from loopy.type_inference import TypeReader
     from pymbolic.mapper.substitutor import make_subst_func
-    from loopy.symbolic import (SubstitutionMapper,
-                                SubstitutionRuleExpander)
+
     t_unit = _infer_lp_types(t_unit)
     knl = t_unit.default_entrypoint
-    type_reader = TypeReader(knl, t_unit.callables_table)
+    type_reader = TypeReader(knl, t_unit.callables_table)  # type: ignore[no-untyped-call]
     subst = knl.substitutions[rule_name]
     subst_expr = subst.expression
     # submap1: expand substitution invocations (expected by type inference mapper)
@@ -126,17 +143,20 @@ def _get_dtype_for_subst_argument(t_unit: lp.TranslationUnit,
     # submap2: pass arguments (with appropriate dtypes) to the substitution of
     # interest
     submap2 = SubstitutionMapper(
-        make_subst_func({arg: np.iinfo(knl.index_dtype.numpy_dtype).max
-                         for arg in subst.arguments})
+        make_subst_func(
+            {
+                arg: np.iinfo(knl.index_dtype.numpy_dtype).max
+                for arg in subst.arguments
+            }
+        )
     )
 
     subst_dtype = type_reader(submap2(submap1(subst_expr)))
     # type-ignore-reason: missing precise typing information in loopy
-    return subst_dtype.numpy_dtype  # type: ignore[no-any-return]
+    return subst_dtype.numpy_dtype
 
 
-# type-ignore-reason: deriving from Any
-class SubstitutionInvocationGetter(CombineMapper):  # type: ignore[misc]
+class SubstitutionInvocationGetter(CombineMapper[frozenset[p.Call], []]):
     """
     Mapper to collect all the substitution invocations in an expression.
 
@@ -144,35 +164,36 @@ class SubstitutionInvocationGetter(CombineMapper):  # type: ignore[misc]
 
         The substitutions that are to be treated as arguments.
     """
-    def __init__(self, argument_substs: FrozenSet[str]):
+
+    def __init__(self, argument_substs: frozenset[str]):
         self.argument_substs = argument_substs
         super().__init__()
 
-    def combine(self, values: Iterable[FrozenSet[p.Call]]) -> FrozenSet[p.Call]:
+    def combine(self, values: Iterable[frozenset[p.Call]]) -> frozenset[p.Call]:
         from functools import reduce
+
         return reduce(frozenset.union, values, frozenset())
 
-    def map_call(self, expr: p.Call) -> FrozenSet[p.Call]:
-        if expr.function.name in self.argument_substs:
+    def map_call(self, expr: p.Call) -> frozenset[p.Call]:
+        if cast("p.Variable", expr.function).name in self.argument_substs:
             return frozenset([expr])
         else:
-            # type-ignore-reason: CombineMapper.map_call does not provide type
-            # information
-            return super().map_call(expr)  # type: ignore[no-any-return]
+            return super().map_call(expr)
 
-    def map_algebraic_leaf(self, expr: Any) -> FrozenSet[p.Call]:
+    def map_algebraic_leaf(self, expr: Any) -> frozenset[p.Call]:
         return frozenset()
 
-    def map_constant(self, expr: Any) -> FrozenSet[p.Call]:
+    def map_constant(self, expr: Any) -> frozenset[p.Call]:
         return frozenset()
 
 
-def get_a_matched_einsum(t_unit: lp.TranslationUnit,
-                         kernel_name: Optional[str] = None,
-                         insn_match: Any = None,
-                         argument_substitutions: Optional[FrozenSet[str]] = None,
-                         long_dim_length: int = 500,
-                         ) -> Tuple[FusedEinsum, frozenbidict[str, str]]:
+def get_a_matched_einsum(
+    t_unit: lp.TranslationUnit,
+    kernel_name: str | None = None,
+    insn_match: Any = None,
+    argument_substitutions: frozenset[str] | None = None,
+    long_dim_length: int = 500,
+) -> tuple[BatchedEinsum, frozenbidict[str, str]]:
     """
     Returns a tuple of the form ``(matched_einsum, subst_map)`` where,
     ``matched_einsum`` is the batched einsum having a memory access pattern similar
@@ -199,72 +220,84 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
     """
     if kernel_name is None:
         if len(t_unit.entrypoints) != 1:
-            raise EinsumTunitMatchError("Must provide `kernel_name`, when"
-                                        " the translation unit has more than"
-                                        " 1 entrypoints.")
+            raise EinsumTunitMatchError(
+                "Must provide `kernel_name`, when"
+                " the translation unit has more than"
+                " 1 entrypoints."
+            )
         else:
             kernel_name = t_unit.default_entrypoint.name
 
     assert isinstance(kernel_name, str)
     kernel = t_unit[kernel_name]
 
-    argument_substitutions = (argument_substitutions
-                              or frozenset(kernel.substitutions))
+    argument_substitutions = argument_substitutions or frozenset(
+        kernel.substitutions
+    )
     assert isinstance(argument_substitutions, frozenset)
 
     from loopy.match import parse_match
+
     insn_match = parse_match(insn_match)
-    insns = [insn
-             for insn in kernel.instructions
-             if insn_match(kernel, insn)]
+    insns = [insn for insn in kernel.instructions if insn_match(kernel, insn)]
 
     if len({insn.within_inames for insn in insns}) != 1:
-        raise EinsumTunitMatchError("Instructions forming the subject have"
-                                    " more than 1 enclosing loop nest -- not"
-                                    " allowed.")
+        raise EinsumTunitMatchError(
+            "Instructions forming the subject have"
+            " more than 1 enclosing loop nest -- not"
+            " allowed."
+        )
 
-    free_indices_set = {_get_indices_from_assignee(insn.assignees[0])
-                        for insn in insns}
+    free_indices_set = {
+        _get_indices_from_assignee(insn.assignees[0]) for insn in insns
+    }
     if len(free_indices_set) != 1:
-        raise EinsumTunitMatchError("Instructions have differing free indices."
-                                    " This is not allowed as the expressions"
-                                    " are not batched-einsums-like.")
+        raise EinsumTunitMatchError(
+            "Instructions have differing free indices."
+            " This is not allowed as the expressions"
+            " are not batched-einsums-like."
+        )
 
-    free_indices, = free_indices_set
+    (free_indices,) = free_indices_set
 
     if frozenset(free_indices) != insns[0].within_inames:
-        raise EinsumTunitMatchError("Einsum nested within an outer loop."
-                                    " Such manipulation of batched einsums"
-                                    " is not supported by feinsum.")
+        raise EinsumTunitMatchError(
+            "Einsum nested within an outer loop."
+            " Such manipulation of batched einsums"
+            " is not supported by feinsum."
+        )
 
     get_reductions = ReductionCollector()
-    batched_access_to_operands: List[Mapping[Tuple[str, ...], FrozenSet[str]]] = []
+    batched_access_to_operands: list[Mapping[tuple[str, ...], frozenset[str]]] = []
     subst_invokes_getter = SubstitutionInvocationGetter(argument_substitutions)
 
     for insn in insns:
-        access_to_operands: Dict[Tuple[str, ...], Set[str]] = {}
+        access_to_operands: dict[tuple[str, ...], set[str]] = {}
         redns_in_expr = get_reductions((insn.expression, tuple(insn.predicates)))
         if len(redns_in_expr) == 0:
             inner_expr = insn.expression
             ensm_inames = insn.within_inames
-            redn_inames: FrozenSet[str] = frozenset()
+            redn_inames: frozenset[str] = frozenset()
         elif len(redns_in_expr) == 1:
-            redn_in_expr, = redns_in_expr
+            (redn_in_expr,) = redns_in_expr
             inner_expr = redn_in_expr.expr
             redn_inames = frozenset(redn_in_expr.inames)
             ensm_inames = insn.within_inames | redn_inames
         else:
-            raise EinsumTunitMatchError("More than one reductions found"
-                                        " -> not within the grammar of expressions"
-                                        " that can be matched by feinsum.")
+            raise EinsumTunitMatchError(
+                "More than one reductions found"
+                " -> not within the grammar of expressions"
+                " that can be matched by feinsum."
+            )
 
         if isinstance(inner_expr, p.Product):
             from pymbolic.primitives import flattened_product
+
             flat_prod = flattened_product(inner_expr.children)
             if isinstance(flat_prod, p.Product):
-                einsum_terms: Tuple[p.Expression, ...] = flat_prod.children
+                einsum_terms: tuple[p.Expression, ...] = flat_prod.children
             else:
-                einsum_terms = flat_prod,
+                einsum_terms = (flat_prod,)
         else:
             einsum_terms = (inner_expr,)
 
@@ -272,37 +305,54 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
             subst_invokes = subst_invokes_getter(term)
             if not subst_invokes:
                 continue
-            assert all(isinstance(subst_invoke, p.Call)
-                       for subst_invoke in subst_invokes)
-            if not all(all(isinstance(arg, p.Variable) and arg.name in ensm_inames
-                           for arg in subst_invoke.parameters)
-                       for subst_invoke in subst_invokes):
-                raise EinsumTunitMatchError("Invocation to a substitution in "
-                                            f" '{term}' not called with the einstein"
-                                            " summation's indices -> not a part of"
-                                            " feinsum's grammar.")
+            assert all(
+                isinstance(subst_invoke, p.Call) for subst_invoke in subst_invokes
+            )
+            if not all(
+                all(
+                    isinstance(arg, p.Variable) and arg.name in ensm_inames
+                    for arg in subst_invoke.parameters
+                )
+                for subst_invoke in subst_invokes
+            ):
+                raise EinsumTunitMatchError(
+                    "Invocation to a substitution in "
+                    f" '{term}' not called with the einstein"
+                    " summation's indices -> not a part of"
+                    " feinsum's grammar."
+                )
 
-            access_index_tuple_var: Tuple[p.Variable, ...] = next(
-                iter(subst_invokes)).parameters
+            access_index_tuple_var: tuple[p.Variable, ...] = next(
+                iter(subst_invokes)
+            ).parameters  # type: ignore[assignment]
 
-            if any(subst_invoke.parameters != access_index_tuple_var
-                   for subst_invoke in subst_invokes):
-                raise EinsumTunitMatchError("Not all substitution invocations in"
-                                            f" '{term}' are called with the same"
-                                            " arguments -> violates the feinsum's ."
-                                            " grammar.")
+            if any(
+                subst_invoke.parameters != access_index_tuple_var
+                for subst_invoke in subst_invokes
+            ):
+                raise EinsumTunitMatchError(
+                    "Not all substitution invocations in"
+                    f" '{term}' are called with the same"
+                    " arguments -> violates the feinsum's ."
+                    " grammar."
+                )
 
-            access_index_tuple: Tuple[str, ...] = tuple(
-                idx.name for idx in access_index_tuple_var)
-            subst_names = {subst_invoke.function.name
-                           for subst_invoke in subst_invokes}
-            (access_to_operands
-             .setdefault(access_index_tuple, set())
-             .update(subst_names))
+            access_index_tuple: tuple[str, ...] = tuple(
+                idx.name for idx in access_index_tuple_var
+            )
+            subst_names = {
+                cast("p.Variable", subst_invoke.function).name
+                for subst_invoke in subst_invokes
+            }
+            (
+                access_to_operands.setdefault(access_index_tuple, set()).update(
+                    subst_names
+                )
+            )
 
         batched_access_to_operands.append(
-            Map({k: frozenset(v)
-                 for k, v in access_to_operands.items()}))
+            Map({k: frozenset(v) for k, v in access_to_operands.items()})
+        )
 
     # TODO: We need to do something about the einsum index dependencies on the
     # expression itself. It gets trickier if it comes as a multiplicative term and
@@ -311,133 +361,538 @@ def get_a_matched_einsum(t_unit: lp.TranslationUnit,
     # Step 1. Get a mapping from einsum inames to indices.
     ensm_inames = insns[0].within_inames | insn.reduction_inames()
     einsum_indices_generator = (chr(i) for i in range(ord("a"), ord("z") + 1))
-    ensm_iname_to_index: Dict[str, str] = {iname: next(einsum_indices_generator)
-                                           for iname in ensm_inames}
+    ensm_iname_to_index: dict[str, str] = {
+        iname: next(einsum_indices_generator) for iname in ensm_inames
+    }
 
     # Step 2. Get the $\mathcal{L}(i)$ for each $i$ in the new indices.
-    iname_to_len = {iname: _get_iname_length(kernel, iname, long_dim_length)
-                    for iname in ensm_inames}
+    iname_to_len = {
+        iname: _get_iname_length(kernel, iname, long_dim_length)
+        for iname in ensm_inames
+    }
 
     # Step 3. Combine these accesses to get the einsum expression.
     from functools import reduce
+
     # type-ignore-reason: looks like mypy is not able to deduce that frozenset is an
     # iterable.
     # TODO: open an issue and link it here.
-    unioned_accesses: Tuple[Tuple[str, ...], ...] = tuple(
-        reduce(frozenset.union,  # type: ignore[arg-type]
-               (frozenset(acc_to_operands)
-                for acc_to_operands in batched_access_to_operands),
-               cast(FrozenSet[Tuple[str, ...]], frozenset()))
+    unioned_accesses: tuple[tuple[str, ...], ...] = tuple(
+        reduce(
+            frozenset.union,  # type: ignore[arg-type]
+            (
+                frozenset(acc_to_operands)
+                for acc_to_operands in batched_access_to_operands
+            ),
+            cast("frozenset[tuple[str, ...]]", frozenset()),
+        )
     )
-    einsum_subscripts = (",".join(["".join(ensm_iname_to_index[iname]
-                                           for iname in accesses)
-                                   for accesses in unioned_accesses])
-                         + "->"
-                         + "".join(ensm_iname_to_index[iname]
-                                   for iname in free_indices))
-    use_matrix: List[List[FrozenSet[str]]] = []
+    einsum_subscripts = (
+        ",".join(
+            [
+                "".join(ensm_iname_to_index[iname] for iname in accesses)
+                for accesses in unioned_accesses
+            ]
+        )
+        + "->"
+        + "".join(ensm_iname_to_index[iname] for iname in free_indices)
+    )
+    use_matrix: list[list[frozenset[str]]] = []
     for acc_to_operands in batched_access_to_operands:
-        use_row = [acc_to_operands.get(accesses, frozenset())
-                   for accesses in unioned_accesses]
+        use_row = [
+            acc_to_operands.get(accesses, frozenset())
+            for accesses in unioned_accesses
+        ]
         use_matrix.append(use_row)
 
     # Step 4. Get the numeric data type for the substitution
-    value_to_dtype: Dict[str, np.dtype[Any]] = {}
+    value_to_dtype: dict[str, np.dtype[Any]] = {}
 
     for use_row in use_matrix:
         for uses in use_row:
             for use in uses:
                 if use not in value_to_dtype:
                     value_to_dtype[use] = _get_dtype_for_subst_argument(
-                        t_unit,
-                        kernel_name,
-                        use)
+                        t_unit, kernel_name, use
+                    )
 
     # Step 5. Get arg_shapes from $L$'s.
-    arg_shapes: List[Tuple[Union[float, IntegralT], ...]] = []
+    arg_shapes: list[tuple[float | IntegralT, ...]] = []
     for accesses in unioned_accesses:
-        arg_shapes.append(tuple(iname_to_len[iname]
-                                for iname in accesses))
+        arg_shapes.append(tuple(iname_to_len[iname] for iname in accesses))
 
     # Step 6. Construct the batched einsum.
-    from feinsum.make_einsum import fused_einsum
-    batched_einsum = fused_einsum(einsum_subscripts,
-                                  arg_shapes,
-                                  use_matrix=use_matrix,
-                                  value_to_dtype=value_to_dtype)
+    from feinsum.make_einsum import batched_einsum
+
+    beinsum = batched_einsum(
+        einsum_subscripts,
+        arg_shapes,
+        use_matrix=use_matrix,
+        value_to_dtype=value_to_dtype,
+    )
 
     # FIXME: Verify that the kernel's domain is indeed a dense-hypercube.
     output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(len(insns) - 1)]
 
-    subst_map = frozenbidict({
-        **ensm_iname_to_index,
-        **{val: val for val in value_to_dtype.keys()},
-        **{insn.assignee_var_names()[0]: out_name
-           for insn, out_name in szip(insns, output_names)},
-    })
-    return batched_einsum, subst_map
+    subst_map = frozenbidict(
+        {
+            **ensm_iname_to_index,
+            **{val: val for val in value_to_dtype.keys()},
+            **{
+                insn.assignee_var_names()[0]: out_name
+                for insn, out_name in szip(insns, output_names)
+            },
+        }
+    )
+    return beinsum, subst_map
 
 
-def match_t_unit_to_einsum(t_unit: lp.TranslationUnit,
-                           einsum: FusedEinsum,
-                           *,
-                           kernel_name: Optional[str] = None,
-                           insn_match: Any = None,
-                           argument_substitutions: Optional[FrozenSet[str]] = None,
-                           long_dim_length: int = 500,
-                           ) -> Mapping[str, str]:
+def match_t_unit_to_einsum(
+    t_unit: lp.TranslationUnit,
+    einsum: BatchedEinsum,
+    *,
+    kernel_name: str | None = None,
+    insn_match: Any = None,
+    argument_substitutions: frozenset[str] | None = None,
+    long_dim_length: int = 500,
+) -> Mapping[str, str]:
     """
     Returns a mapping from the entities of *einsum* to the variables of the
     corresponding matched einsum in *t_unit*. See :func:`get_a_matched_einsum` for a
     subset of grammar of :mod:`loopy` kernels to be a matched as a batched einsum.
     """
     matched_einsum, var_in_tunit_to_var_in_matched_ensm = get_a_matched_einsum(
-        t_unit,
-        kernel_name,
-        insn_match,
-        argument_substitutions,
-        long_dim_length)
+        t_unit, kernel_name, insn_match, argument_substitutions, long_dim_length
+    )
 
     from feinsum.canonicalization import (
-        get_substitution_mapping_between_isomorphic_batched_einsums)
-    isomorph_subst = get_substitution_mapping_between_isomorphic_batched_einsums(
-        einsum, matched_einsum)
+        get_substitution_mapping_between_isomorphic_batched_einsums,
+    )
 
-    return Map({
-        var_in_ensm: var_in_tunit_to_var_in_matched_ensm.inv[var_in_matched_ensm]
-        for var_in_ensm, var_in_matched_ensm in isomorph_subst.items()
-    })
+    isomorph_subst = get_substitution_mapping_between_isomorphic_batched_einsums(
+        einsum, matched_einsum
+    )
+
+    return Map(
+        {
+            var_in_ensm: var_in_tunit_to_var_in_matched_ensm.inv[var_in_matched_ensm]
+            for var_in_ensm, var_in_matched_ensm in isomorph_subst.items()
+        }
+    )
+
 
 # }}}
 
 
 # {{{ get_call_ids
 
-# type-ignore-reason: deriving from CombineMapper (i.e. Any)
-class CallCollector(CombineMapper):  # type: ignore[misc]
-    def combine(self, values: Iterable[FrozenSet[str]]) -> FrozenSet[str]:
+
+class CallCollector(CombineMapper[frozenset[str], []]):
+    def combine(self, values: Iterable[frozenset[str]]) -> frozenset[str]:
         from functools import reduce
+
         return reduce(frozenset.union, values, frozenset())
 
-    def map_call(self, expr: p.Call) -> FrozenSet[str]:
+    def map_call(self, expr: p.Call) -> frozenset[str]:
         if isinstance(expr.function, p.Variable):
-            return (frozenset([expr.function.name])  # type: ignore[no-any-return]
-                    | super().map_call(expr))
+            return frozenset([expr.function.name]) | super().map_call(expr)
         else:
-            return super().map_call(expr)  # type: ignore[no-any-return]
+            return super().map_call(expr)
 
-    def map_constant(self, expr: Any) -> FrozenSet[str]:
+    def map_constant(self, expr: Any) -> frozenset[str]:
         return frozenset()
 
-    def map_algebraic_leaf(self, expr: Any) -> FrozenSet[str]:
+    def map_algebraic_leaf(self, expr: Any) -> frozenset[str]:
         return frozenset()
 
 
-def get_call_ids(expr: p.Expression) -> FrozenSet[str]:
+def get_call_ids(expr: p.Expression) -> frozenset[str]:
     """
     Returns the identifiers of the invoked functions in *expr*.
     """
-    return CallCollector()(expr)  # type: ignore[no-any-return]
+    return CallCollector()(expr)
+
+
+# }}}
+
+
+# {{{ partition (copied from more-itertools)
+
+Tpart = TypeVar("Tpart")
+
+
+def partition(
+    pred: Callable[[Tpart], bool], iterable: Iterable[Tpart]
+) -> tuple[list[Tpart], list[Tpart]]:
+    """
+    Use a predicate to partition entries into false entries and true
+    entries
+    """
+    # Inspired from https://docs.python.org/3/library/itertools.html
+    # partition(is_odd, range(10)) --> 0 2 4 6 8   and  1 3 5 7 9
+    from itertools import filterfalse, tee
+
+    t1, t2 = tee(iterable)
+    return list(filterfalse(pred, t1)), list(filter(pred, t2))
+
+
+# }}}
+
+
+# {{{ hoist_reduction_invariant_terms
+
+
+class EinsumTermsHoister(IdentityMapper[[]]):
+    """
+    Mapper to hoist products out of a sum-reduction.
+
+    .. attribute:: reduction_inames
+
+        Inames of the reduction expressions to perform the hoisting.
+    """
+
+    def __init__(self, reduction_inames: frozenset[str]):
+        super().__init__()
+        self.reduction_inames = reduction_inames
+
+    def map_reduction(self, expr: Reduction) -> p.Expression:
+        if frozenset(expr.inames) != self.reduction_inames:
+            return super().map_reduction(expr)
+
+        from loopy.library.reduction import SumReductionOperation
+        from loopy.symbolic import get_dependencies
+
+        if isinstance(expr.operation, SumReductionOperation):
+            rec_inner = self.rec(expr.expr)
+            if isinstance(rec_inner, p.Product):
+                from pymbolic.primitives import flattened_product
+
+                flattened = flattened_product(rec_inner.children)
+                if isinstance(flattened, p.Product):
+                    multiplicative_terms: tuple[p.Expression, ...] = (
+                        flattened.children
+                    )
+                else:
+                    multiplicative_terms = (flattened,)
+
+            else:
+                multiplicative_terms = (rec_inner,)
+
+            invariants, variants = partition(
+                lambda x: bool(get_dependencies(x) & self.reduction_inames),
+                multiplicative_terms,
+            )
+            if not variants:
+                # -> everything is invariant
+                assert p.is_arithmetic_expression(rec_inner)
+                return rec_inner * Reduction(
+                    expr.operation,
+                    inames=tuple(expr.inames),
+                    expr=1,  # FIXME: invalid dtype (not sure how?)
+                    allow_simultaneous=expr.allow_simultaneous,
+                )
+            if not invariants:
+                # -> nothing to hoist
+                return Reduction(
+                    expr.operation,
+                    inames=tuple(expr.inames),
+                    expr=self.rec(expr.expr),
+                    allow_simultaneous=expr.allow_simultaneous,
+                )
+
+            return p.Product(tuple(invariants)) * Reduction(
+                expr.operation,
+                inames=tuple(expr.inames),
+                expr=p.Product(tuple(variants)),
+                allow_simultaneous=expr.allow_simultaneous,
+            )
+        else:
+            return super().map_reduction(expr)
+
+
+def hoist_invariant_multiplicative_terms_in_sum_reduction(
+    kernel: LoopKernel, reduction_inames: str | frozenset[str], within: Any = None
+) -> LoopKernel:
+    """
+    Hoists loop-invariant multiplicative terms in a sum-reduction expression.
+
+    :arg reduction_inames: The inames over which reduction is performed that defines
+        the reduction expression that is to be transformed.
+    :arg within: A match expression understood by :func:`loopy.match.parse_match`
+        that specifies the instructions over which the transformation is to be
+        performed.
+    """
+    from loopy.transform.instruction import map_instructions
+
+    if isinstance(reduction_inames, str):
+        reduction_inames = frozenset([reduction_inames])
+
+    if not (reduction_inames <= kernel.all_inames()):
+        raise ValueError(
+            f"Some inames in '{reduction_inames}' not a part of" " the kernel."
+        )
+
+    term_hoister = EinsumTermsHoister(reduction_inames)
+
+    kernel = map_instructions(  # type: ignore[no-untyped-call]
+        kernel,
+        insn_match=within,
+        f=lambda x: x.with_transformed_expressions(term_hoister),
+    )
+    return kernel
+
+
+# }}}
+
+
+# {{{ extract_multiplicative_terms_in_sum_reduction_as_subst
+
+
+class ContainsSumReduction(CombineMapper[bool, []]):
+    """
+    Returns *True* only if the mapper maps over an expression containing a
+    SumReduction operation.
+    """
+
+    def combine(self, values: Iterable[bool]) -> bool:
+        return any(values)
+
+    def map_reduction(self, expr: Reduction) -> bool:
+        from loopy.library.reduction import SumReductionOperation
+
+        return isinstance(expr.operation, SumReductionOperation) or self.rec(
+            expr.expr
+        )
+
+    def map_variable(self, expr: p.Variable) -> bool:
+        return False
+
+    def map_algebraic_leaf(self, expr: Any) -> bool:
+        return False
+
+
+class MultiplicativeTermReplacer(IdentityMapper[[]]):
+    """
+    Primary mapper of
+    :func:`extract_multiplicative_terms_in_sum_reduction_as_subst`.
+    """
+
+    def __init__(
+        self,
+        *,
+        terms_filter: Callable[[p.Expression], bool],
+        subst_name: str,
+        subst_arguments: tuple[p.Expression, ...],
+    ) -> None:
+        self.subst_name = subst_name
+        self.subst_arguments = subst_arguments
+        self.terms_filter = terms_filter
+        super().__init__()
+
+        # mutable state to record the expression collected by the terms_filter
+        self.collected_subst_rule: SubstitutionRule | None = None
+
+    def map_reduction(self, expr: Reduction) -> p.Expression:
+        from loopy.library.reduction import SumReductionOperation
+        from loopy.symbolic import SubstitutionMapper
+
+        if isinstance(expr.operation, SumReductionOperation):
+            if self.collected_subst_rule is not None:
+                # => there was already a sum-reduction operation -> raise
+                raise ValueError(
+                    "Multiple sum reduction expressions found -> not" " allowed."
+                )
+
+            if isinstance(expr.expr, p.Product):
+                from pymbolic.primitives import flattened_product
+
+                flattened = flattened_product(expr.expr.children)
+                if isinstance(flattened, p.Product):
+                    terms: tuple[p.Expression, ...] = flattened.children
+                else:
+                    terms = (flattened,)
+            else:
+                terms = (expr.expr,)
+
+            unfiltered_terms, filtered_terms = partition(self.terms_filter, terms)
+            submap = SubstitutionMapper(
+                {
+                    argument_expr: p.Variable(f"arg{i}")
+                    for i, argument_expr in enumerate(self.subst_arguments)
+                }.get
+            )
+            self.collected_subst_rule = SubstitutionRule(
+                name=self.subst_name,
+                arguments=tuple(f"arg{i}" for i in range(len(self.subst_arguments))),
+                expression=submap(
+                    p.Product(tuple(filtered_terms)) if filtered_terms else 1
+                ),
+            )
+            return Reduction(
+                expr.operation,
+                tuple(expr.inames),
+                p.Product(
+                    (
+                        p.Variable(self.subst_name)(*self.subst_arguments),
+                        *unfiltered_terms,
+                    )
+                ),
+                expr.allow_simultaneous,
+            )
+        else:
+            return super().map_reduction(expr)
+
+
+def extract_multiplicative_terms_in_sum_reduction_as_subst(
+    kernel: LoopKernel,
+    within: Any,
+    subst_name: str,
+    arguments: Sequence[p.Expression],
+    terms_filter: Callable[[p.Expression], bool],
+) -> LoopKernel:
+    """
+    Returns a copy of *kernel* with a new substitution named *subst_name* and
+    *arguments* as arguments for the aggregated multiplicative terms in a
+    sum-reduction expression.
+
+    :arg within: A match expression understood by :func:`loopy.match.parse_match`
+        to specify the instructions over which the transformation is to be
+        performed.
+    :arg terms_filter: A callable to filter which terms of the sum-reduction
+        comprise the body of substitution rule.
+    :arg arguments: The sub-expressions of the product of the filtered terms that
+        form the arguments of the extract substitution rule in the same order.
+
+    .. note::
+
+        A ``LoopyError`` is raised if none or more than 1 sum-reduction expression
+        appear in *within*.
+    """
+    from loopy.match import parse_match
+
+    within = parse_match(within)
+
+    matched_insns = [
+        insn
+        for insn in kernel.instructions
+        if within(kernel, insn)
+        and ContainsSumReduction()((insn.expression, tuple(insn.predicates)))
+    ]
+
+    if len(matched_insns) == 0:
+        raise LoopyError(
+            f"No instructions found matching '{within}'"
+            " with sum-reductions found."
+        )
+    if len(matched_insns) > 1:
+        raise LoopyError(
+            f"More than one instruction found matching '{within}'"
+            " with sum-reductions found -> not allowed."
+        )
+
+    (insn,) = matched_insns
+    replacer = MultiplicativeTermReplacer(
+        subst_name=subst_name,
+        subst_arguments=tuple(arguments),
+        terms_filter=terms_filter,
+    )
+    new_insn = insn.with_transformed_expressions(replacer)
+    new_rule = replacer.collected_subst_rule
+    new_substitutions = dict(kernel.substitutions).copy()
+    if subst_name in new_substitutions:
+        raise LoopyError(
+            f"Kernel '{kernel.name}' already contains a substitution"
+            f" rule named '{subst_name}'."
+        )
+    assert new_rule is not None
+    new_substitutions[subst_name] = new_rule
+
+    return kernel.copy(
+        instructions=[
+            new_insn if insn.id == new_insn.id else insn
+            for insn in kernel.instructions
+        ],
+        substitutions=new_substitutions,
+    )
+
+
+# }}}
+
+# {{{ decouple_domain
+
+
+@for_each_kernel
+def decouple_domain(
+    kernel: LoopKernel, inames: Collection[str], parent_inames: Collection[str]
+) -> LoopKernel:
+    r"""
+    Returns a copy of *kernel* with altered domains. The home domain of
+    *inames* i.e. :math:`\mathcal{D}^{\text{home}}({\text{inames}})` is
+    replaced with two domains :math:`\mathcal{D}_1` and :math:`\mathcal{D}_2`.
+    :math:`\mathcal{D}_1` is the domain with dimensions corresponding to *inames*
+    projected out and :math:`\mathcal{D}_2` is the domain with all the dimensions
+    other than the ones corresponding to *inames* projected out.
+
+    :arg inames: The inamaes to be decouple from their home domain.
+    :arg parent_inames: Inames in :math:`\mathcal{D}^{\text{home}}({\text{inames}})`
+        that will be used as additional parametric dimensions during the
+        construction of :math:`\mathcal{D}_1`.
+
+    .. note::
+
+        - An error is raised if all the *inames* do not correspond to the same home
+          domain of *kernel*.
+        - It is the caller's responsibility to ensure that :math:`\mathcal{D}_1
+          \cup \mathcal{D}_2 = \mathcal{D}^{\text{home}}({\text{inames}})`. If this
+          criterion is violated this transformation would violate dependencies.
+    """
+
+    # {{{ sanity checks
+
+    if not inames:
+        raise LoopyError(
+            "No inames were provided to decouple into" " a different domain."
+        )
+    if frozenset(parent_inames) & frozenset(inames):
+        raise LoopyError("Inames cannot be appear in `inames` and `parent_inames`.")
+
+    # }}}
+
+    hdi = kernel.get_home_domain_index(next(iter(inames)))
+    for iname in inames:
+        if kernel.get_home_domain_index(iname) != hdi:
+            raise LoopyError("inames are not a part of the same home domain.")
+
+    all_dims = frozenset(kernel.domains[hdi].get_var_dict())
+    for parent_iname in parent_inames:
+        if parent_iname not in all_dims:
+            raise LoopyError(
+                f"Parent iname '{parent_iname}' not a part of the"
+                f" corresponding home domain '{kernel.domains[hdi]}'."
+            )
+
+    dom1 = kernel.domains[hdi]
+    dom2 = kernel.domains[hdi]
+
+    for iname in sorted(all_dims):
+        if iname in inames:
+            dt, pos = dom1.get_var_dict()[iname]
+            dom1 = dom1.project_out(dt, pos, 1)
+        elif iname in parent_inames:
+            dt, pos = dom2.get_var_dict()[iname]
+            if dt != isl.dim_type.param:
+                n_params = dom2.dim(isl.dim_type.param)
+                dom2 = dom2.move_dims(isl.dim_type.param, n_params, dt, pos, 1)
+        else:
+            dt, pos = dom2.get_var_dict()[iname]
+            dom2 = dom2.project_out(dt, pos, 1)
+
+    new_domains = list(kernel.domains)
+    new_domains[hdi] = dom1
+    new_domains.append(dom2)
+    kernel = kernel.copy(domains=new_domains)
+    return kernel
+
 
 # }}}
 
