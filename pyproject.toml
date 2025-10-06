@@ -4,6 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "feinsum"
+version = "2025.1"
 description = "Fast(er?) Einsum"
 authors = [
     { name = "Kaushik Kulkarni", email = "kaushikcfd@gmail.com" },
@@ -38,21 +39,6 @@ dependencies = [
     "opt_einsum",
 ]
 
-dynamic = ["version"]
-
-[tool.hatch.version]
-path = "src/VERSION.py"
-attribute = "VERSION"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/feinsum"]
-
-# Include py.typed and external data folder
-[tool.hatch.build]
-include = [
-  "src/feinsum/py.typed",
-  "data/*",
-]
 
 [tool.ruff]
 preview = true

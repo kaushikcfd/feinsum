@@ -45,8 +45,6 @@ if TYPE_CHECKING:
 
 DEFAULT_DB = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    os.path.pardir,
-    os.path.pardir,
     "data",
     "transform_archive_v5.sqlite",
 )

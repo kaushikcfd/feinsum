@@ -207,12 +207,7 @@ html_static_path = ["static"]
 html_logo = "static/logo.svg"
 copyright = "2022, feinsum Contributors"
 author = "feinsum Contributors"
-
-ver_dic = {}
-exec(compile(open("../src/VERSION.py").read(), "../src/VERSION.py",
-    "exec"), ver_dic)
-release = ver_dic["VERSION"]
-release = ver_dic["VERSION"]
+release = "2025.1"
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
