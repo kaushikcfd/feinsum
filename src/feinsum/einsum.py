@@ -27,7 +27,6 @@ from typing import Any, cast
 
 import numpy as np
 from immutables import Map
-from more_itertools import zip_equal as zip
 from pytools import UniqueNameGenerator, memoize_method
 
 IntegralT = int | np.integer
@@ -118,8 +117,9 @@ class BatchedEinsum:
     in_idx_sets: tuple[tuple[str, ...], ...]
     args: tuple[tuple[Array, ...], ...]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         from functools import reduce
+
         assert all(
             len(idx) == 1 and idx.islower() for idx in self.out_idx_set
         ), "Obtained invalid output index (RHS of ->)."
@@ -141,8 +141,9 @@ class BatchedEinsum:
             (frozenset(arg_row) for arg_row in self.args),
             cast(frozenset[Array], frozenset()),
         )
-        assert all(len(arg_row) == len(self.in_idx_sets)
-                   for arg_row in self.args), "Mismatch in #operands between subscript expression and input arrays."
+        assert all(
+            len(arg_row) == len(self.in_idx_sets) for arg_row in self.args
+        ), "Mismatch in #operands between subscript expression and input arrays."
         assert all(
             all(
                 arg.ndim == len(idx_set)
@@ -167,7 +168,7 @@ class BatchedEinsum:
         """
         Return the number of operands of each einsum in the batched einsum.
         """
-        return len(self.input_indices)
+        return len(self.in_idx_sets)
 
     @cached_property
     def index_to_dim_length(self) -> Map[str, ShapeComponentT]:
@@ -186,22 +187,7 @@ class BatchedEinsum:
         """
         Returns the shape of an output of the batched einsum.
         """
-        free_index_to_dim = {
-            idx: dim
-            for idx, dim in self.index_to_dim_length().items()
-            if isinstance(idx, FreeAxis)
-        }
-        assert all(
-            FreeAxis(idim) in free_index_to_dim
-            for idim in range(len(free_index_to_dim))
-        )
-
-        return tuple(
-            dim
-            for _, dim in sorted(
-                free_index_to_dim.items(), key=lambda x: x[0].output_index
-            )
-        )
+        return tuple(self.index_to_dim_length[idx] for idx in self.out_idx_set)
 
     @property
     def ndim(self) -> int:
@@ -212,8 +198,8 @@ class BatchedEinsum:
         """
         Returns the subscripts used in the building the *einsum* from it.
         """
-        joined_input_induces = [''.join(idx_set) for idx_set in self.input_indices]
-        return f"{','.join(joined_input_induces)} -> {''.join(self.output_indices)}"
+        joined_input_induces = ["".join(idx_set) for idx_set in self.in_idx_sets]
+        return f"{','.join(joined_input_induces)} -> {''.join(self.out_idx_set)}"
 
     @cached_property
     def arg_to_shape(self) -> Map[str, ShapeT]:
@@ -337,7 +323,7 @@ def get_trivial_contraction_schedule(einsum: BatchedEinsum) -> ContractionSchedu
     return ContractionSchedule(
         (einsum.get_subscripts(),),
         ("_fe_out",),
-        (tuple(EinsumOperand(i) for i, _ in enumerate(einsum.arg_shapes)),),
+        (tuple(EinsumOperand(i) for i, _ in enumerate(einsum.arg_to_shape)),),
     )
 
 
@@ -374,16 +360,7 @@ def get_opt_einsum_contraction_schedule(
 
     _, path = opt_einsum.contract_path(
         expr.get_subscripts(),
-        *[
-            array(
-                [
-                    d if isinstance(op_shape, INT_CLASSES) else long_dim_length
-                    for d in op_shape
-                ],
-                "float64",
-            )
-            for op_shape in expr.arg_shapes
-        ],
+        *[expr.args[0]],
         **opt_einsum_kwargs,
     )
 
