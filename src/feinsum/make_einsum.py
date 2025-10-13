@@ -73,11 +73,12 @@ def _preprocess_shape(shape: Any) -> ShapeT:
     return tuple(_preprocess_component(d) for d in shape)
 
 
-def array(name: str, shape: Any, dtype: npt.DTypeLike) -> Array:
+def array(name: str, shape: Any, dtype: npt.DTypeLike = "float64") -> Array:
     """
-    Return an 
+    Return an
     """
     return Array(name=name, shape=_preprocess_shape(shape), dtype=np.dtype(dtype))
+
 
 EINSUM_FIRST_INDEX = re.compile(r"^\s*((?P<alpha>[a-zA-Z])|(?P<ellipsis>\.\.\.))\s*")
 
@@ -126,7 +127,7 @@ def batched_einsum(
         accepted by :func:`numpy.einsum`.
     :param args: A b-long sequence each each comprising of n-long:class:`ArrayT`
         instances, where, "b" is the number of einsums in the batched einsum, and,
-        "n" is the number of array operands accepted by each of those b-einsums.   
+        "n" is the number of array operands accepted by each of those b-einsums.
     """
     from functools import reduce
 
@@ -151,8 +152,7 @@ def batched_einsum(
         raise TypeError(f"{exc}") from exc
 
 
-def einsum(
-    subscripts: str, *operands: Array) -> BatchedEinsum:
+def einsum(subscripts: str, *operands: Array) -> BatchedEinsum:
     """
     Returns a :class:`~feinsum.einsum.BatchedEinsum` with an interface similar to
     :func:`numpy.einsum`.

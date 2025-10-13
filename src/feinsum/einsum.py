@@ -235,9 +235,31 @@ class BatchedEinsum:
                     i_redn += 1
         return Map(result)
 
+    @cached_property
+    def sum_indices(self) -> tuple[str, ...]:
+        all_sum_indices = {
+            idx: idx.index
+            for idx, access in self.index_to_access_descr.items()
+            if isinstance(access, SummationAxis)
+        }
+        return tuple(sorted(all_sum_indices, key=all_sum_indices.get))
+
+    @cached_property
+    def all_args(self) -> frozenset[str]:
+        return frozenset(self.arg_to_shape)
+
+    @cached_property
+    def all_indices(self) -> frozenset[str]:
+        return frozenset(self.index_to_dim_length)
+
+    @cached_property
+    def all_size_params(self) -> frozenset[SizeParam]:
+        return frozenset(
+            v for v in self.index_to_dim_length.values() if isinstance(v, SizeParam)
+        )
+
     def copy(self, **kwargs: Any) -> BatchedEinsum:
         from dataclasses import replace
-
         return replace(self, **kwargs)
 
 
@@ -323,7 +345,7 @@ def get_trivial_contraction_schedule(einsum: BatchedEinsum) -> ContractionSchedu
     return ContractionSchedule(
         (einsum.get_subscripts(),),
         ("_fe_out",),
-        (tuple(EinsumOperand(i) for i, _ in enumerate(einsum.arg_to_shape)),),
+        (tuple(EinsumOperand(i) for i in range(einsum.n)),),
     )
 
 
@@ -358,9 +380,10 @@ def get_opt_einsum_contraction_schedule(
     if "use_blas" not in opt_einsum_kwargs:
         opt_einsum_kwargs["use_blas"] = False
 
+    print(expr.get_subscripts())
     _, path = opt_einsum.contract_path(
         expr.get_subscripts(),
-        *[expr.args[0]],
+        *expr.args[0],
         **opt_einsum_kwargs,
     )
 
