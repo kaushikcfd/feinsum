@@ -167,7 +167,7 @@ def generate_loopy(
     # {{{ start maintaining the inames involved.
 
     istepxindex_to_iname: dict[tuple[int, str], str] = {}
-    iname_to_ubound: dict[str, int | str] = {}
+    iname_to_ubound: dict[str, ShapeComponentT] = {}
 
     for i_step, subscripts in enumerate(schedule.subscripts):
         _, in_idx_sets = _get_out_in_idx_sets(subscripts)
@@ -178,8 +178,8 @@ def generate_loopy(
             istepxindex_to_iname[(i_step, idx)] = vng("i")
 
     sched_arg_to_shape: dict[Argument, ShapeT] = {}
-    for ioperand, arg in enumerate(einsum.args[0]):
-        sched_arg_to_shape[EinsumOperand(ioperand)] = arg.shape
+    for ioperand, einsum_arg in enumerate(einsum.args[0]):
+        sched_arg_to_shape[EinsumOperand(ioperand)] = einsum_arg.shape
 
     for i_step, (result_name, subscripts, operands) in enumerate(zip(schedule.result_names, schedule.subscripts, schedule.arguments, strict=True)):
         idx_to_length: dict[str, ShapeComponentT] = {}
@@ -206,9 +206,9 @@ def generate_loopy(
 
     # {{{ generate domains.
 
-    domains: list[lp.BasicSet] = []
+    domains: list[isl.BasicSet] = []
 
-    for istep in range(schedule.nsteps):
+    for i_step in range(schedule.nsteps):
         inames = tuple(
             sorted(
                 {
@@ -230,8 +230,8 @@ def generate_loopy(
         dtypes = {arg.name: arg.dtype for arg in args}
         sched_arg_to_lp_name: dict[Argument, str] = {}
 
-        for j, arg in enumerate(args):
-            sched_arg_to_lp_name[EinsumOperand(j)] = arg.name
+        for j, einsum_arg in enumerate(args):
+            sched_arg_to_lp_name[EinsumOperand(j)] = einsum_arg.name
 
         for i_step, (result_name, operands, subscripts) in enumerate(
             zip(
@@ -267,7 +267,7 @@ def generate_loopy(
             ) - frozenset(out_idx_set)
 
             lhs = make_subscript(lp_name, out_idx_set)
-            rhs = p.Product(
+            rhs: p.ExpressionNode = p.Product(
                 tuple(
                     make_access_expr(
                         sched_arg_to_lp_name[operand],
@@ -288,7 +288,7 @@ def generate_loopy(
             subst_name = _get_input_subst_name(lp_name)
             subst = lp.SubstitutionRule(subst_name,
                                         tuple(f"d_{i}" for i in range(len(out_idx_set))),
-                                        make_subscript(arg.name, tuple(f"d_{i}" for i in range(len(out_idx_set)))))
+                                        make_subscript(lp_name, tuple(f"d_{i}" for i in range(len(out_idx_set)))))
             substitutions[subst_name] = subst
 
     # }}}
