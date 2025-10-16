@@ -37,10 +37,11 @@ from feinsum.make_einsum import batched_einsum
 LOOPY_LANG_VERSION = (2018, 2)
 
 
-def _get_isl_basic_set(index_to_dim_length: Mapping[str, ShapeComponentT]) -> isl.BasicSet:
+def _get_isl_basic_set(
+    index_to_dim_length: Mapping[str, ShapeComponentT],
+) -> isl.BasicSet:
     dim_name_to_ubound: dict[str, str | IntegralT] = {
-        idx : dim.name if isinstance(dim, SizeParam)
-        else dim
+        idx: dim.name if isinstance(dim, SizeParam) else dim
         for idx, dim in index_to_dim_length.items()
     }
 
@@ -96,8 +97,12 @@ def make_access_expr(
 def _get_input_subst_name(x: str) -> str:
     return f"_fe_subst_{x}"
 
-def _get_out_in_idx_sets(subscripts: str) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+
+def _get_out_in_idx_sets(
+    subscripts: str,
+) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
     from feinsum.make_einsum import _normalize_einsum_subscript
+
     in_specs, out_spec = subscripts.split("->")
     out_idx_set = _normalize_einsum_subscript(out_spec, is_output=True)
     in_idx_sets = tuple(
@@ -157,9 +162,11 @@ def generate_loopy(
     for arg in sorted(einsum.all_args):
         subst_name = _get_input_subst_name(arg)
         ndim = len(einsum.arg_to_shape[arg])
-        subst = lp.SubstitutionRule(subst_name,
-                                    tuple(f"d_{i}" for i in range(ndim)),
-                                    make_subscript(arg, tuple(f"d_{i}" for i in range(ndim))))
+        subst = lp.SubstitutionRule(
+            subst_name,
+            tuple(f"d_{i}" for i in range(ndim)),
+            make_subscript(arg, tuple(f"d_{i}" for i in range(ndim))),
+        )
         substitutions[subst_name] = subst
 
     # }}}
@@ -171,9 +178,11 @@ def generate_loopy(
 
     for i_step, subscripts in enumerate(schedule.subscripts):
         _, in_idx_sets = _get_out_in_idx_sets(subscripts)
-        all_indices = reduce(frozenset.union,
-                             (frozenset(idx_set) for idx_set in in_idx_sets),
-                             cast(frozenset[str], frozenset()))
+        all_indices = reduce(
+            frozenset.union,
+            (frozenset(idx_set) for idx_set in in_idx_sets),
+            cast(frozenset[str], frozenset()),
+        )
         for idx in sorted(all_indices):
             istepxindex_to_iname[(i_step, idx)] = vng("i")
 
@@ -181,14 +190,23 @@ def generate_loopy(
     for ioperand, einsum_arg in enumerate(einsum.args[0]):
         sched_arg_to_shape[EinsumOperand(ioperand)] = einsum_arg.shape
 
-    for i_step, (result_name, subscripts, operands) in enumerate(zip(schedule.result_names, schedule.subscripts, schedule.arguments, strict=True)):
+    for i_step, (result_name, subscripts, operands) in enumerate(
+        zip(
+            schedule.result_names,
+            schedule.subscripts,
+            schedule.arguments,
+            strict=True,
+        )
+    ):
         idx_to_length: dict[str, ShapeComponentT] = {}
         out_idx_set, in_idx_sets = _get_out_in_idx_sets(subscripts)
         print(in_idx_sets)
         print(operands)
 
         for idx_set, operand in zip(in_idx_sets, operands, strict=True):
-            for idx, axis_len in zip(idx_set, sched_arg_to_shape[operand], strict=True):
+            for idx, axis_len in zip(
+                idx_set, sched_arg_to_shape[operand], strict=True
+            ):
                 assert idx_to_length.setdefault(idx, axis_len) == axis_len
 
         iname_to_ubound.update(
@@ -248,7 +266,9 @@ def generate_loopy(
             sched_arg_to_lp_name[IntermediateResult(result_name)] = vng(result_name)
             dtypes[lp_name] = lp_dtype
             if result_name != schedule.result_names[-1]:
-                knl_args.append(lp.TemporaryVariable(lp_name, dtype=lp_dtype, shape=lp.auto))
+                knl_args.append(
+                    lp.TemporaryVariable(lp_name, dtype=lp_dtype, shape=lp.auto)
+                )
             else:
                 knl_args.append(lp.GlobalArg(lp_name, dtype=lp_dtype, shape=lp.auto))
 
@@ -269,10 +289,7 @@ def generate_loopy(
             lhs = make_subscript(lp_name, out_idx_set)
             rhs: p.ExpressionNode = p.Product(
                 tuple(
-                    make_access_expr(
-                        sched_arg_to_lp_name[operand],
-                        in_idx_set
-                    )
+                    make_access_expr(sched_arg_to_lp_name[operand], in_idx_set)
                     for operand, in_idx_set in zip(
                         operands, in_idx_sets, strict=True
                     )
@@ -280,15 +297,21 @@ def generate_loopy(
             )
             if inames_to_sum_over:
                 rhs = lp.Reduction(
-                    "sum", tuple(p.Variable(iname) for iname in inames_to_sum_over), rhs
+                    "sum",
+                    tuple(p.Variable(iname) for iname in inames_to_sum_over),
+                    rhs,
                 )
 
-            statements.append(lp.Assignment(lhs, rhs)) 
+            statements.append(lp.Assignment(lhs, rhs))
 
             subst_name = _get_input_subst_name(lp_name)
-            subst = lp.SubstitutionRule(subst_name,
-                                        tuple(f"d_{i}" for i in range(len(out_idx_set))),
-                                        make_subscript(lp_name, tuple(f"d_{i}" for i in range(len(out_idx_set)))))
+            subst = lp.SubstitutionRule(
+                subst_name,
+                tuple(f"d_{i}" for i in range(len(out_idx_set))),
+                make_subscript(
+                    lp_name, tuple(f"d_{i}" for i in range(len(out_idx_set)))
+                ),
+            )
             substitutions[subst_name] = subst
 
     # }}}

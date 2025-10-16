@@ -260,6 +260,7 @@ class BatchedEinsum:
 
     def copy(self, **kwargs: Any) -> BatchedEinsum:
         from dataclasses import replace
+
         return replace(self, **kwargs)
 
 
