@@ -59,10 +59,9 @@ def transform(
 
     ref_einsum = fnsm.einsum(
         "xre,rij,ej->xei",
-        fnsm.array((ndim, ndim, np.inf), "float64"),
-        fnsm.array((ndim, ndof, ndof), "float64"),
-        fnsm.array((np.inf, ndof), "float64"),
-        arg_names=["J", "D", "u"],
+        fnsm.array("J", (ndim, ndim, "Nel"), "float64"),
+        fnsm.array("D", (ndim, ndof, ndof), "float64"),
+        fnsm.array("u", ("Nel", ndof), "float64"),
     )
 
     # {{{ get corresponding variables in t_unit
@@ -290,10 +289,9 @@ if __name__ == "__main__":
 
     expr = fnsm.einsum(
         "xre,rij,ej->xei",
-        fnsm.array((Ndim, Ndim, np.inf), "float64"),
-        fnsm.array((Ndim, Ndof, Ndof), "float64"),
-        fnsm.array((np.inf, Ndof), "float64"),
-        arg_names=["J", "D", "u"],
+        fnsm.array("J", (Ndim, Ndim, "Nel"), "float64"),
+        fnsm.array("D", (Ndim, Ndof, Ndof), "float64"),
+        fnsm.array("u", ("Nel", Ndof), "float64"),
     )
 
     if 1:

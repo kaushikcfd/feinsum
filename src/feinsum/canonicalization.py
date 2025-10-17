@@ -188,15 +188,15 @@ def visualize_einsum_graph(
 def _get_use_matrix_col_permutation(
     einsum: BatchedEinsum, sorted_index_names: Sequence[str]
 ) -> tuple[int, ...]:
-    acc_descr_to_rank = {
-        acc_descr: sorted_index_names.index(name)
-        for acc_descr, name in einsum.index_names.items()
+    index_to_rank = {
+        idx: sorted_index_names.index(idx)
+        for idx in einsum.all_indices
     }
 
-    a = np.empty(len(einsum.access_descriptors), dtype=object)
+    a = np.empty(len(einsum.all_indices), dtype=object)
 
-    for i, acc_descrs in enumerate(einsum.access_descriptors):
-        a[i] = tuple(acc_descr_to_rank[acc_descr] for acc_descr in acc_descrs)
+    for i, in_idx_set in enumerate(einsum.in_idx_sets):
+        a[i] = tuple(index_to_rank[idx] for idx in in_idx_set)
 
     return tuple(np.argsort(a))
 

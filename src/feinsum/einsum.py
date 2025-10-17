@@ -238,11 +238,11 @@ class BatchedEinsum:
     @cached_property
     def sum_indices(self) -> tuple[str, ...]:
         all_sum_indices = {
-            idx: idx.index
+            idx: access.index
             for idx, access in self.index_to_access_descr.items()
             if isinstance(access, SummationAxis)
         }
-        return tuple(sorted(all_sum_indices, key=all_sum_indices.get))
+        return tuple(sorted(all_sum_indices, key=lambda x: all_sum_indices[x]))
 
     @cached_property
     def all_args(self) -> frozenset[str]:

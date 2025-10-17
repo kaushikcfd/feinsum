@@ -26,8 +26,8 @@ def transform(
         )
     ref_einsum = fnsm.einsum(
         "ijk,ijk->ijk",
-        fnsm.array((i_len, np.inf, k_len), np.float64),
-        fnsm.array((i_len, np.inf, k_len), np.float64),
+        fnsm.array("A", (i_len, "Nj", k_len), np.float64),
+        fnsm.array("B", (i_len, "Nj", k_len), np.float64),
     )
     subst_map = fnsm.match_t_unit_to_einsum(
         t_unit, ref_einsum, kernel_name=kernel_name, insn_match=insn_match
@@ -50,8 +50,8 @@ if __name__ == "__main__":
 
     expr = fnsm.einsum(
         "ijk,ijk->ijk",
-        fnsm.array((n_i, np.inf, n_k), "float64"),
-        fnsm.array((n_i, np.inf, n_k), "float64"),
+        fnsm.array("A", (n_i, "Nj", n_k), "float64"),
+        fnsm.array("B", (n_i, "Nj", n_k), "float64"),
     )
 
     fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx, long_dim_length=200_000)
