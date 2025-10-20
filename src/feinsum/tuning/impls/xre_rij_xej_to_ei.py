@@ -3,7 +3,6 @@ import math
 from typing import Any
 
 import loopy as lp
-import numpy as np
 
 import feinsum as fnsm
 import feinsum.loopy_utils as lp_utils
@@ -12,7 +11,7 @@ from feinsum.tuning import IntParameter
 logger = logging.getLogger(__name__)
 
 
-@fnsm.tuning.einsum_arg("ndim", lambda e: e.arg_shapes[0][0])
+@fnsm.tuning.einsum_arg("ndim", lambda e: e.args[0][0].shape)
 @fnsm.tuning.einsum_arg("ndof", lambda e: e.shape[1])
 @fnsm.tuning.transform_param("n_e_per_wg", lambda e: IntParameter(2, 32))
 @fnsm.tuning.transform_param(
@@ -46,10 +45,9 @@ def transform(
 
     ref_einsum = fnsm.einsum(
         "xre,rij,xej->ei",
-        fnsm.array((ndim, ndim, np.inf), "float64"),
-        fnsm.array((ndim, ndof, ndof), "float64"),
-        fnsm.array((ndim, np.inf, ndof), "float64"),
-        arg_names=["J", "D", "u"],
+        fnsm.array("J", (ndim, ndim, "Nel"), "float64"),
+        fnsm.array("D", (ndim, ndof, ndof), "float64"),
+        fnsm.array("u", (ndim, "Nel", ndof), "float64"),
     )
 
     # {{{ get corresponding variables in t_unit
@@ -264,10 +262,9 @@ if __name__ == "__main__":
 
     expr = fnsm.einsum(
         "xre,rij,xej->ei",
-        fnsm.array((Ndim, Ndim, np.inf), "float64"),
-        fnsm.array((Ndim, Ndof, Ndof), "float64"),
-        fnsm.array((Ndim, np.inf, Ndof), "float64"),
-        arg_names=["J", "D", "u"],
+        fnsm.array("J", (Ndim, Ndim, "Nel"), "float64"),
+        fnsm.array("D", (Ndim, Ndof, Ndof), "float64"),
+        fnsm.array("u", (Ndim, "Nel", Ndof), "float64"),
     )
 
     if 1:

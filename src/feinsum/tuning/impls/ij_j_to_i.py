@@ -7,22 +7,8 @@ import feinsum as fnsm
 from feinsum.tuning import IntParameter
 
 
-def _get_scale_dtype(einsum: fnsm.BatchedEinsum) -> np.dtype[Any]:
-    assert len(einsum.use_matrix) == 1
-    for arg_shape, uses in zip(
-        einsum.arg_shapes, einsum.use_matrix[0], strict=False
-    ):
-        if len(arg_shape) == 1:
-            (use,) = uses
-            return einsum.value_to_dtype[use]
-
-    raise AssertionError("Should not reach here")
-
-
-@fnsm.tuning.einsum_arg(
-    "j_len", lambda e: e.index_to_dim_length()[fnsm.SummationAxis(0)]
-)
-@fnsm.tuning.einsum_arg("arg_2_dtype", lambda e: _get_scale_dtype(e))
+@fnsm.tuning.einsum_arg("j_len", lambda e: e.args[0][0].shape[1])
+@fnsm.tuning.einsum_arg("arg_2_dtype", lambda e: e.args[0][1].dtype)
 @fnsm.tuning.transform_param("l_0_size", lambda e: IntParameter(32, 32))
 def transform(
     t_unit: lp.TranslationUnit,
@@ -38,8 +24,8 @@ def transform(
         )
     ref_einsum = fnsm.einsum(
         "ij,j->i",
-        fnsm.array((np.inf, j_len), np.float64),
-        fnsm.array(j_len, arg_2_dtype),
+        fnsm.array("A", ("Ni", j_len), np.float64),
+        fnsm.array("B", j_len, arg_2_dtype),
     )
     subst_map = fnsm.match_t_unit_to_einsum(
         t_unit, ref_einsum, kernel_name=kernel_name, insn_match=insn_match
@@ -59,7 +45,9 @@ if __name__ == "__main__":
     cl_ctx = cl.create_some_context()
 
     expr = fnsm.einsum(
-        "ij,j->i", fnsm.array((np.inf, n_j), "float64"), fnsm.array(n_j, "int64")
+        "ij,j->i",
+        fnsm.array("A", ("Ni", n_j), "float64"),
+        fnsm.array("B", n_j, "int64"),
     )
 
     fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx, long_dim_length=200_000)

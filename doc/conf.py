@@ -205,9 +205,9 @@ html_theme_options = {
 }
 html_static_path = ["static"]
 html_logo = "static/logo.svg"
-copyright = "2022, feinsum Contributors"
+copyright = "2025, feinsum Contributors"
 author = "feinsum Contributors"
-release = "2025.1"
+release = "2025.2"
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),

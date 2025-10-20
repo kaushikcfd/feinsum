@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, cast
 import islpy as isl
 import loopy as lp
 import loopy.match as lp_match
-import numpy as np
 from more_itertools import chunked
 from more_itertools import zip_equal as szip
 
@@ -19,7 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@fnsm.tuning.einsum_arg("noutputs", lambda e: e.noutputs)
+@fnsm.tuning.einsum_arg("noutputs", lambda e: e.b)
 @fnsm.tuning.einsum_arg("ndim", lambda e: e.shape[0])
 @fnsm.tuning.einsum_arg("ndof", lambda e: e.shape[2])
 @fnsm.tuning.transform_param("n_e_per_wg", lambda e: IntParameter(2, 32))
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
     "nwork_items_per_e", lambda e: IntParameter(1, e.shape[2])
 )
 @fnsm.tuning.transform_param(
-    "n_stmt_tile", lambda e: IntParameter(1, math.ceil(e.noutputs))
+    "n_stmt_tile", lambda e: IntParameter(1, math.ceil(e.b))
 )
 @fnsm.tuning.transform_param(
     "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2))
@@ -72,9 +71,14 @@ def transform(
 
     ref_einsum = fnsm.batched_einsum(
         "xre,rij,ej->xei",
-        operand_shapes=[(ndim, ndim, np.inf), (ndim, ndof, ndof), (np.inf, ndof)],
-        use_matrix=[[{"J"}, {"D"}, {f"u{i}"}] for i in range(noutputs)],
-        dtypes=np.float64,
+        [
+            [
+                fnsm.array("J", (ndim, ndim, "Nel")),
+                fnsm.array("D", (ndim, ndof, ndof)),
+                fnsm.array(f"u{i}", ("Nel", ndof)),
+            ]
+            for i in range(noutputs)
+        ],
     )
 
     # {{{ get corresponding variables in t_unit
@@ -459,9 +463,14 @@ if __name__ == "__main__":
 
     expr = fnsm.batched_einsum(
         "xre,rij,ej->xei",
-        operand_shapes=[(Ndim, Ndim, np.inf), (Ndim, Ndof, Ndof), (np.inf, Ndof)],
-        use_matrix=[[{"J"}, {"D"}, {f"u{i}"}] for i in range(Nfields)],
-        dtypes=np.float64,
+        [
+            [
+                fnsm.array("J", (Ndim, Ndim, "Nel")),
+                fnsm.array("D", (Ndim, Ndof, Ndof)),
+                fnsm.array(f"u{i}", ("Nel", Ndof)),
+            ]
+            for i in range(Nfields)
+        ],
     )
 
     if 1:

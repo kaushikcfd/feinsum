@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, cast
 import islpy as isl
 import loopy as lp
 import loopy.match as lp_match
-import numpy as np
 from more_itertools import chunked
 from more_itertools import zip_equal as szip
 
@@ -19,14 +18,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@fnsm.tuning.einsum_arg("noutputs", lambda e: e.noutputs)
-@fnsm.tuning.einsum_arg("ndim", lambda e: e.arg_shapes[0][0])
+@fnsm.tuning.einsum_arg("noutputs", lambda e: e.b)
+@fnsm.tuning.einsum_arg("ndim", lambda e: e.args[0][0].shape[0])
 @fnsm.tuning.einsum_arg("ndof", lambda e: e.shape[1])
 @fnsm.tuning.transform_param("n_e_per_wg", lambda e: IntParameter(2, 32))
 @fnsm.tuning.transform_param(
     "nwork_items_per_e", lambda e: IntParameter(1, e.shape[1])
 )
-@fnsm.tuning.transform_param("n_stmt_tile", lambda e: IntParameter(1, e.noutputs))
+@fnsm.tuning.transform_param("n_stmt_tile", lambda e: IntParameter(1, e.b))
 @fnsm.tuning.transform_param(
     "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[1] / 3))
 )
@@ -70,13 +69,14 @@ def transform(
 
     ref_einsum = fnsm.batched_einsum(
         "xre,rij,xej->ei",
-        operand_shapes=[
-            (ndim, ndim, np.inf),
-            (ndim, ndof, ndof),
-            (ndim, np.inf, ndof),
+        [
+            [
+                fnsm.array("J", (ndim, ndim, "Nel")),
+                fnsm.array("D", (ndim, ndof, ndof)),
+                fnsm.array(f"u{i}", (ndim, "Nel", ndof)),
+            ]
+            for i in range(noutputs)
         ],
-        use_matrix=[[{"J"}, {"D"}, {f"u{i}"}] for i in range(noutputs)],
-        dtypes=np.float64,
     )
 
     # {{{ get corresponding variables in t_unit
@@ -430,13 +430,14 @@ if __name__ == "__main__":
 
     expr = fnsm.batched_einsum(
         "xre,rij,xej->ei",
-        operand_shapes=[
-            (Ndim, Ndim, np.inf),
-            (Ndim, Ndof, Ndof),
-            (Ndim, np.inf, Ndof),
+        [
+            [
+                fnsm.array("J", (Ndim, Ndim, "Nel")),
+                fnsm.array("D", (Ndim, Ndof, Ndof)),
+                fnsm.array(f"u{i}", (Ndim, "Nel", Ndof)),
+            ]
+            for i in range(Nfield)
         ],
-        use_matrix=[[{"J"}, {"D"}, {f"u{i}"}] for i in range(Nfield)],
-        dtypes=np.float64,
     )
 
     if 1:

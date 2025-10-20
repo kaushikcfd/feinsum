@@ -17,7 +17,6 @@ import pymbolic.primitives as prim
 import pyopencl as cl
 import pyopencl.array as cla
 from immutables import Map
-from more_itertools import zip_equal as zip
 
 from feinsum.diagnostics import NoDevicePeaksInfoError
 from feinsum.einsum import (
@@ -25,7 +24,6 @@ from feinsum.einsum import (
     BatchedEinsum,
     ContractionSchedule,
     IntegralT,
-    SizeParam,
 )
 from feinsum.typing import ToStr, TransformT
 
@@ -89,18 +87,11 @@ def generate_input_arrays(
 
     val_to_shape: dict[str, tuple[IntegralT, ...]] = {}
 
-    for use_row in einsum.use_matrix:
-        for values, op_shape in zip(use_row, einsum.arg_shapes):
-            # concrete_op_shape: shape after getting rid of SizeParams
-            concrete_op_shape: tuple[IntegralT, ...] = tuple(
-                dim if isinstance(dim, INT_CLASSES) else long_dim_length
-                for dim in op_shape
-            )
-            for val in values:
-                if val in val_to_shape:
-                    assert val_to_shape[val] == concrete_op_shape
-                else:
-                    val_to_shape[val] = concrete_op_shape
+    for arg, shape in einsum.arg_to_shape.items():
+        val_to_shape[arg] = tuple(
+            dim if isinstance(dim, INT_CLASSES) else long_dim_length for dim in shape
+        )
+
     # }}}
 
     rng = default_rng(np_seed)
@@ -110,7 +101,7 @@ def generate_input_arrays(
             name: cla.to_device(
                 queue, _generate_random_np_array(rng, dtype, val_to_shape[name])
             )
-            for name, dtype in einsum.value_to_dtype.items()
+            for name, dtype in einsum.arg_to_dtype.items()
         }
     )
 
@@ -372,11 +363,7 @@ def measure_giga_op_rate(
 
     from pymbolic.mapper.evaluator import evaluate_to_float
 
-    eval_context = {
-        dim.name: long_dim_length
-        for dim in expr.index_to_dim_length().values()
-        if isinstance(dim, SizeParam)
-    }
+    eval_context = {param.name: long_dim_length for param in expr.all_size_params}
     return Map(
         {
             k: evaluate_to_float(v, eval_context) / runtime
@@ -399,11 +386,7 @@ def get_roofline_flop_rate(
     dtype_to_gflops = {
         dtype: evaluate_to_float(
             giga_ops_aff,
-            {
-                dim.name: long_dim_length
-                for dim in (expr.index_to_dim_length().values())
-                if isinstance(dim, SizeParam)
-            },
+            {param.name: long_dim_length for param in expr.all_size_params},
         )
         for dtype, giga_ops_aff in dtype_to_gflops_expr.items()
     }

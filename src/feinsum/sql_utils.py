@@ -23,7 +23,12 @@ import numpy as np
 import numpy.typing as npt
 from immutables import Map
 
-from feinsum.einsum import INT_CLASSES, BatchedEinsum, SizeParam
+from feinsum.einsum import (
+    INT_CLASSES,
+    BatchedEinsum,
+    ShapeComponentT,
+    SizeParam,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +58,7 @@ TIMINGS_TABLENAME = "FEINSUM_TIMING_FACTS"
 
 def dump_value_to_dtype(einsum: BatchedEinsum) -> str:
     return json.dumps(
-        {val: dtype.name for val, dtype in einsum.value_to_dtype.items()},
+        {arg: dtype.name for arg, dtype in einsum.arg_to_dtype.items()},
         sort_keys=True,
     )
 
@@ -61,8 +66,8 @@ def dump_value_to_dtype(einsum: BatchedEinsum) -> str:
 def dump_index_to_length(einsum: BatchedEinsum) -> str:
     return json.dumps(
         {
-            einsum.index_names[k]: v
-            for k, v in einsum.index_to_dim_length().items()
+            k: v
+            for k, v in einsum.index_to_dim_length.items()
             if isinstance(v, INT_CLASSES)
         },
         sort_keys=True,
@@ -70,10 +75,8 @@ def dump_index_to_length(einsum: BatchedEinsum) -> str:
 
 
 def dump_use_matrix(einsum: BatchedEinsum) -> str:
-    use_matrix = [
-        [sorted(values) for values in use_row] for use_row in einsum.use_matrix
-    ]
-    return json.dumps(use_matrix)
+    arg_names = [[arg.name for arg in arg_row] for arg_row in einsum.args]
+    return json.dumps(arg_names)
 
 
 def dump_cl_version(cl_device: cl.Device) -> str:
@@ -88,7 +91,7 @@ def dump_op_info(einsum: BatchedEinsum, long_dim_length: int) -> str:
 
     eval_context = {
         dim.name: long_dim_length
-        for dim in einsum.index_to_dim_length().values()
+        for dim in einsum.index_to_dim_length.values()
         if isinstance(dim, SizeParam)
     }
     dtype_to_ops = {
@@ -235,19 +238,64 @@ def query(
 
     if not query_result and err_if_no_results:
         str_idx_to_size = ", ".join(
-            f"{einsum.index_names[idx]}: {lngth}"
-            for idx, lngth in (einsum.index_to_dim_length().items())
+            f"{idx}: {lngth}"
+            for idx, lngth in (einsum.index_to_dim_length.items())
             if not isinstance(lngth, SizeParam)
         )
         stringified_einsum = (
             f"{einsum.get_subscripts()} [{str_idx_to_size}]"
-            f" [#outputs={einsum.noutputs}]"
+            f" [#outputs={einsum.b}]"
         )
         raise RuntimeError(
             "No facts found for the einsum:" f" `{stringified_einsum}`."
         )
 
     return query_result
+
+
+def _get_batched_einsum_from_sql_row(
+    subscripts: str,
+    index_to_length: Mapping[str, ShapeComponentT],
+    arg_names: Sequence[Sequence[str]],
+    arg_to_dtype: Mapping[str, str],
+) -> BatchedEinsum:
+    from functools import reduce
+    from typing import cast
+
+    from feinsum.einsum import SizeParam
+    from feinsum.make_einsum import (
+        _normalize_einsum_subscript,
+        array,
+        batched_einsum,
+    )
+
+    in_specs, _ = subscripts.split("->")
+    index_to_length = dict(index_to_length)
+    in_idx_sets = tuple(
+        _normalize_einsum_subscript(in_spec, is_output=False)
+        for in_spec in in_specs.split(",")
+    )
+
+    all_indices = reduce(
+        frozenset.union,
+        (frozenset(in_idx_set) for in_idx_set in in_idx_sets),
+        cast("frozenset[str]", frozenset()),
+    )
+    for idx in all_indices:
+        if idx not in index_to_length:
+            assert idx.islower()
+            index_to_length[idx] = SizeParam(idx.upper())
+
+    arg_to_shape = {
+        arg: [index_to_length[idx] for idx in in_idx_set]
+        for arg_row in arg_names
+        for in_idx_set, arg in zip(in_idx_sets, arg_row, strict=True)
+    }
+    args = [
+        [array(arg, arg_to_shape[arg], arg_to_dtype[arg]) for arg in arg_row]
+        for arg_row in arg_names
+    ]
+    return batched_einsum(subscripts, args)
 
 
 def get_timed_einsums_in_db(
@@ -258,7 +306,6 @@ def get_timed_einsums_in_db(
     which some timing data is available on the OpenCL device *device* in the
     database *database*.
     """
-    from feinsum.make_einsum import batched_einsum
 
     device_name = dump_device_name(cl_device)
 
@@ -282,24 +329,13 @@ def get_timed_einsums_in_db(
     seen_einsums: list[BatchedEinsum] = []
     conn.close()
 
-    for subscripts, index_to_length_str, use_matrix, value_to_dtype in facts:
-        input_subscripts, _ = subscripts.split("->")
-        index_to_length: Mapping[str, int] = json.loads(index_to_length_str)
-        arg_shapes: list[Sequence[int | float]] = []
-        processed_use_matrix = [
-            [frozenset(uses) for uses in use_row]
-            for use_row in json.loads(use_matrix)
-        ]
-        for indexing_expr in input_subscripts.split(","):
-            arg_shapes.append(
-                [index_to_length.get(index, np.inf) for index in indexing_expr]
-            )
+    for subscripts, index_to_length_str, arg_names_str, arg_to_dtype_str in facts:
+        index_to_length = json.loads(index_to_length_str)
+        arg_to_dtype = json.loads(arg_to_dtype_str)
+        arg_names = json.loads(arg_names_str)
         seen_einsums.append(
-            batched_einsum(
-                subscripts,
-                arg_shapes,
-                processed_use_matrix,
-                value_to_dtype=json.loads(value_to_dtype),
+            _get_batched_einsum_from_sql_row(
+                subscripts, index_to_length, arg_names, arg_to_dtype
             )
         )
 

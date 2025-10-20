@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 import islpy as isl
 import loopy as lp
-import numpy as np
 from more_itertools import zip_equal as szip
 
 import feinsum as fnsm
@@ -40,9 +39,14 @@ def transform_with_single_j_tile_i_tile(
 
     ref_einsum = fnsm.batched_einsum(
         "ifj,fe,fej->ei",
-        [(nvoldof, nface, nfacedof), (nface, np.inf), (nface, np.inf, nfacedof)],
-        dtypes="float64",
-        use_matrix=[[{"L"}, {"J"}, {f"v{i}"}] for i in range(nfields)],
+        [
+            [
+                fnsm.array("L", (nvoldof, nface, nfacedof)),
+                fnsm.array("J", (nface, "Nel")),
+                fnsm.array(f"v{i}", (nface, "Nel", nfacedof)),
+            ]
+            for i in range(nfields)
+        ],
     )
     len_stmt_tile = math.ceil(nfields / n_stmt_tile)
 
@@ -268,22 +272,22 @@ def transform_with_single_j_tile_i_tile(
     return t_unit
 
 
-@fnsm.tuning.einsum_arg("nface", lambda e: e.arg_shapes[2][0])
+@fnsm.tuning.einsum_arg("nface", lambda e: e.args[0][2].shape[0])
 @fnsm.tuning.einsum_arg("nvoldof", lambda e: e.shape[1])
-@fnsm.tuning.einsum_arg("nfacedof", lambda e: e.arg_shapes[2][2])
-@fnsm.tuning.einsum_arg("nfields", lambda e: e.noutputs)
+@fnsm.tuning.einsum_arg("nfacedof", lambda e: e.args[0][2].shape[2])
+@fnsm.tuning.einsum_arg("nfields", lambda e: e.b)
 @fnsm.tuning.transform_param("n_e_per_wg", lambda e: IntParameter(2, 32))
 @fnsm.tuning.transform_param(
-    "nwork_items_per_e", lambda e: IntParameter(1, e.arg_shapes[2][2])
+    "nwork_items_per_e", lambda e: IntParameter(1, e.args[0][2].shape[2])
 )
 @fnsm.tuning.transform_param(
-    "n_stmt_tile", lambda e: IntParameter(1, math.ceil(e.noutputs))
+    "n_stmt_tile", lambda e: IntParameter(1, math.ceil(e.b))
 )
 @fnsm.tuning.transform_param(
     "n_i_tile", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2))
 )
 @fnsm.tuning.transform_param(
-    "n_j_tile", lambda e: IntParameter(1, math.ceil(e.arg_shapes[2][2] / 2))
+    "n_j_tile", lambda e: IntParameter(1, math.ceil(e.args[0][2].shape[2] / 2))
 )
 def transform(
     t_unit: lp.TranslationUnit,
@@ -322,12 +326,16 @@ def transform(
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
     within = lp_match.parse_match(insn_match)
-
     ref_einsum = fnsm.batched_einsum(
         "ifj,fe,fej->ei",
-        [(nvoldof, nface, nfacedof), (nface, np.inf), (nface, np.inf, nfacedof)],
-        dtypes="float64",
-        use_matrix=[[{"L"}, {"J"}, {f"v{i}"}] for i in range(nfields)],
+        [
+            [
+                fnsm.array("L", (nvoldof, nface, nfacedof)),
+                fnsm.array("J", (nface, "Nel")),
+                fnsm.array(f"v{i}", (nface, "Nel", nfacedof)),
+            ]
+            for i in range(nfields)
+        ],
     )
     len_stmt_tile = math.ceil(nfields / n_stmt_tile)
     len_j_tile = math.ceil(nfacedof / n_j_tile)
@@ -674,9 +682,14 @@ if __name__ == "__main__":
     cl_ctx = cl.create_some_context()
     expr = fnsm.batched_einsum(
         "ifj,fe,fej->ei",
-        [(Nvoldof, Nface, Nfacedof), (Nface, np.inf), (Nface, np.inf, Nfacedof)],
-        dtypes="float64",
-        use_matrix=[[{"L"}, {"J"}, {f"v{i}"}] for i in range(Nfields)],
+        [
+            [
+                fnsm.array("L", (Nvoldof, Nface, Nfacedof)),
+                fnsm.array("J", (Nface, "Nel")),
+                fnsm.array(f"v{i}", (Nface, "Nel", Nfacedof)),
+            ]
+            for i in range(Nfields)
+        ],
     )
 
     if 1:

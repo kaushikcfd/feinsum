@@ -31,7 +31,13 @@ from more_itertools import zip_equal as szip
 from pytools import memoize_on_first_arg
 
 from feinsum.diagnostics import EinsumTunitMatchError
-from feinsum.einsum import BatchedEinsum, IntegralT
+from feinsum.einsum import (
+    BatchedEinsum,
+    IntegralT,
+    ShapeComponentT,
+    ShapeT,
+    SizeParam,
+)
 
 # {{{ matching loopy kernel against a ref. einsum
 
@@ -79,8 +85,11 @@ def _get_indices_from_assignee(assignee: p.Expression) -> tuple[str, ...]:
 
 
 def _get_iname_length(
-    kernel: lp.LoopKernel, iname: str, long_dim_length: IntegralT
-) -> float | IntegralT:
+    kernel: lp.LoopKernel,
+    iname: str,
+    long_dim_length: IntegralT,
+    iname_to_index: Mapping[str, str],
+) -> ShapeComponentT:
     r"""
     Returns :math:`\mathcal{L}(\text{iname})`. In order to have the same iteration
     domain as that of an einsum, we enforce that *iname* has a zero lower bound
@@ -108,12 +117,13 @@ def _get_iname_length(
         ubound_val = ubound.get_pieces()[0][1].get_constant_val().to_python()
         assert isinstance(ubound_val, int)
         if ubound_val >= long_dim_length:
-            return np.inf
+            assert iname_to_index[iname].islower()
+            return SizeParam(iname_to_index[iname].upper())
         else:
             return ubound_val + 1
     else:
-        # Parametric upper bound => infty
-        return np.inf
+        assert iname_to_index[iname].islower()
+        return SizeParam(iname_to_index[iname].upper())
 
 
 @memoize_on_first_arg
@@ -268,8 +278,10 @@ def get_a_matched_einsum(
         )
 
     get_reductions = ReductionCollector()
-    batched_access_to_operands: list[Mapping[tuple[str, ...], frozenset[str]]] = []
+    batched_iname_set_to_operands: list[dict[tuple[str, ...], frozenset[str]]] = []
     subst_invokes_getter = SubstitutionInvocationGetter(argument_substitutions)
+
+    # {{{ populate batched_access_to_operands
 
     for insn in insns:
         access_to_operands: dict[tuple[str, ...], set[str]] = {}
@@ -344,19 +356,25 @@ def get_a_matched_einsum(
                 cast("p.Variable", subst_invoke.function).name
                 for subst_invoke in subst_invokes
             }
-            (
-                access_to_operands.setdefault(access_index_tuple, set()).update(
-                    subst_names
-                )
+            access_to_operands.setdefault(access_index_tuple, set()).update(
+                subst_names
             )
 
-        batched_access_to_operands.append(
-            Map({k: frozenset(v) for k, v in access_to_operands.items()})
+        batched_iname_set_to_operands.append(
+            {k: frozenset(v) for k, v in access_to_operands.items()}
         )
-
-    # TODO: We need to do something about the einsum index dependencies on the
-    # expression itself. It gets trickier if it comes as a multiplicative term and
-    # we intend to hoist certain terms.
+    for iname_set_to_operands in batched_iname_set_to_operands:
+        if len(iname_set_to_operands) != len(batched_iname_set_to_operands[0]):
+            raise EinsumTunitMatchError(
+                "Different einsums being performed by the instructions being"
+                " matched against."
+            )
+        for iname_set, operands in iname_set_to_operands.items():
+            if len(operands) != len(batched_iname_set_to_operands[0][iname_set]):
+                raise EinsumTunitMatchError(
+                    "Different einsums being performed by the instructions being"
+                    " matched against."
+                )
 
     # Step 1. Get a mapping from einsum inames to indices.
     ensm_inames = insns[0].within_inames | insn.reduction_inames()
@@ -367,68 +385,67 @@ def get_a_matched_einsum(
 
     # Step 2. Get the $\mathcal{L}(i)$ for each $i$ in the new indices.
     iname_to_len = {
-        iname: _get_iname_length(kernel, iname, long_dim_length)
+        iname: _get_iname_length(kernel, iname, long_dim_length, ensm_iname_to_index)
         for iname in ensm_inames
     }
 
     # Step 3. Combine these accesses to get the einsum expression.
-    from functools import reduce
 
-    # type-ignore-reason: looks like mypy is not able to deduce that frozenset is an
-    # iterable.
-    # TODO: open an issue and link it here.
-    unioned_accesses: tuple[tuple[str, ...], ...] = tuple(
-        reduce(
-            frozenset.union,  # type: ignore[arg-type]
-            (
-                frozenset(acc_to_operands)
-                for acc_to_operands in batched_access_to_operands
-            ),
-            cast("frozenset[tuple[str, ...]]", frozenset()),
-        )
-    )
+    iname_sets: list[tuple[str, ...]] = []
+    expanded_iname_sets: list[tuple[str, ...]] = []
+    for iname_set, operands in sorted(
+        batched_iname_set_to_operands[0].items(), key=lambda kxv: kxv[0]
+    ):
+        expanded_iname_sets.extend([iname_set] * len(operands))
+        iname_sets.append(iname_set)
     einsum_subscripts = (
         ",".join(
             [
-                "".join(ensm_iname_to_index[iname] for iname in accesses)
-                for accesses in unioned_accesses
+                "".join(ensm_iname_to_index[iname] for iname in in_iname_set)
+                for in_iname_set in expanded_iname_sets
             ]
         )
         + "->"
         + "".join(ensm_iname_to_index[iname] for iname in free_indices)
     )
-    use_matrix: list[list[frozenset[str]]] = []
-    for acc_to_operands in batched_access_to_operands:
-        use_row = [
-            acc_to_operands.get(accesses, frozenset())
-            for accesses in unioned_accesses
-        ]
-        use_matrix.append(use_row)
+    arg_names: list[list[str]] = []
+    for iname_set_to_operands in batched_iname_set_to_operands:
+        arg_row = []
+        for iname_set in iname_sets:
+            arg_row.extend(sorted(iname_set_to_operands[iname_set]))
+        assert len(arg_row) == len(expanded_iname_sets)
+        arg_names.append(arg_row)
 
     # Step 4. Get the numeric data type for the substitution
-    value_to_dtype: dict[str, np.dtype[Any]] = {}
+    arg_to_dtype: dict[str, np.dtype[Any]] = {}
 
-    for use_row in use_matrix:
-        for uses in use_row:
-            for use in uses:
-                if use not in value_to_dtype:
-                    value_to_dtype[use] = _get_dtype_for_subst_argument(
-                        t_unit, kernel_name, use
-                    )
+    for arg_row in arg_names:
+        for arg in arg_row:
+            if arg not in arg_to_dtype:
+                arg_to_dtype[arg] = _get_dtype_for_subst_argument(
+                    t_unit, kernel_name, arg
+                )
 
     # Step 5. Get arg_shapes from $L$'s.
-    arg_shapes: list[tuple[float | IntegralT, ...]] = []
-    for accesses in unioned_accesses:
-        arg_shapes.append(tuple(iname_to_len[iname] for iname in accesses))
+    arg_to_shape: dict[str, ShapeT] = {}
+    for arg_row in arg_names:
+        for arg, in_iname_set in zip(arg_row, expanded_iname_sets, strict=True):
+            arg_shape = tuple(iname_to_len[iname] for iname in in_iname_set)
+            if arg_to_shape.setdefault(arg, arg_shape) != arg_shape:
+                raise EinsumTunitMatchError(
+                    f"Substituion {arg} has multiple access maps in the instructions"
+                    " being matched. This is not allowed."
+                )
 
     # Step 6. Construct the batched einsum.
-    from feinsum.make_einsum import batched_einsum
+    from feinsum.make_einsum import array, batched_einsum
 
     beinsum = batched_einsum(
         einsum_subscripts,
-        arg_shapes,
-        use_matrix=use_matrix,
-        value_to_dtype=value_to_dtype,
+        [
+            [array(arg, arg_to_shape[arg], arg_to_dtype[arg]) for arg in arg_row]
+            for arg_row in arg_names
+        ],
     )
 
     # FIXME: Verify that the kernel's domain is indeed a dense-hypercube.
@@ -437,7 +454,7 @@ def get_a_matched_einsum(
     subst_map = frozenbidict(
         {
             **ensm_iname_to_index,
-            **{val: val for val in value_to_dtype.keys()},
+            **{val: val for val in arg_to_dtype.keys()},
             **{
                 insn.assignee_var_names()[0]: out_name
                 for insn, out_name in szip(insns, output_names)
@@ -472,11 +489,15 @@ def match_t_unit_to_einsum(
     isomorph_subst = get_substitution_mapping_between_isomorphic_batched_einsums(
         einsum, matched_einsum
     )
+    matched_einsum_size_params = frozenset(
+        {param.name for param in matched_einsum.all_size_params}
+    )
 
     return Map(
         {
             var_in_ensm: var_in_tunit_to_var_in_matched_ensm.inv[var_in_matched_ensm]
             for var_in_ensm, var_in_matched_ensm in isomorph_subst.items()
+            if var_in_matched_ensm not in matched_einsum_size_params
         }
     )
 

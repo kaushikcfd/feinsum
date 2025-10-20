@@ -17,7 +17,7 @@ def transform(
     insn_match: Any | None = None,
     kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
-    ref_einsum = f.einsum("ijk->ij", f.array((np.inf, 72, 4), np.float64))
+    ref_einsum = f.einsum("ijk->ij", f.array("A", ("I", 72, 4), np.float64))
     subst_map = f.match_t_unit_to_einsum(
         t_unit, ref_einsum, insn_match=insn_match, kernel_name=kernel_name
     )
@@ -39,5 +39,5 @@ def test_transform(ctx_factory):
 
     cl_ctx = ctx_factory()
 
-    expr = f.einsum("ijk->ij", f.array((np.inf, 72, 4), np.float64))
+    expr = f.einsum("ijk->ij", f.array("P", ("I", 72, 4), np.float64))
     f.autotune(expr, os.path.abspath(__file__), cl_ctx, stop_after=3)

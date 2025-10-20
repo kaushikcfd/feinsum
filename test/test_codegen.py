@@ -38,18 +38,21 @@ def test_wave_div_components(ctx_factory):
     wave_div_components = f.batched_einsum(
         "se, sij, ej -> ei",
         [
-            (
-                Ndim,
-                np.inf,
-            ),
-            (Ndim, Ndofs, Ndofs),
-            (np.inf, Ndofs),
-        ],
-        dtypes="float64",
-        use_matrix=[
-            [{"Jx"}, {"R"}, {"ux"}],
-            [{"Jy"}, {"R"}, {"uy"}],
-            [{"Jz"}, {"R"}, {"uz"}],
+            [
+                f.array("Jx", (Ndim, "E")),
+                f.array("R", (Ndim, Ndofs, Ndofs)),
+                f.array("ux", ("E", Ndofs)),
+            ],
+            [
+                f.array("Jy", (Ndim, "E")),
+                f.array("R", (Ndim, Ndofs, Ndofs)),
+                f.array("uy", ("E", Ndofs)),
+            ],
+            [
+                f.array("Jz", (Ndim, "E")),
+                f.array("R", (Ndim, Ndofs, Ndofs)),
+                f.array("uz", ("E", Ndofs)),
+            ],
         ],
     )
     f.timeit(
@@ -69,19 +72,12 @@ def test_wave_face_mass(ctx_factory):
     wave_face_mass = f.batched_einsum(
         "se, sij, ej -> ei",
         [
-            (
-                Nface,
-                np.inf,
-            ),
-            (Nface, Ndofs, Ndofs),
-            (np.inf, Ndofs),
-        ],
-        dtypes="float64",
-        use_matrix=[
-            [{"J"}, {"R"}, {"v0"}],
-            [{"J"}, {"R"}, {"v1"}],
-            [{"J"}, {"R"}, {"v2"}],
-            [{"J"}, {"R"}, {"v3"}],
+            [
+                f.array("J", (Nface, "E")),
+                f.array("R", (Nface, Ndofs, Ndofs)),
+                (f.array(f"v{i}", ("E", Ndofs))),
+            ]
+            for i in range(4)
         ],
     )
 
@@ -98,21 +94,18 @@ def test_wave_grad(ctx_factory):
     Ndofs = 35
     Ndim = 3
 
-    wave_grad = f.batched_einsum(
+    wave_grad = f.einsum(
         "xre,rij,ej->xei",
-        [
+        f.array(
+            "J",
             (
                 Ndim,
                 Ndim,
-                np.inf,
+                "E",
             ),
-            (Ndim, Ndofs, Ndofs),
-            (np.inf, Ndofs),
-        ],
-        dtypes="float64",
-        use_matrix=[
-            [{"J"}, {"R"}, {"u"}],
-        ],
+        ),
+        f.array("R", (Ndim, Ndofs, Ndofs)),
+        f.array("u", ("E", Ndofs)),
     )
 
     f.timeit(
@@ -130,23 +123,15 @@ def test_opt_einsum_contract_schedule(ctx_factory):
 
     expr = f.einsum(
         "xre,rij,ej->xei",
-        f.array(
-            (
-                Ndim,
-                Ndim,
-                np.inf,
-            ),
-            "float64",
-        ),
-        f.array((Ndim, Ndofs, Ndofs), "float64"),
-        f.array((np.inf, Ndofs), "float64"),
-        arg_names=["J", "R", "u"],
+        f.array("J", (Ndim, Ndim, "E")),
+        f.array("R", (Ndim, Ndofs, Ndofs)),
+        f.array("u", ("E", Ndofs)),
     )
     knl1 = f.generate_loopy(expr)
     knl2 = f.generate_loopy(expr, f.get_opt_einsum_contraction_schedule(expr))
     assert len(knl1.default_entrypoint.instructions) == 1
     assert len(knl2.default_entrypoint.instructions) == 2
-    lp.auto_test_vs_ref(knl1, cl_ctx, knl2, parameters={"N_e": 5})
+    lp.auto_test_vs_ref(knl1, cl_ctx, knl2, parameters={"E": 5})
 
 
 def test_opt_einsum_contract_schedule_shorthand(ctx_factory):
@@ -156,29 +141,21 @@ def test_opt_einsum_contract_schedule_shorthand(ctx_factory):
 
     expr = f.einsum(
         "xre,rij,ej->xei",
-        f.array(
-            (
-                Ndim,
-                Ndim,
-                np.inf,
-            ),
-            "float64",
-        ),
-        f.array((Ndim, Ndofs, Ndofs), "float64"),
-        f.array((np.inf, Ndofs), "float64"),
-        arg_names=["J", "R", "u"],
+        f.array("J", (Ndim, Ndim, "E")),
+        f.array("R", (Ndim, Ndofs, Ndofs)),
+        f.array("u", ("E", Ndofs)),
     )
     knl1 = f.generate_loopy(expr)
     knl2 = f.generate_loopy_with_opt_einsum_schedule(expr)
     knl1_flops = (
         lp.get_op_map(knl1, subgroup_size=1)
         .filter_by(dtype=[np.float64])
-        .eval_and_sum({"N_e": 500_000})
+        .eval_and_sum({"E": 500_000})
     )
     knl2_flops = (
         lp.get_op_map(knl2, subgroup_size=1)
         .filter_by(dtype=[np.float64])
-        .eval_and_sum({"N_e": 500_000})
+        .eval_and_sum({"E": 500_000})
     )
     assert knl2_flops < knl1_flops
-    lp.auto_test_vs_ref(knl1, cl_ctx, knl2, parameters={"N_e": 5})
+    lp.auto_test_vs_ref(knl1, cl_ctx, knl2, parameters={"E": 5})
