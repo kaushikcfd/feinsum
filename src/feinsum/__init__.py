@@ -6,11 +6,11 @@ from feinsum.codegen.loopy import (
 )
 from feinsum.diagnostics import InvalidParameterError
 from feinsum.einsum import (
+    Array,
     BatchedEinsum,
     EinsumAxisAccess,
     FreeAxis,
     SummationAxis,
-    VeryLongAxis,
     get_opt_einsum_contraction_schedule,
     get_trivial_contraction_schedule,
 )
@@ -19,7 +19,7 @@ from feinsum.loopy_utils import (
     get_call_ids,
     match_t_unit_to_einsum,
 )
-from feinsum.make_einsum import Array, ArrayT, array, batched_einsum, einsum
+from feinsum.make_einsum import array, batched_einsum, einsum
 from feinsum.measure import (
     get_roofline_flop_rate,
     measure_giga_op_rate,
@@ -34,14 +34,12 @@ from feinsum.utils import IndexNameGenerator
 __all__ = (
     "DEFAULT_DB",
     "Array",
-    "ArrayT",
     "BatchedEinsum",
     "EinsumAxisAccess",
     "FreeAxis",
     "IndexNameGenerator",
     "InvalidParameterError",
     "SummationAxis",
-    "VeryLongAxis",
     "array",
     "autotune",
     "batched_einsum",

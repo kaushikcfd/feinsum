@@ -1,7 +1,6 @@
 import logging
 
 import loopy as lp
-import numpy as np
 
 import feinsum as fnsm
 import feinsum.loopy_utils as lp_utils
@@ -27,16 +26,15 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
     ref_einsum = fnsm.einsum(
         "xer,rij,ej->xei",
         fnsm.array(
+            "J",
             (
                 ndim,
-                np.inf,
+                "E",
                 ndim,
             ),
-            "float64",
         ),
-        fnsm.array((ndim, ndofs, ndofs), "float64"),
-        fnsm.array((np.inf, ndofs), "float64"),
-        arg_names=["J", "R", "u"],
+        fnsm.array("R", (ndim, ndofs, ndofs)),
+        fnsm.array("u", ("E", ndofs)),
     )
 
     subst_map = fnsm.match_t_unit_to_einsum(

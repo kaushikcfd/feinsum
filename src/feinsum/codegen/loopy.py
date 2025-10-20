@@ -5,15 +5,13 @@
 .. autofunction:: generate_loopy_with_opt_einsum_schedule
 """
 
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
 import islpy as isl
 import loopy as lp
 import numpy as np
 import pymbolic.primitives as p
-from immutables import Map
-from more_itertools import zip_equal as szip
 from pytools import UniqueNameGenerator, memoize_on_first_arg
 
 from feinsum.einsum import (
@@ -21,32 +19,26 @@ from feinsum.einsum import (
     Argument,
     BatchedEinsum,
     ContractionSchedule,
-    EinsumAxisAccess,
     EinsumOperand,
-    FreeAxis,
     IntegralT,
     IntermediateResult,
+    ShapeComponentT,
     ShapeT,
     SizeParam,
-    SummationAxis,
     get_opt_einsum_contraction_schedule,
     get_trivial_contraction_schedule,
 )
-from feinsum.make_einsum import batched_einsum
 
 LOOPY_LANG_VERSION = (2018, 2)
 
 
-def get_isl_basic_set(einsum: BatchedEinsum) -> isl.BasicSet:
-    dim_name_to_ubound = {}
-
-    for idx, dim in einsum.index_to_dim_length().items():
-        if isinstance(dim, SizeParam):
-            proc_dim: str | IntegralT = dim.name
-        else:
-            proc_dim = dim
-
-        dim_name_to_ubound[einsum.index_names[idx]] = proc_dim
+def _get_isl_basic_set(
+    index_to_dim_length: Mapping[str, ShapeComponentT],
+) -> isl.BasicSet:
+    dim_name_to_ubound: dict[str, str | IntegralT] = {
+        idx: dim.name if isinstance(dim, SizeParam) else dim
+        for idx, dim in index_to_dim_length.items()
+    }
 
     space = isl.Space.create_from_names(
         isl.DEFAULT_CONTEXT,
@@ -79,70 +71,40 @@ def get_isl_basic_set(einsum: BatchedEinsum) -> isl.BasicSet:
 
 def make_subscript(
     name: str,
-    axes: tuple[EinsumAxisAccess, ...],
-    einsum: BatchedEinsum,
+    idx_set: tuple[str, ...],
 ) -> p.Subscript:
     return p.Subscript(
         p.Variable(name),
-        tuple(p.Variable(einsum.index_names[axis]) for axis in axes),
+        tuple(p.Variable(idx) for idx in idx_set),
     )
 
 
 def make_access_expr(
     name: str,
-    axes: tuple[EinsumAxisAccess, ...],
-    einsum: BatchedEinsum,
+    idx_set: tuple[str, ...],
 ) -> p.Call:
     return p.Call(
         p.Variable(_get_input_subst_name(name)),
-        tuple(p.Variable(einsum.index_names[axis]) for axis in axes),
+        tuple(p.Variable(idx) for idx in idx_set),
     )
-
-
-def _generate_trivial_einsum(
-    einsum: BatchedEinsum,
-    output_names: tuple[str, ...],
-) -> tuple[isl.BasicSet, Sequence[lp.InstructionBase]]:
-    assert len(output_names) == einsum.noutputs
-
-    domain = get_isl_basic_set(einsum)
-    statements = []
-    dummy_indices = tuple(
-        sorted(
-            einsum.index_names[axis]
-            for axis in einsum.index_to_dim_length()
-            if isinstance(axis, SummationAxis)
-        )
-    )
-
-    for i_out, output_name in enumerate(output_names):
-        lhs = make_subscript(
-            output_name, tuple(FreeAxis(idim) for idim in range(einsum.ndim)), einsum
-        )
-        rhs: p.ExpressionNode = p.Product(
-            tuple(
-                (
-                    p.Sum(tuple(make_access_expr(dep, axes, einsum) for dep in deps))
-                    if len(deps) > 1
-                    else make_access_expr(next(iter(deps)), axes, einsum)
-                )
-                for deps, axes in zip(
-                    einsum.use_matrix[i_out], einsum.access_descriptors, strict=False
-                )
-            )
-        )
-        if dummy_indices:
-            rhs = lp.Reduction(
-                "sum", tuple(p.Variable(idx) for idx in dummy_indices), rhs
-            )
-
-        statements.append(lp.Assignment(lhs, rhs))
-
-    return domain, statements
 
 
 def _get_input_subst_name(x: str) -> str:
     return f"_fe_subst_{x}"
+
+
+def _get_out_in_idx_sets(
+    subscripts: str,
+) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+    from feinsum.make_einsum import _normalize_einsum_subscript
+
+    in_specs, out_spec = subscripts.split("->")
+    out_idx_set = _normalize_einsum_subscript(out_spec, is_output=True)
+    in_idx_sets = tuple(
+        _normalize_einsum_subscript(in_spec, is_output=False)
+        for in_spec in in_specs.split(",")
+    )
+    return out_idx_set, in_idx_sets
 
 
 @memoize_on_first_arg
@@ -157,6 +119,7 @@ def generate_loopy(
         :class:`~feinsum.einsum.ContractionSchedule`. Defaults to the trivial
         contraction schedule if not provided.
     """
+    from functools import reduce
 
     if schedule is None:
         schedule = get_trivial_contraction_schedule(einsum)
@@ -166,187 +129,197 @@ def generate_loopy(
     # {{{ prepare unique name generator
 
     vng = UniqueNameGenerator()
-    vng.add_names(einsum.value_to_dtype.keys())
-    for dim in einsum.index_to_dim_length().values():
-        if isinstance(dim, SizeParam):
-            vng.add_name(dim.name)
+    vng.add_names(einsum.all_args)
+    vng.add_names(einsum.all_indices)
+    vng.add_names(p.name for p in einsum.all_size_params)
 
     # }}}
 
-    # {{{ start holding a mapping from argument to shapes
+    statements: list[lp.Assignment] = []
+    knl_args: list[lp.ArrayArg | lp.TemporaryVariable] = []
+    substitutions: dict[str, lp.SubstitutionRule] = {}
 
-    arg_to_shape: dict[Argument, ShapeT] = {}
+    # {{{ populate operands in knl_args
 
-    for ioperand, arg_shape in enumerate(einsum.arg_shapes):
-        arg_to_shape[EinsumOperand(ioperand)] = arg_shape
-
-    # }}}
-
-    # {{{
-
-    result_name_in_lpy_knl = tuple(
-        tuple(vng(result_name) for result_name in schedule.result_names)
-        for _ in range(einsum.noutputs)
-    )
-
-    name_in_feinsum_to_lpy = tuple(
-        Map(
-            (
-                (feinsum_name, lpy_name)
-                for feinsum_name, lpy_name in szip(
-                    schedule.result_names, result_name_in_lpy_knl[i_output]
-                )
-            )
+    for arg_name in sorted(einsum.all_args):
+        dtype = einsum.arg_to_dtype[arg_name]
+        shape = tuple(
+            dim.name if isinstance(dim, SizeParam) else dim
+            for dim in einsum.arg_to_shape[arg_name]
         )
-        for i_output in range(einsum.noutputs)
-    )
+        knl_args.append(lp.GlobalArg(arg_name, dtype=dtype, shape=shape))
 
     # }}}
 
-    # {{{ update value_to_dtype
+    # {{{ populate substitutions with arguments
 
-    value_to_dtype = einsum.value_to_dtype
-
-    for i_output in range(einsum.noutputs):
-        arg_to_dtype: dict[Argument, np.dtype[Any]] = {
-            EinsumOperand(ioperand): np.result_type(
-                *{value_to_dtype[use] for use in uses}
-            )
-            for ioperand, uses in enumerate(einsum.use_matrix[i_output])
-        }
-
-        for name_in_lpy_knl, name_in_feinsum, args in zip(
-            result_name_in_lpy_knl[i_output],
-            schedule.result_names,
-            schedule.arguments,
-            strict=False,
-        ):
-            dtype = np.result_type(*{arg_to_dtype[arg] for arg in args})
-            value_to_dtype = value_to_dtype.set(name_in_lpy_knl, dtype)
-            arg_to_dtype[IntermediateResult(name_in_feinsum)] = dtype
+    for arg in sorted(einsum.all_args):
+        subst_name = _get_input_subst_name(arg)
+        ndim = len(einsum.arg_to_shape[arg])
+        subst = lp.SubstitutionRule(
+            subst_name,
+            tuple(f"d_{i}" for i in range(ndim)),
+            make_subscript(arg, tuple(f"d_{i}" for i in range(ndim))),
+        )
+        substitutions[subst_name] = subst
 
     # }}}
 
-    statements: list[lp.InstructionBase] = []
-    domains = []
-    kernel_data: list[lp.ArrayArg | lp.TemporaryVariable] = []
+    # {{{ start maintaining the inames involved.
 
-    for istep, (name_in_feinsum, subscripts, args) in enumerate(
+    istepxindex_to_iname: dict[tuple[int, str], str] = {}
+    iname_to_ubound: dict[str, ShapeComponentT] = {}
+
+    for i_step, subscripts in enumerate(schedule.subscripts):
+        _, in_idx_sets = _get_out_in_idx_sets(subscripts)
+        all_indices = reduce(
+            frozenset.union,
+            (frozenset(idx_set) for idx_set in in_idx_sets),
+            cast("frozenset[str]", frozenset()),
+        )
+        for idx in sorted(all_indices):
+            istepxindex_to_iname[i_step, idx] = vng("i")
+
+    sched_arg_to_shape: dict[Argument, ShapeT] = {}
+    for ioperand, einsum_arg in enumerate(einsum.args[0]):
+        sched_arg_to_shape[EinsumOperand(ioperand)] = einsum_arg.shape
+
+    for i_step, (result_name, subscripts, operands) in enumerate(
         zip(
             schedule.result_names,
             schedule.subscripts,
             schedule.arguments,
-            strict=False,
+            strict=True,
         )
     ):
+        idx_to_length: dict[str, ShapeComponentT] = {}
+        out_idx_set, in_idx_sets = _get_out_in_idx_sets(subscripts)
 
-        subeinsum_value_to_dtype = {}
-        subeinsum_use_matrix = []
-        for i_output in range(einsum.noutputs):
-            subeinsum_use_row = []
-            for arg in args:
-                if isinstance(arg, EinsumOperand):
-                    subeinsum_use_row.append(
-                        einsum.use_matrix[i_output][arg.ioperand]
-                    )
-                    for value in einsum.use_matrix[i_output][arg.ioperand]:
-                        subeinsum_value_to_dtype[value] = value_to_dtype[value]
-                elif isinstance(arg, IntermediateResult):
-                    lpy_name = name_in_feinsum_to_lpy[i_output][arg.name]
-                    subeinsum_use_row.append(frozenset({lpy_name}))
-                    subeinsum_value_to_dtype[lpy_name] = value_to_dtype[lpy_name]
-                else:
-                    raise NotImplementedError(type(arg))
+        for idx_set, operand in zip(in_idx_sets, operands, strict=True):
+            for idx, axis_len in zip(
+                idx_set, sched_arg_to_shape[operand], strict=True
+            ):
+                assert idx_to_length.setdefault(idx, axis_len) == axis_len
 
-            subeinsum_use_matrix.append(subeinsum_use_row)
-
-        subeinsum = batched_einsum(
-            subscripts,
-            [arg_to_shape[arg] for arg in args],
-            subeinsum_use_matrix,
-            value_to_dtype=Map(subeinsum_value_to_dtype),
+        iname_to_ubound.update(
+            {
+                istepxindex_to_iname[i_step, idx]: axis_len
+                for idx, axis_len in idx_to_length.items()
+            }
         )
-        subeinsum = subeinsum.copy(
-            index_names=Map(
-                {
-                    idx: name if istep == 0 else f"{name}_{istep - 1}"
-                    for idx, name in subeinsum.index_names.items()
-                }
-            )
+        sched_arg_to_shape[IntermediateResult(result_name)] = tuple(
+            idx_to_length[idx] for idx in out_idx_set
         )
-        arg_to_shape[IntermediateResult(name_in_feinsum)] = subeinsum.shape
-
-        subeinsum_domain, subeinsum_statements = _generate_trivial_einsum(
-            subeinsum,
-            tuple(
-                result_name_in_lpy_knl[i_output][istep]
-                for i_output in range(einsum.noutputs)
-            ),
-        )
-
-        domains.append(subeinsum_domain)
-        statements.extend(subeinsum_statements)
-
-    # {{{ Populate kernel_data
-
-    # Inputs:
-    for value, dtype in sorted(einsum.value_to_dtype.items(), key=lambda x: x[0]):
-        kernel_data.append(lp.GlobalArg(value, shape=lp.auto, dtype=dtype))
-
-    # Outputs
-    for i_output in range(einsum.noutputs):
-        kernel_data.append(
-            lp.GlobalArg(result_name_in_lpy_knl[i_output][-1], shape=lp.auto)
-        )
-
-    # Temporary Variables
-    for i_output in range(einsum.noutputs):
-        for istep in range(schedule.nsteps - 1):
-            kernel_data.append(
-                lp.TemporaryVariable(
-                    result_name_in_lpy_knl[i_output][istep],
-                    shape=lp.auto,
-                    address_space=lp.AddressSpace.GLOBAL,
-                )
-            )
+    del sched_arg_to_shape
 
     # }}}
 
-    # Substitutions
-    substitutions: dict[str, lp.SubstitutionRule] = {}
-    for val in einsum.value_to_dtype:
-        val_ndim = len(einsum.get_arg_shape(val))
-        subst_name = _get_input_subst_name(val)
-        substitutions[subst_name] = lp.SubstitutionRule(
-            subst_name,
-            tuple(f"_{idim}" for idim in range(val_ndim)),
-            p.Variable(val)[
-                tuple(p.Variable(f"_{idim}") for idim in range(val_ndim))
-            ],
+    # {{{ generate domains.
+
+    domains: list[isl.BasicSet] = []
+
+    for i_step in range(schedule.nsteps):
+        inames = tuple(
+            sorted(
+                {
+                    iname
+                    for (istepxindex, iname) in istepxindex_to_iname.items()
+                    if i_step == istepxindex[0]
+                }
+            )
+        )
+        domains.append(
+            _get_isl_basic_set({iname: iname_to_ubound[iname] for iname in inames})
         )
 
-    for i_output in range(einsum.noutputs):
-        for istep in range(schedule.nsteps - 1):
-            val = result_name_in_lpy_knl[i_output][istep]
-            subst_name = _get_input_subst_name(val)
-            val_ndim = len(schedule.subscripts[istep].split("->")[-1].strip())
+    # }}}
 
-            substitutions[subst_name] = lp.SubstitutionRule(
-                subst_name,
-                tuple(f"_{idim}" for idim in range(val_ndim)),
-                p.Variable(val)[
-                    tuple(p.Variable(f"_{idim}") for idim in range(val_ndim))
-                ],
+    # {{{ generate statements and substitutions
+
+    for args in einsum.args:
+        dtypes = {arg.name: arg.dtype for arg in args}
+        sched_arg_to_lp_name: dict[Argument, str] = {}
+
+        for j, einsum_arg in enumerate(args):
+            sched_arg_to_lp_name[EinsumOperand(j)] = einsum_arg.name
+
+        for i_step, (result_name, operands, subscripts) in enumerate(
+            zip(
+                schedule.result_names,
+                schedule.arguments,
+                schedule.subscripts,
+                strict=True,
             )
+        ):
+            lp_name = vng(result_name)
+            lp_dtype = np.result_type(
+                *[dtypes[sched_arg_to_lp_name[operand]] for operand in operands]
+            )
+            sched_arg_to_lp_name[IntermediateResult(result_name)] = lp_name
+            dtypes[lp_name] = lp_dtype
+            if result_name != schedule.result_names[-1]:
+                knl_args.append(
+                    lp.TemporaryVariable(
+                        lp_name,
+                        dtype=lp_dtype,
+                        shape=lp.auto,
+                        address_space=lp.AddressSpace.GLOBAL,
+                    )
+                )
+            else:
+                knl_args.append(lp.GlobalArg(lp_name, dtype=lp_dtype, shape=lp.auto))
+
+            out_idx_set, in_idx_sets = _get_out_in_idx_sets(subscripts)
+            out_idx_set = tuple(
+                istepxindex_to_iname[i_step, idx] for idx in out_idx_set
+            )
+            in_idx_sets = tuple(
+                tuple(istepxindex_to_iname[i_step, idx] for idx in idx_set)
+                for idx_set in in_idx_sets
+            )
+            inames_to_sum_over = reduce(
+                frozenset.union,
+                (frozenset(idx_set) for idx_set in in_idx_sets),
+                cast("frozenset[str]", frozenset()),
+            ) - frozenset(out_idx_set)
+
+            lhs = make_subscript(lp_name, out_idx_set)
+            rhs: p.ExpressionNode = p.Product(
+                tuple(
+                    make_access_expr(sched_arg_to_lp_name[operand], in_idx_set)
+                    for operand, in_idx_set in zip(
+                        operands, in_idx_sets, strict=True
+                    )
+                )
+            )
+            if inames_to_sum_over:
+                rhs = lp.Reduction(
+                    "sum",
+                    tuple(p.Variable(iname) for iname in inames_to_sum_over),
+                    rhs,
+                )
+
+            statements.append(lp.Assignment(lhs, rhs))
+
+            subst_name = _get_input_subst_name(lp_name)
+            subst = lp.SubstitutionRule(
+                subst_name,
+                tuple(f"d_{i}" for i in range(len(out_idx_set))),
+                make_subscript(
+                    lp_name, tuple(f"d_{i}" for i in range(len(out_idx_set)))
+                ),
+            )
+            substitutions[subst_name] = subst
+
+    # }}}
 
     t_unit = lp.make_kernel(
         domains,
         statements,
-        kernel_data=[*kernel_data, ...],
+        kernel_data=[*knl_args, ...],
         substitutions=substitutions,
         lang_version=LOOPY_LANG_VERSION,
     )
-
     return t_unit
 
 

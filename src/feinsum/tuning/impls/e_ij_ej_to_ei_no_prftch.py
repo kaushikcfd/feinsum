@@ -2,14 +2,13 @@ from typing import Any
 
 import loopy as lp
 import loopy.match as lp_match
-import numpy as np
 
 import feinsum as fnsm
 import feinsum.loopy_utils as lp_utils
 from feinsum.tuning import IntParameter
 
 
-@fnsm.tuning.einsum_arg("noutputs", lambda e: e.noutputs)
+@fnsm.tuning.einsum_arg("noutputs", lambda e: e.b)
 @fnsm.tuning.einsum_arg("ndofs", lambda e: e.shape[1])
 @fnsm.tuning.transform_param("nworkitems_per_e", lambda e: IntParameter(8, 8))
 @fnsm.tuning.transform_param("n_e_per_wg", lambda e: IntParameter(4, 4))
@@ -30,9 +29,14 @@ def transform(
 
     ref_einsum = fnsm.batched_einsum(
         "e,ij,ej->ei",
-        [(np.inf,), (ndofs, ndofs), (np.inf, ndofs)],
-        dtypes=np.float64,
-        use_matrix=[[{"J"}, {"D"}, {f"u{i}"}] for i in range(noutputs)],
+        [
+            [
+                fnsm.array("J", "Nel"),
+                fnsm.array("D", (ndofs, ndofs)),
+                fnsm.array(f"u{i}", ("Nel", ndofs)),
+            ]
+            for i in range(noutputs)
+        ],
     )
     subst_map = fnsm.match_t_unit_to_einsum(
         t_unit, ref_einsum, kernel_name=kernel_name, insn_match=within
@@ -95,9 +99,14 @@ if __name__ == "__main__":
 
     expr = fnsm.batched_einsum(
         "e,ij,ej->ei",
-        [(np.inf,), (Ndof, Ndof), (np.inf, Ndof)],
-        dtypes=np.float64,
-        use_matrix=[[{"J"}, {"D"}, {f"u{i}"}] for i in range(Nfields)],
+        [
+            [
+                fnsm.array("J", "Nel"),
+                fnsm.array("D", (Ndof, Ndof)),
+                fnsm.array(f"u{i}", ("Nel", Ndof)),
+            ]
+            for i in range(Nfields)
+        ],
     )
 
     fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx)

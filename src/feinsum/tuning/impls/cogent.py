@@ -20,41 +20,27 @@ REG_FILE_SPACE_PER_WI = 256 * 4  # in bytes
 
 def _is_ensm_tensor_contraction(ensm: fnsm.BatchedEinsum) -> bool:
     # TC requires noperands == 2
-    noperands = len(ensm.access_descriptors)
-    if noperands != 2:
+    if ensm.n != 2 or ensm.b != 1:
         return False
 
-    # TC requires each free index be indexed in exactly one operand
-    for idim in range(ensm.ndim):
-        free_axis = fnsm.FreeAxis(idim)
-        if not (
-            (free_axis in ensm.access_descriptors[0])
-            ^ (free_axis in ensm.access_descriptors[1])
-        ):
+    in_idx_set1, in_idx_set2 = ensm.in_idx_sets
+
+    # TC requires each out index be indexed in exactly one operand
+    for out_idx in ensm.out_idx_set:
+        if not ((out_idx in in_idx_set1) ^ (out_idx in in_idx_set2)):
             return False
+    if (len(set(in_idx_set1)) != len(in_idx_set1)) or (
+        len(set(in_idx_set2)) != len(in_idx_set2)
+    ):
+        return False
 
+    all_redn_indices = (frozenset(in_idx_set1) | frozenset(in_idx_set2)) - frozenset(
+        ensm.out_idx_set
+    )
     # TC requires all reduction indices be present in both the operands
-    if {
-        redn_idx
-        for redn_idx in ensm.access_descriptors[0]
-        if isinstance(redn_idx, fnsm.SummationAxis)
-    } != {
-        redn_idx
-        for redn_idx in ensm.access_descriptors[1]
-        if isinstance(redn_idx, fnsm.SummationAxis)
-    }:
-        return False
-
-    # For now let's only allow a single einsum with single arguments in each of
-    # them.
-    if ensm.noutputs != 1:
-        return False
-
-    if len(ensm.use_matrix[0][0]) != 1:
-        return False
-
-    if len(ensm.use_matrix[0][1]) != 1:
-        return False
+    for redn_idx in all_redn_indices:
+        if redn_idx not in in_idx_set1 or redn_idx not in in_idx_set2:
+            return False
 
     return True
 
@@ -62,26 +48,20 @@ def _is_ensm_tensor_contraction(ensm: fnsm.BatchedEinsum) -> bool:
 def _get_indices(
     ensm: fnsm.BatchedEinsum,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    from feinsum.einsum import FreeAxis, SummationAxis
-
-    nredn_dim = len(
-        {idx for idx in ensm.index_names if isinstance(idx, SummationAxis)}
-    )
     return (
-        tuple(ensm.index_names[FreeAxis(idim)] for idim in range(ensm.ndim)),
+        ensm.out_idx_set,
         tuple(
-            ensm.index_names[SummationAxis(iredn_dim)]
-            for iredn_dim in range(nredn_dim)
+            idx
+            for idx in ensm.in_idx_sets[0] + ensm.in_idx_sets[1]
+            if idx not in ensm.out_idx_set
         ),
     )
 
 
 def _get_operand_names(ensm: fnsm.BatchedEinsum) -> tuple[str, str]:
-    assert ensm.noutputs == 1
-    assert len(ensm.access_descriptors) == 2
-    (operand1,) = ensm.use_matrix[0][0]
-    (operand2,) = ensm.use_matrix[0][1]
-    return operand1, operand2
+    assert ensm.b == 1 and ensm.n == 2
+    ((arg1, arg2),) = ensm.args
+    return (arg1.name, arg2.name)
 
 
 @einsum_arg("ensm", lambda ensm: ensm)
@@ -110,10 +90,7 @@ def transform(
         raise ValueError(
             "This algorithm needs al least two dimensions" " in the output array."
         )
-    if not all(
-        isinstance(dim_length, INT_CLASSES)
-        for dim_length in ensm.index_to_dim_length().values()
-    ):
+    if len(ensm.all_size_params) != 0:
         raise NotImplementedError("Parametric lengths are not allowed.")
 
     import itertools
@@ -179,34 +156,34 @@ def transform(
 
     # Verify legality of tile lengths
     # -------------------------------
-    i_tx_dim_length = ensm.index_to_dim_length()[fnsm.FreeAxis(i_tx)]
+    i_tx_dim_length = ensm.index_to_dim_length[ensm.out_idx_set[i_tx]]
     if isinstance(i_tx_dim_length, INT_CLASSES) and tx > i_tx_dim_length:
         raise fnsm.InvalidParameterError("Tx > Nx")
 
-    i_ty_dim_length = ensm.index_to_dim_length()[fnsm.FreeAxis(i_ty)]
+    i_ty_dim_length = ensm.index_to_dim_length[ensm.out_idx_set[i_ty]]
     if isinstance(i_ty_dim_length, INT_CLASSES) and ty > i_ty_dim_length:
         raise fnsm.InvalidParameterError("Ty > Ny")
 
     if i_rx is not None:
-        i_rx_dim_length = ensm.index_to_dim_length()[fnsm.FreeAxis(i_rx)]
+        i_rx_dim_length = ensm.index_to_dim_length[ensm.out_idx_set[i_rx]]
         assert rx is not None
         if isinstance(i_rx_dim_length, INT_CLASSES) and rx > i_rx_dim_length:
             raise fnsm.InvalidParameterError("Rx > Nx")
 
     if i_ry is not None:
-        i_ry_dim_length = ensm.index_to_dim_length()[fnsm.FreeAxis(i_ry)]
+        i_ry_dim_length = ensm.index_to_dim_length[ensm.out_idx_set[i_ry]]
         assert ry is not None
         if isinstance(i_ry_dim_length, INT_CLASSES) and ry > i_ry_dim_length:
             raise fnsm.InvalidParameterError("Ry > Ny")
 
-    for iredn_dim, redn_tile in enumerate(t_redns):
-        i_redn_dim_length = ensm.index_to_dim_length()[fnsm.SummationAxis(iredn_dim)]
+    for redn_idx, redn_tile in zip(ensm_redn_indices, t_redns, strict=True):
+        redn_idx_dim_length = ensm.index_to_dim_length[redn_idx]
         if (
-            isinstance(i_redn_dim_length, INT_CLASSES)
-            and redn_tile > i_redn_dim_length
+            isinstance(redn_idx_dim_length, INT_CLASSES)
+            and redn_tile > redn_idx_dim_length
         ):
             raise fnsm.InvalidParameterError(
-                f"redn_dim.{iredn_dim}'s tile is " " greater the axis length."
+                f"redn_dim {redn_idx}'s tile is greater the axis length."
             )
 
     # Verify Tx, Ty, Rx, Ry are distinct dimensions
@@ -222,21 +199,21 @@ def transform(
         product(
             tile_length
             for tile_length, i_tile in [(tx, i_tx), (ty, i_ty)]
-            if fnsm.FreeAxis(i_tile) in acc_descrs
+            if ensm.out_idx_set[i_tile] in idx_set
         )
         * product(t_redns)
-        for acc_descrs in ensm.access_descriptors
+        for idx_set in ensm.in_idx_sets
     ]
     if (
-        l_sm_a * ensm.value_to_dtype[ensm_A].itemsize
-        + l_sm_b * ensm.value_to_dtype[ensm_B].itemsize
+        l_sm_a * ensm.arg_to_dtype[ensm_A].itemsize
+        + l_sm_b * ensm.arg_to_dtype[ensm_B].itemsize
     ) > MAX_SHARED_MEM_PER_WG:
         raise fnsm.InvalidParameterError("Exceeds local memory limits")
 
     # Verify register file usage
     # --------------------------
     if (rx or 1) * (ry or 1) * np.result_type(
-        ensm.value_to_dtype[ensm_A], ensm.value_to_dtype[ensm_B]
+        ensm.arg_to_dtype[ensm_A], ensm.arg_to_dtype[ensm_B]
     ).itemsize > REG_FILE_SPACE_PER_WI:
         raise fnsm.InvalidParameterError("Exceeds register file limits")
 
@@ -245,8 +222,8 @@ def transform(
     # Note: we do not restrict the tile-lengths(tx, ty) as in this case the
     # tile-lengths also correspond to the execution grid size.
     new_t_redns = []
-    for iredn_dim, t_redn in enumerate(t_redns):
-        axis_len = ensm.index_to_dim_length()[fnsm.SummationAxis(iredn_dim)]
+    for redn_idx, t_redn in zip(ensm_redn_indices, t_redns, strict=True):
+        axis_len = ensm.index_to_dim_length[redn_idx]
         if isinstance(axis_len, SizeParam):
             new_t_redns.append(t_redn)
         else:
@@ -272,7 +249,7 @@ def transform(
         insn_match=insn_match,
         kernel_name=kernel_name,
         long_dim_length=max(  # type: ignore[type-var,operator]
-            ensm.index_to_dim_length().values(), default=1
+            ensm.index_to_dim_length.values(), default=1
         )
         + 1,
     )
@@ -368,31 +345,31 @@ def transform(
     B_sweep_inames: list[str] = []
     B_prftch_inames: list[str | None] = []
 
-    for (sweep_inames, prftch_inames), acc_descrs in szip(
+    for (sweep_inames, prftch_inames), in_idx_set in szip(
         ((A_sweep_inames, A_prftch_inames), (B_sweep_inames, B_prftch_inames)),
-        ensm.access_descriptors,
+        ensm.in_idx_sets,
     ):
-        for acc_descr in acc_descrs:
-            if isinstance(acc_descr, fnsm.FreeAxis):
-                if acc_descr.output_index == i_tx:
+        for in_idx in in_idx_set:
+            if in_idx in ensm.out_idx_set:
+                if ensm.out_idx_set.index(in_idx) == i_tx:
                     sweep_inames.append(tx_inner)
                     if tx != 1:
                         prftch_inames.append(vng("iprftch_tx"))
                     else:
                         prftch_inames.append(None)
-                elif acc_descr.output_index == i_ty:
+                elif ensm.out_idx_set.index(in_idx) == i_ty:
                     sweep_inames.append(ty_inner)
                     if ty != 1:
                         prftch_inames.append(vng("iprftch_ty"))
                     else:
                         prftch_inames.append(None)
-                elif acc_descr.output_index == i_rx:
+                elif ensm.out_idx_set.index(in_idx) == i_rx:
                     sweep_inames.append(rx_inner)
                     if rx != 1:
                         prftch_inames.append(vng("iprftch_rx"))
                     else:
                         prftch_inames.append(None)
-                elif acc_descr.output_index == i_ry:
+                elif ensm.out_idx_set.index(in_idx) == i_ry:
                     sweep_inames.append(ry_inner)
                     if ry != 1:
                         prftch_inames.append(vng("iprftch_ry"))
@@ -401,17 +378,16 @@ def transform(
                 else:
                     # Not sweep this iname as it is purely a precompute outer iname.
                     prftch_inames.append(None)
-            elif isinstance(acc_descr, fnsm.SummationAxis):
-                if t_redns[acc_descr.index] == 1:
+            else:
+                assert in_idx in ensm_redn_indices
+                if t_redns[ensm_redn_indices.index(in_idx)] == 1:
                     # Not sweep this iname as it is purely a precompute outer iname.
                     prftch_inames.append(None)
                 else:
-                    sweep_inames.append(inner_redn_inames[acc_descr.index])
-                    prftch_inames.append(
-                        vng(f"iprftch_{ensm.index_names[acc_descr]}")
+                    sweep_inames.append(
+                        inner_redn_inames[ensm_redn_indices.index(in_idx)]
                     )
-            else:
-                raise AssertionError(type(acc_descr))
+                    prftch_inames.append(vng(f"iprftch_{in_idx}"))
 
     # precompute A
     t_unit = lp.precompute(  # type: ignore[no-untyped-call]
@@ -540,9 +516,8 @@ if __name__ == "__main__":
 
     expr = fnsm.einsum(
         "il,ljk->ijk",
-        fnsm.array((72, 72), np.float64),
-        fnsm.array((72, 72, 72), np.float64),
-        arg_names=["A", "B"],
+        fnsm.array("A", (72, 72), np.float64),
+        fnsm.array("B", (72, 72, 72), np.float64),
     )
 
     fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx)

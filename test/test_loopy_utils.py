@@ -37,33 +37,34 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
     nfacedofs = 15
     face_mass = f.batched_einsum(
         "ef, fij, fej -> ei",
-        [(np.inf, nface), (nface, nvoldofs, nfacedofs), (nface, np.inf, nfacedofs)],
-        dtypes="float64",
-        use_matrix=[
-            [{"J"}, {"R"}, {"v0"}],
-            [{"J"}, {"R"}, {"v1"}],
-            [{"J"}, {"R"}, {"v2"}],
-            [{"J"}, {"R"}, {"v3"}],
+        [
+            [
+                f.array("J", ("E", nface)),
+                f.array("R", (nface, nvoldofs, nfacedofs)),
+                f.array(f"v{i}", (nface, "E", nfacedofs)),
+            ]
+            for i in range(4)
         ],
     )
     t_unit = f.generate_loopy(face_mass)
-    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(3)]
+    sigma = f.match_t_unit_to_einsum(t_unit, face_mass)
 
-    # {{{ prefetch 'J * vec'
+    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(3)]
 
     from loopy.symbolic import get_dependencies
     from pymbolic import variables
 
     knl = t_unit.default_entrypoint
+    iname_f, iname_e, iname_j = sigma["f"], sigma["e"], sigma["j"]
 
     for i in range(4):
         knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
             knl,
-            within=f"writes:{output_names[i]}",
+            within=f"writes:{sigma[output_names[i]]}",
             subst_name=f"subst_{i}",
-            arguments=variables("f e j"),
+            arguments=variables(f"{iname_f} {iname_e} {iname_j}"),
             terms_filter=lambda x: (get_dependencies(x) & knl.all_inames())
-            <= set("fej"),
+            <= {iname_f, iname_e, iname_j},
         )
 
     t_unit = t_unit.with_kernel(knl)
@@ -72,18 +73,16 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
         t_unit = lp.precompute(
             t_unit,
             f"subst_{i}",
-            sweep_inames=["f", "j"],
-            precompute_outer_inames=frozenset({"e"}),
+            sweep_inames=[iname_f, iname_j],
+            precompute_outer_inames=frozenset({iname_e}),
             default_tag=None,
             temporary_address_space=lp.AddressSpace.PRIVATE,
         )
 
-    # }}}
-
     opt_einsum_t_unit = f.generate_loopy_with_opt_einsum_schedule(face_mass)
 
-    assert (lp.get_op_map(t_unit, subgroup_size=1).eval_and_sum({"N_e": 1})) == (
-        lp.get_op_map(opt_einsum_t_unit, subgroup_size=1).eval_and_sum({"N_e": 1})
+    assert (lp.get_op_map(t_unit, subgroup_size=1).eval_and_sum({"E": 1})) == (
+        lp.get_op_map(opt_einsum_t_unit, subgroup_size=1).eval_and_sum({"E": 1})
     )
 
 
@@ -95,25 +94,27 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
     nel = 1
     ndim = 3
     ndofs = 35
-    expr = f.batched_einsum(
+    expr = f.einsum(
         "xre, rij, ej->xei",
-        ((ndim, ndim, nel), (ndim, ndofs, ndofs), (nel, ndofs)),
-        dtypes="float32",
-        use_matrix=[[{"J"}, {"R"}, {"u"}]],
+        f.array("J", (ndim, ndim, nel)),
+        f.array("R", (ndim, ndofs, ndofs)),
+        f.array("u", (nel, ndofs)),
     )
     t_unit = f.generate_loopy(expr)
+    sigma = f.match_t_unit_to_einsum(t_unit, expr)
 
     # {{{ hoist the "j" redn-loop over "x" loop
 
+    e, i, j, r = sigma["e"], sigma["i"], sigma["j"], sigma["r"]
     knl = t_unit.default_entrypoint
-    knl = lp.split_reduction_inward(knl, "j")
+    knl = lp.split_reduction_inward(knl, j)
 
-    knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, "j")
+    knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
     knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
         knl,
         within=None,
         subst_name="grad_without_jacobi_subst",
-        arguments=variables("r i e"),
+        arguments=variables(f"{r} {i} {e}"),
         terms_filter=lambda x: isinstance(x, Reduction),
     )
 
@@ -122,8 +123,8 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
     hoisted_t_unit = lp.precompute(
         hoisted_t_unit,
         "grad_without_jacobi_subst",
-        sweep_inames=["r", "i"],
-        precompute_outer_inames=frozenset("e"),
+        sweep_inames=[r, i],
+        precompute_outer_inames=frozenset({e}),
     )
 
     # }}}
@@ -199,15 +200,16 @@ def test_einsum_matching():
     nvoldofs = 35
     nfacedofs = 15
     nface = 4
+
     ref_einsum = f.batched_einsum(
         "ef, fij, fej -> ei",
-        [(np.inf, nface), (nface, nvoldofs, nfacedofs), (nface, np.inf, nfacedofs)],
-        dtypes="float64",
-        use_matrix=[
-            [{"J"}, {"R"}, {"v0"}],
-            [{"J"}, {"R"}, {"v1"}],
-            [{"J"}, {"R"}, {"v2"}],
-            [{"J"}, {"R"}, {"v3"}],
+        [
+            [
+                f.array("J", ("E", nface)),
+                f.array("R", (nface, nvoldofs, nfacedofs)),
+                f.array(f"v{i}", (nface, "E", nfacedofs)),
+            ]
+            for i in range(4)
         ],
     )
 

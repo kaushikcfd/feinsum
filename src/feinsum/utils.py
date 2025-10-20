@@ -1,5 +1,4 @@
 """
-.. autofunction:: has_similar_subscript
 .. autofunction:: is_any_redn_dim_parametric
 .. autofunction:: get_n_redn_dim
 
@@ -8,51 +7,7 @@
 
 import dataclasses as dc
 
-from feinsum import array
 from feinsum.einsum import BatchedEinsum, SizeParam, SummationAxis
-from feinsum.make_einsum import einsum as build_einsum
-
-
-def has_similar_subscript(einsum: BatchedEinsum, subscript: str) -> bool:
-    """
-    Returns *True* only if *einsum*'s expression being applied
-    to its operands is equivalently represented by *subscript*.
-
-    .. testsetup::
-
-        >>> from feinsum.utils import has_similar_subscript
-
-    .. doctest::
-
-        >>> import feinsum as f
-        >>> ensm = f.einsum("ij,j->i",
-        ...                 f.array((10, 4), "float64"),
-        ...                 f.array(4, "float64"))
-        >>> has_similar_subscript(ensm, "ij,j->i")
-        True
-        >>> has_similar_subscript(ensm, "ik,k->i")
-        True
-        >>> has_similar_subscript(ensm, "ik,kj->ij")
-        False
-        >>> ensm = f.einsum("ik,kj->ij",
-        ...                 f.array((10, 4), "float64"),
-        ...                 f.array((4, 100), "float64"))
-        >>> has_similar_subscript(ensm, "ij,j->i")
-        False
-        >>> has_similar_subscript(ensm, "ik,kj->ij")
-        True
-        >>> has_similar_subscript(ensm, "pq,qr->pr")
-        True
-    """
-
-    try:
-        ref_einsum = build_einsum(
-            subscript, *[array(shape, "float64") for shape in einsum.arg_shapes]
-        )
-    except ValueError:
-        return False
-    else:
-        return ref_einsum.access_descriptors == einsum.access_descriptors
 
 
 def is_any_redn_dim_parametric(einsum: BatchedEinsum) -> bool:
@@ -81,17 +36,11 @@ def is_any_redn_dim_parametric(einsum: BatchedEinsum) -> bool:
         >>> is_any_redn_dim_parametric(ensm)
         True
     """
-
-    for arg_shape, access_descrs in zip(
-        einsum.arg_shapes, einsum.access_descriptors, strict=False
-    ):
-        for access_descr, dim in zip(access_descrs, arg_shape, strict=False):
-            if isinstance(access_descr, SummationAxis) and isinstance(
-                dim, SizeParam
-            ):
-                return True
-
-    return False
+    return any(
+        isinstance(dim_len, SizeParam)
+        and isinstance(einsum.index_to_access_descr[idx], SummationAxis)
+        for idx, dim_len in einsum.index_to_dim_length.items()
+    )
 
 
 def get_n_redn_dim(ensm: BatchedEinsum) -> int:
@@ -100,9 +49,9 @@ def get_n_redn_dim(ensm: BatchedEinsum) -> int:
     """
     return len(
         {
-            axis
-            for axis in ensm.index_to_dim_length()
-            if isinstance(axis, SummationAxis)
+            idx
+            for idx, access in ensm.index_to_access_descr.items()
+            if isinstance(access, SummationAxis)
         }
     )
 

@@ -2,7 +2,6 @@ from typing import Any
 
 import loopy as lp
 import loopy.match as lp_match
-import numpy as np
 
 import feinsum as fnsm
 from feinsum.tuning import IntParameter
@@ -30,11 +29,8 @@ def transform(
         if within(t_unit[kernel_name], insn)
     ]
 
-    ref_einsum = fnsm.batched_einsum(
-        "ij,ej->ei",
-        [(ndofs, ndofs), (np.inf, ndofs)],
-        dtypes=np.float64,
-        use_matrix=[[{"D"}, {"u"}]],
+    ref_einsum = fnsm.einsum(
+        "ij,ej->ei", fnsm.array("D", (ndofs, ndofs)), fnsm.array("u", ("Nel", ndofs))
     )
     subst_map = fnsm.match_t_unit_to_einsum(
         t_unit, ref_einsum, kernel_name=kernel_name, insn_match=insn_match
@@ -139,11 +135,8 @@ if __name__ == "__main__":
 
     cl_ctx = cl.create_some_context()
 
-    expr = fnsm.batched_einsum(
-        "ij,ej->ei",
-        [(Ndof, Ndof), (np.inf, Ndof)],
-        dtypes=np.float64,
-        use_matrix=[[{"D"}, {f"u{i}"}] for i in range(Nfields)],
+    expr = fnsm.einsum(
+        "ij,ej->ei", fnsm.array("D", (Ndof, Ndof)), fnsm.array("u", ("Nel", Ndof))
     )
 
     fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx)

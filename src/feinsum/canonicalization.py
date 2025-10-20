@@ -185,68 +185,39 @@ def visualize_einsum_graph(
     show_dot(dot_code)
 
 
-def _get_use_matrix_col_permutation(
-    einsum: BatchedEinsum, sorted_index_names: Sequence[str]
-) -> tuple[int, ...]:
-    acc_descr_to_rank = {
-        acc_descr: sorted_index_names.index(name)
-        for acc_descr, name in einsum.index_names.items()
+def _get_use_matrix_col_permutations(
+    einsum: BatchedEinsum,
+    sorted_index_names: Sequence[str],
+    sorted_array_names: Sequence[str],
+) -> tuple[tuple[int, ...], ...]:
+    index_to_rank = {
+        idx: sorted_index_names.index(idx) for idx in einsum.all_indices
+    }
+    arg_to_rank = {
+        arg_name: sorted_array_names.index(arg_name) for arg_name in einsum.all_args
     }
 
-    a = np.empty(len(einsum.access_descriptors), dtype=object)
+    col_permutations = []
 
-    for i, acc_descrs in enumerate(einsum.access_descriptors):
-        a[i] = tuple(acc_descr_to_rank[acc_descr] for acc_descr in acc_descrs)
+    for arg_row in einsum.args:
+        a = np.empty(einsum.n, dtype=object)
+        for i, (arg, in_idx_set) in enumerate(
+            zip(arg_row, einsum.in_idx_sets, strict=True)
+        ):
+            a[i] = (
+                tuple(index_to_rank[idx] for idx in in_idx_set),
+                arg_to_rank[arg.name],
+            )
+        col_permutations.append(tuple(np.argsort(a)))
 
-    return tuple(np.argsort(a))
-
-
-def _group_same_access_descriptors(einsum: BatchedEinsum) -> BatchedEinsum:
-
-    new_arg_shapes: list[ShapeT] = []
-    new_acc_descrs: list[tuple[EinsumAxisAccess, ...]] = []
-    acc_descrs_to_i_new_col: dict[tuple[EinsumAxisAccess, ...], int] = {}
-    n_unique = 0
-
-    for arg_shape, acc_descrs in szip(einsum.arg_shapes, einsum.access_descriptors):
-
-        try:
-            acc_descrs_to_i_new_col[acc_descrs]
-        except KeyError:
-            new_arg_shapes.append(arg_shape)
-            new_acc_descrs.append(acc_descrs)
-            acc_descrs_to_i_new_col[acc_descrs] = n_unique
-            n_unique += 1
-
-    assert set(acc_descrs_to_i_new_col) == set(einsum.access_descriptors)
-    assert n_unique == len(acc_descrs_to_i_new_col)
-    assert n_unique <= len(einsum.access_descriptors)
-
-    new_use_matrix: list[list[set[str]]] = [
-        [set() for icol in range(n_unique)] for irow in range(einsum.noutputs)
-    ]
-
-    for irow, use_row in enumerate(einsum.use_matrix):
-        for acc_descrs, uses in szip(einsum.access_descriptors, use_row):
-            icol = acc_descrs_to_i_new_col[acc_descrs]
-            new_use_matrix[irow][icol].update(uses)
-
-    return BatchedEinsum(
-        tuple(new_arg_shapes),
-        einsum.value_to_dtype,
-        tuple(new_acc_descrs),
-        tuple(
-            tuple(frozenset(uses) for uses in use_row) for use_row in new_use_matrix
-        ),
-        einsum.index_names,
-    )
+    return tuple(col_permutations)
 
 
 def get_einsum_dag(
     einsum: BatchedEinsum,
 ) -> Map[EinsumGraphNode, frozenset[EinsumGraphNode]]:
 
-    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(einsum.noutputs - 1)]
+    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(einsum.b - 1)]
     einsum_dag: dict[EinsumGraphNode, set[EinsumGraphNode]] = {}
 
     # {{{ compute acc_descr_to_node, array_to_node
@@ -258,34 +229,40 @@ def get_einsum_dag(
     shape_dim_to_node: dict[ShapeComponentT, LiteralNode | SizeParamNode] = {}
     dtype_to_node: dict[np.dtype[Any], DtypeNode] = {}
 
-    for acc_descrs in einsum.access_descriptors:
-        for acc_descr in acc_descrs:
-            acc_descr_to_node[acc_descr] = IndexNode(einsum.index_names[acc_descr])
+    for idx_set in einsum.in_idx_sets:
+        for idx in idx_set:
+            acc_descr = einsum.index_to_access_descr[idx]
+            acc_descr_to_node[acc_descr] = IndexNode(idx)
 
-    for ary_name in set(einsum.value_to_dtype) | set(output_names):
+    for ary_name in einsum.all_args | frozenset(output_names):
         array_to_node[ary_name] = ArrayNode(ary_name)
 
-    for arg_shape in einsum.arg_shapes:
-        for dim in arg_shape:
-            if isinstance(dim, INT_CLASSES):
-                shape_dim_to_node[dim] = LiteralNode(dim)
-            else:
-                assert isinstance(dim, SizeParam)
-                shape_dim_to_node[dim] = SizeParamNode(dim.name)
+    for arg_row in einsum.args:
+        for arg in arg_row:
+            for dim in arg.shape:
+                if isinstance(dim, INT_CLASSES):
+                    shape_dim_to_node[dim] = LiteralNode(dim)
+                else:
+                    assert isinstance(dim, SizeParam)
+                    shape_dim_to_node[dim] = SizeParamNode(dim.name)
 
     for idim in range(
-        max((len(arg_shape) for arg_shape in einsum.arg_shapes), default=einsum.ndim)
+        max(
+            (len(in_idx_set) for in_idx_set in einsum.in_idx_sets),
+            default=einsum.ndim,
+        )
     ):
         axis_to_node[idim] = AxisNode(idim)
 
     for output_name in output_names:
-        for acc_descrs in einsum.access_descriptors:
-            for idim, acc_descr in enumerate(acc_descrs):
+        for in_idx_set in einsum.in_idx_sets:
+            for idim, in_idx in enumerate(in_idx_set):
+                acc_descr = einsum.index_to_access_descr[in_idx]
                 access_to_node[output_name, acc_descr, idim] = AccessNode(
-                    output_name, einsum.index_names[acc_descr], idim
+                    output_name, in_idx, idim
                 )
 
-    for dtype in einsum.value_to_dtype.values():
+    for dtype in einsum.arg_to_dtype.values():
         dtype_to_node[dtype] = DtypeNode(dtype)
 
     all_einsum_graph_nodes = (
@@ -305,16 +282,16 @@ def get_einsum_dag(
     # {{{ adding the edges
 
     # Add edges from values to accesses
-    for output_name, use_row in szip(output_names, einsum.use_matrix):
-        for acc_descrs, uses in szip(einsum.access_descriptors, use_row):
+    for output_name, arg_row in zip(output_names, einsum.args, strict=True):
+        for in_idx_set, arg in zip(einsum.in_idx_sets, arg_row, strict=True):
             acc_nodes = {
-                access_to_node[output_name, acc_descr, idim]
-                for idim, acc_descr in enumerate(acc_descrs)
+                access_to_node[
+                    output_name, einsum.index_to_access_descr[in_idx], idim
+                ]
+                for idim, in_idx in enumerate(in_idx_set)
             }
 
-            for use in uses:
-                use_node = array_to_node[use]
-                einsum_dag[use_node].update(acc_nodes)
+            einsum_dag[array_to_node[arg.name]].update(acc_nodes)
 
     # {{{ add edges defining an access
 
@@ -326,23 +303,16 @@ def get_einsum_dag(
     # }}}
 
     # add edges coming from index_to_length
-    for acc_descr, dim in einsum.index_to_dim_length().items():
+    for idx, dim in einsum.index_to_dim_length.items():
+        acc_descr = einsum.index_to_access_descr[idx]
         einsum_dag[acc_descr_to_node[acc_descr]].add(shape_dim_to_node[dim])
 
     # add edges coming from dtypes
-    for ary_name, dtype in einsum.value_to_dtype.items():
+    for ary_name, dtype in einsum.arg_to_dtype.items():
         einsum_dag[dtype_to_node[dtype]].add(array_to_node[ary_name])
 
-    for output_name, use_row in szip(output_names, einsum.use_matrix):
-        use_dtypes: frozenset[np.dtype[Any]] = functools.reduce(
-            frozenset.union,
-            (
-                frozenset(einsum.value_to_dtype[use] for use in uses)
-                for uses in use_row
-            ),
-            frozenset(),
-        )
-        out_dtype = np.result_type(*use_dtypes)
+    for output_name, arg_row in zip(output_names, einsum.args, strict=True):
+        out_dtype = np.result_type(*[arg.dtype for arg in arg_row])
         einsum_dag[dtype_to_node[out_dtype]].add(array_to_node[output_name])
 
     # }}}
@@ -360,10 +330,7 @@ def _get_canonicalized_einsum_with_subst_mapping(
     of *einsum* to the variables in `*canonicalized_einsum*.
     """
 
-    # collect all the uses with same desciptors together.
-    einsum = _group_same_access_descriptors(einsum)
-
-    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(einsum.noutputs - 1)]
+    output_names = ["_fe_out"] + [f"_fe_out_{i}" for i in range(einsum.b - 1)]
 
     einsum_dag = get_einsum_dag(einsum)
 
@@ -388,7 +355,7 @@ def _get_canonicalized_einsum_with_subst_mapping(
             if node.name in output_names:
                 output_array_nodes.add(idx)
             else:
-                assert node.name in einsum.value_to_dtype
+                assert node.name in einsum.arg_to_dtype
                 input_array_nodes.add(idx)
         elif isinstance(node, IndexNode):
             index_nodes.add(idx)
@@ -440,9 +407,6 @@ def _get_canonicalized_einsum_with_subst_mapping(
         vertex_coloring=vertex_coloring,
     )
 
-    # TODO: The logic below till the function exit will benefit from some
-    # cleanup
-
     reindex_map = {lbl: i for i, lbl in enumerate(nauty.canon_label(g))}
 
     # recompute node_to_idx as per the mapping emitted by nauty.
@@ -476,38 +440,28 @@ def _get_canonicalized_einsum_with_subst_mapping(
     for i, old_input_ary in enumerate(sorted_input_arys):
         input_ary_name_to_new_ary_name[old_input_ary] = f"arg_{i}"
 
-    use_matrix_col_permutation = _get_use_matrix_col_permutation(
-        einsum, sorted_index_names
-    )
     # TODO: O(m.n), but who cares, right?
     use_matrix_row_permutation = [
         output_names.index(name) for name in sorted_output_arys
     ]
-
-    new_use_matrix = tuple(
-        [
-            tuple(
-                [
-                    frozenset(
-                        input_ary_name_to_new_ary_name[use]
-                        for use in einsum.use_matrix[irow][icol]
-                    )
-                    for icol in use_matrix_col_permutation
-                ]
-            )
-            for irow in use_matrix_row_permutation
-        ]
+    use_matrix_col_permutations = _get_use_matrix_col_permutations(
+        einsum, sorted_index_names, sorted_input_arys
     )
 
     new_index_expr = "".join(
-        idx if idx in [",", "-", ">"] else idx_to_new_idx[idx]
+        idx if idx in [",", "-", ">", " "] else idx_to_new_idx[idx]
         for idx in einsum.get_subscripts()
     )
     input_subscripts, output_subscript = new_index_expr.split("->")
     input_subscript_list = input_subscripts.split(",")
     new_input_subscripts = ",".join(
-        input_subscript_list[icol] for icol in use_matrix_col_permutation
+        input_subscript_list[icol] for icol in use_matrix_col_permutations[0]
     )
+    old_to_new_param_names: dict[str, str] = {
+        dim.name: idx_to_new_idx[idx].upper()
+        for idx, dim in einsum.index_to_dim_length.items()
+        if isinstance(dim, SizeParam)
+    }
 
     substitution_mapping = frozenbidict(
         {
@@ -517,24 +471,39 @@ def _get_canonicalized_einsum_with_subst_mapping(
                 old_output_name: output_names[use_matrix_row_permutation[irow]]
                 for irow, old_output_name in enumerate(output_names)
             },
+            **old_to_new_param_names,
         }
     )
+
+    from feinsum.make_einsum import array
+
+    arg_to_new_shape = {
+        arg_name: tuple(
+            (
+                SizeParam(old_to_new_param_names[dim.name])
+                if isinstance(dim, SizeParam)
+                else dim
+            )
+            for dim in old_shape
+        )
+        for arg_name, old_shape in einsum.arg_to_shape.items()
+    }
 
     return (
         batched_einsum(
             f"{new_input_subscripts}->{output_subscript}",
-            operand_shapes=[
+            [
                 [
-                    np.inf if isinstance(d, SizeParam) else d
-                    for d in einsum.arg_shapes[icol]
+                    einsum.args[irow][icol].copy(
+                        name=input_ary_name_to_new_ary_name[
+                            einsum.args[irow][icol].name
+                        ],
+                        shape=arg_to_new_shape[einsum.args[irow][icol].name],
+                    )
+                    for icol in use_matrix_col_permutations[irow]
                 ]
-                for icol in use_matrix_col_permutation
+                for irow in use_matrix_row_permutation
             ],
-            value_to_dtype={
-                input_ary_name_to_new_ary_name[k]: v
-                for k, v in einsum.value_to_dtype.items()
-            },
-            use_matrix=new_use_matrix,
         ),
         substitution_mapping,
     )
