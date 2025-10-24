@@ -31,9 +31,7 @@ from immutables import Map
 from pytools import UniqueNameGenerator, memoize_method
 
 IntegralT = int | np.integer
-ScalarT = np.number | int, np.bool_ | bool | float | complex
 INT_CLASSES = (int, np.integer)
-SCALAR_CLASSES = (np.number, int, np.bool_, bool, float, complex)
 
 
 @dataclass(frozen=True)
