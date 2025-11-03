@@ -34,7 +34,7 @@ dependencies = [
     "pyopencl",
     "immutables",
     "tabulate",
-    "pynauty",
+    "pybliss",
     "bidict",
     "opt_einsum",
 ]
@@ -75,10 +75,6 @@ ignore = ["B023", "C901", "N806"]
 
 [[tool.mypy.overrides]]
 module = "opt_einsum.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "pynauty.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
