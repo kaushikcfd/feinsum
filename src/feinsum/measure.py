@@ -146,10 +146,7 @@ def validate_batched_einsum_transform(
         ),
     )
     transform_outs = Map(
-        {
-            name: cla.zeros_like(ary)
-            for name, ary in ref_outs.items()
-        }
+        {name: cla.zeros_like(ary) for name, ary in ref_outs.items()}
     )
 
     # }}}
