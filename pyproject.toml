@@ -45,8 +45,6 @@ preview = true
 line-length = 85
 exclude = [
     "doc/conf.py",
-    # FIXME: Remove this once the revamp is done.
-    "src/feinsum/canonicalization.py"
 ]
 
 [tool.ruff.lint]
