@@ -147,8 +147,7 @@ def validate_batched_einsum_transform(
     )
     transform_outs = Map(
         {
-            # TODO: type-ignore should be removed in pyopencl=2025.3
-            name: cast("cla.Array", cla.zeros_like(ary))  # type: ignore[no-untyped-call]
+            name: cla.zeros_like(ary)
             for name, ary in ref_outs.items()
         }
     )
