@@ -40,4 +40,5 @@ def test_transform(ctx_factory):
     cl_ctx = ctx_factory()
 
     expr = f.einsum("ijk->ij", f.array("P", ("I", 72, 4), np.float64))
-    f.autotune(expr, os.path.abspath(__file__), cl_ctx, stop_after=3)
+    f.autotune(expr, os.path.abspath(__file__), cl_ctx, stop_after=3,
+               long_dim_length=100)

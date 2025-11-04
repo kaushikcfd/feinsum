@@ -379,7 +379,7 @@ def record_into_db(
     cl_ctx: cl.Context,
     module_path: str,
     transform_params: Mapping[str, Any],
-    database: str = DEFAULT_DB,
+    database: str | sqlite3.Connection = DEFAULT_DB,
     long_dim_length: int = 100_000,
 ) -> None:
     """
@@ -392,7 +392,8 @@ def record_into_db(
     from feinsum.tuning import _get_impls_path, get_transform_func_from_module_path
 
     dirpath, transform_space_id = os.path.split(module_path)
-    assert dirpath == _get_impls_path()
+    if dirpath != _get_impls_path():
+        transform_space_id = module_path
     einsum = canonicalize_einsum(einsum)
 
     transform_func = get_transform_func_from_module_path(module_path).bind_args(
@@ -412,7 +413,12 @@ def record_into_db(
         transform=transform_func,
         long_dim_length=long_dim_length,
     )
-    conn = sqlite3.connect(database)
+    if isinstance(database, str):
+        conn = sqlite3.connect(database)
+    else:
+        assert isinstance(database, sqlite3.Connection)
+        conn = database
+
     _create_timings_table_if_non_existent(conn)
     cursor = conn.cursor()
     subscripts = einsum.get_subscripts()
