@@ -388,31 +388,9 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
     @cached_property
     def conn(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.db_path)
-        cursor = db.cursor()
-        cursor.execute(
-            " SELECT name FROM sqlite_master" " WHERE (type='table' AND name=?);",
-            (TIMINGS_TABLENAME,),
-        )
+        from feinsum.sql_utils import _create_timings_table_if_non_existent
 
-        if not cursor.fetchall():
-            # device table not available
-            logger.info(f"Table {TIMINGS_TABLENAME} not in DB, creating one.")
-            cursor.execute(
-                f"CREATE TABLE {TIMINGS_TABLENAME} ("
-                " ID INTEGER PRIMARY KEY AUTOINCREMENT,"
-                " subscripts TEXT,"
-                " index_to_length TEXT,"
-                " args TEXT,"
-                " arg_to_dtype TEXT,"
-                " device_name TEXT,"
-                " transform_id TEXT,"
-                " transform_params TEXT,"
-                " runtime_in_sec REAL,"
-                " compiler_version TEXT,"
-                " giga_op_info TEXT,"
-                " timestamp TEXT"
-                ")"
-            )
+        _create_timings_table_if_non_existent(db)
         return db
 
     @cached_property
@@ -540,63 +518,16 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
             return min(stored_result[0] for stored_result in stored_results)
 
     def record_into_db(self, runtime: float, parameters: Mapping[str, Any]) -> None:
-        import json
+        from feinsum.sql_utils import record_into_db
 
-        from feinsum.sql_utils import (
-            dump_arg_names,
-            dump_arg_to_dtype,
-            dump_cl_version,
-            dump_device_name,
-            dump_index_to_length,
-            dump_op_info,
+        record_into_db(
+            self.einsum,
+            self.cl_ctx,
+            self.module_path,
+            parameters,
+            self.db_path,
+            self.long_dim_length,
         )
-
-        cursor = self.conn.cursor()
-        subscripts = self.einsum.get_subscripts()
-        index_to_length = dump_index_to_length(self.einsum)
-        arg_names = dump_arg_names(self.einsum)
-        arg_to_dtype = dump_arg_to_dtype(self.einsum)
-        transform_params_str = json.dumps(parameters, sort_keys=True)
-        (cl_device,) = self.cl_ctx.devices
-        device_name = dump_device_name(cl_device)
-        compiler_version = dump_cl_version(cl_device)
-        op_info = dump_op_info(self.einsum, long_dim_length=self.long_dim_length)
-
-        # {{{ compute timestamp in Chicago
-
-        from datetime import datetime
-
-        import pytz
-
-        timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime(
-            "%Y_%m_%d_%H%M%S"
-        )
-
-        # }}}
-
-        cursor.execute(
-            f"INSERT INTO {TIMINGS_TABLENAME}"
-            " (subscripts, index_to_length, args,"
-            "  arg_to_dtype, device_name, transform_id,"
-            "  transform_params, runtime_in_sec,"
-            "  compiler_version, giga_op_info, timestamp)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                subscripts,
-                index_to_length,
-                arg_names,
-                arg_to_dtype,
-                device_name,
-                self.transform_space_id,
-                transform_params_str,
-                runtime,
-                compiler_version,
-                op_info,
-                timestamp,
-            ),
-        )
-
-        self.conn.commit()
 
     def run(
         self, desired_result: opentuner.DesiredResult, input: Any, limit: Any
