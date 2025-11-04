@@ -1,9 +1,14 @@
 name: Publish to PyPI
 
 on:
+  workflow_dispatch:
+  pull_request:
   push:
-    tags:
-      - "v*"
+    branches:
+     - main
+  release:
+    types:
+      - published
 
 jobs:
   build-and-publish:
@@ -11,12 +16,14 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: conda-incubator/setup-miniconda@v3
         with:
-          python-version: "3.12"
+          environment-file: ".test-conda-env.yml"
+          activate-environment: "test-conda-env"
+          auto-activate-base: false
+          auto-update-conda: true
 
       - name: Install build dependencies
         run: |
@@ -27,7 +34,8 @@ jobs:
         run: hatch build
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@v1.8.11
+        uses: pypa/gh-action-pypi-publish@release/v1
+        if: github.event_name == 'release' && github.event.action == 'published'
         with:
           user: __token__
           password: ${{ secrets.PYPI_PASSWORD }}
