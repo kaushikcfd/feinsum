@@ -402,8 +402,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                 " ID INTEGER PRIMARY KEY AUTOINCREMENT,"
                 " subscripts TEXT,"
                 " index_to_length TEXT,"
-                " use_matrix TEXT,"
-                " value_to_dtype TEXT,"
+                " args TEXT,"
+                " arg_to_dtype TEXT,"
                 " device_name TEXT,"
                 " transform_id TEXT,"
                 " transform_params TEXT,"
@@ -436,20 +436,20 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
     def seed_configurations(self) -> Sequence[Mapping[str, Any]]:
         from feinsum.sql_utils import (
+            dump_arg_names,
+            dump_arg_to_dtype,
             dump_device_name,
             dump_index_to_length,
             dump_op_info,
-            dump_use_matrix,
-            dump_value_to_dtype,
             load_transform_params,
         )
 
         cursor = self.conn.cursor()
         subscripts = self.einsum.get_subscripts()
         index_to_length = dump_index_to_length(self.einsum)
-        use_matrix = dump_use_matrix(self.einsum)
+        arg_names = dump_arg_names(self.einsum)
         op_info = dump_op_info(self.einsum, self.long_dim_length)
-        value_to_dtype = dump_value_to_dtype(self.einsum)
+        arg_to_dtype = dump_arg_to_dtype(self.einsum)
         (dev,) = self.cl_ctx.devices
         device_name = dump_device_name(dev)
 
@@ -462,8 +462,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
             "    transform_id = ?"
             "    AND subscripts = ?"
             "    AND index_to_length = ?"
-            "    AND use_matrix = ?"
-            "    AND value_to_dtype = ?"
+            "    AND args = ?"
+            "    AND arg_to_dtype = ?"
             "    AND giga_op_info = ?"
             "    AND device_name = ?"
             ");",
@@ -471,8 +471,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                 self.transform_space_id,
                 subscripts,
                 index_to_length,
-                use_matrix,
-                value_to_dtype,
+                arg_names,
+                arg_to_dtype,
                 op_info,
                 device_name,
             ),
@@ -491,18 +491,18 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         import json
 
         from feinsum.sql_utils import (
+            dump_arg_names,
+            dump_arg_to_dtype,
             dump_device_name,
             dump_index_to_length,
             dump_op_info,
-            dump_use_matrix,
-            dump_value_to_dtype,
         )
 
         cursor = self.conn.cursor()
         subscripts = self.einsum.get_subscripts()
         index_to_length = dump_index_to_length(self.einsum)
-        use_matrix = dump_use_matrix(self.einsum)
-        value_to_dtype = dump_value_to_dtype(self.einsum)
+        arg_names = dump_arg_names(self.einsum)
+        arg_to_dtype = dump_arg_to_dtype(self.einsum)
         transform_params_str = json.dumps(parameters, sort_keys=True)
         op_info = dump_op_info(self.einsum, self.long_dim_length)
         (dev,) = self.cl_ctx.devices
@@ -516,8 +516,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
             " WHERE ("
             "    subscripts = ?"
             "    AND index_to_length = ?"
-            "    AND use_matrix = ?"
-            "    AND value_to_dtype = ?"
+            "    AND args = ?"
+            "    AND arg_to_dtype = ?"
             "    AND transform_params = ?"
             "    AND giga_op_info = ?"
             "    AND device_name = ?"
@@ -525,8 +525,8 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
             (
                 subscripts,
                 index_to_length,
-                use_matrix,
-                value_to_dtype,
+                arg_names,
+                arg_to_dtype,
                 transform_params_str,
                 op_info,
                 device_name,
@@ -543,19 +543,19 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         import json
 
         from feinsum.sql_utils import (
+            dump_arg_names,
+            dump_arg_to_dtype,
             dump_cl_version,
             dump_device_name,
             dump_index_to_length,
             dump_op_info,
-            dump_use_matrix,
-            dump_value_to_dtype,
         )
 
         cursor = self.conn.cursor()
         subscripts = self.einsum.get_subscripts()
         index_to_length = dump_index_to_length(self.einsum)
-        use_matrix = dump_use_matrix(self.einsum)
-        value_to_dtype = dump_value_to_dtype(self.einsum)
+        arg_names = dump_arg_names(self.einsum)
+        arg_to_dtype = dump_arg_to_dtype(self.einsum)
         transform_params_str = json.dumps(parameters, sort_keys=True)
         (cl_device,) = self.cl_ctx.devices
         device_name = dump_device_name(cl_device)
@@ -576,16 +576,16 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
         cursor.execute(
             f"INSERT INTO {TIMINGS_TABLENAME}"
-            " (subscripts, index_to_length, use_matrix,"
-            "  value_to_dtype, device_name, transform_id,"
+            " (subscripts, index_to_length, args,"
+            "  arg_to_dtype, device_name, transform_id,"
             "  transform_params, runtime_in_sec,"
             "  compiler_version, giga_op_info, timestamp)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 subscripts,
                 index_to_length,
-                use_matrix,
-                value_to_dtype,
+                arg_names,
+                arg_to_dtype,
                 device_name,
                 self.transform_space_id,
                 transform_params_str,
