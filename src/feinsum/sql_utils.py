@@ -51,12 +51,12 @@ if TYPE_CHECKING:
 DEFAULT_DB = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "data",
-    "transform_archive_v5.sqlite",
+    "transform_archive_v6.sqlite",
 )
 TIMINGS_TABLENAME = "FEINSUM_TIMING_FACTS"
 
 
-def dump_value_to_dtype(einsum: BatchedEinsum) -> str:
+def dump_arg_to_dtype(einsum: BatchedEinsum) -> str:
     return json.dumps(
         {arg: dtype.name for arg, dtype in einsum.arg_to_dtype.items()},
         sort_keys=True,
@@ -74,7 +74,7 @@ def dump_index_to_length(einsum: BatchedEinsum) -> str:
     )
 
 
-def dump_use_matrix(einsum: BatchedEinsum) -> str:
+def dump_arg_names(einsum: BatchedEinsum) -> str:
     arg_names = [[arg.name for arg in arg_row] for arg_row in einsum.args]
     return json.dumps(arg_names)
 
@@ -189,8 +189,8 @@ def query(
     device_name = dump_device_name(cl_device)
     subscripts = einsum.get_subscripts()
     index_to_length = dump_index_to_length(einsum)
-    use_matrix = dump_use_matrix(einsum)
-    value_to_dtype = dump_value_to_dtype(einsum)
+    arg_names = dump_arg_names(einsum)
+    arg_to_dtype = dump_arg_to_dtype(einsum)
 
     cursor.execute(
         " SELECT name FROM sqlite_master" " WHERE (type='table' AND name=?);",
@@ -214,11 +214,11 @@ def query(
         " WHERE ("
         "    subscripts = ?"
         "    AND index_to_length = ?"
-        "    AND use_matrix = ?"
-        "    AND value_to_dtype = ?"
+        "    AND arg_names = ?"
+        "    AND arg_to_dtype = ?"
         "    AND device_name = ?"
         ");",
-        (subscripts, index_to_length, use_matrix, value_to_dtype, device_name),
+        (subscripts, index_to_length, arg_names, arg_to_dtype, device_name),
     )
 
     facts = cursor.fetchall()
@@ -315,8 +315,8 @@ def get_timed_einsums_in_db(
         " SELECT"
         "     subscripts,"
         "     index_to_length,"
-        "     use_matrix,"
-        "     value_to_dtype"
+        "     args,"
+        "     arg_to_dtype"
         "  FROM "
         f"    {TIMINGS_TABLENAME}"
         " WHERE "
@@ -360,8 +360,8 @@ def _create_timings_table_if_non_existent(conn: sqlite3.Connection) -> None:
             " ID INTEGER PRIMARY KEY AUTOINCREMENT,"
             " subscripts TEXT,"
             " index_to_length TEXT,"
-            " use_matrix TEXT,"
-            " value_to_dtype TEXT,"
+            " args TEXT,"
+            " arg_to_dtype TEXT,"
             " device_name TEXT,"
             " transform_id TEXT,"
             " transform_params TEXT,"
@@ -417,8 +417,8 @@ def record_into_db(
     cursor = conn.cursor()
     subscripts = einsum.get_subscripts()
     index_to_length = dump_index_to_length(einsum)
-    use_matrix = dump_use_matrix(einsum)
-    value_to_dtype = dump_value_to_dtype(einsum)
+    arg_names = dump_arg_names(einsum)
+    arg_to_dtype = dump_arg_to_dtype(einsum)
     transform_params_str = json.dumps(transform_params, sort_keys=True)
     (cl_device,) = cl_ctx.devices
     device_name = dump_device_name(cl_device)
@@ -439,16 +439,16 @@ def record_into_db(
 
     cursor.execute(
         f"INSERT INTO {TIMINGS_TABLENAME}"
-        " (subscripts, index_to_length, use_matrix,"
-        "  value_to_dtype, device_name, transform_id,"
+        " (subscripts, index_to_length, args,"
+        "  arg_to_dtype, device_name, transform_id,"
         "  transform_params, runtime_in_sec,"
         "  compiler_version, giga_op_info, timestamp)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (
             subscripts,
             index_to_length,
-            use_matrix,
-            value_to_dtype,
+            arg_names,
+            arg_to_dtype,
             device_name,
             transform_space_id,
             transform_params_str,
