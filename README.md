@@ -19,6 +19,6 @@ operands to the DRAM.
 
 
 ### Links
-- Install as [`pip install feinsum`](https://pypi.org/project/loopy).
+- Install as [`pip install feinsum`](https://pypi.org/project/feinsum).
 - Read the documentation at <https://feinsum.readthedocs.io>.
 - Source-code, Issue Management at <https://github.com/kaushikcfd/feinsum>.
