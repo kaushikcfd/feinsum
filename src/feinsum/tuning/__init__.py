@@ -525,7 +525,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
             self.cl_ctx,
             self.module_path,
             parameters,
-            self.db_path,
+            self.conn,
             self.long_dim_length,
         )
 
