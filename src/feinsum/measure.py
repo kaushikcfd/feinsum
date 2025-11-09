@@ -18,11 +18,11 @@ import pyopencl as cl
 import pyopencl.array as cla
 from immutables import Map
 
+from feinsum.contraction_schedule import ContractionSchedule
 from feinsum.diagnostics import NoDevicePeaksInfoError
 from feinsum.einsum import (
     INT_CLASSES,
     BatchedEinsum,
-    ContractionSchedule,
     IntegralT,
 )
 from feinsum.typing import ToStr, TransformT

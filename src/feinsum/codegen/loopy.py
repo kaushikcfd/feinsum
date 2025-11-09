@@ -14,19 +14,21 @@ import numpy as np
 import pymbolic.primitives as p
 from pytools import UniqueNameGenerator, memoize_on_first_arg
 
-from feinsum.einsum import (
-    INT_CLASSES,
+from feinsum.contraction_schedule import (
     Argument,
-    BatchedEinsum,
     ContractionSchedule,
     EinsumOperand,
-    IntegralT,
     IntermediateResult,
+    get_opt_einsum_contraction_schedule,
+    get_trivial_contraction_schedule,
+)
+from feinsum.einsum import (
+    INT_CLASSES,
+    BatchedEinsum,
+    IntegralT,
     ShapeComponentT,
     ShapeT,
     SizeParam,
-    get_opt_einsum_contraction_schedule,
-    get_trivial_contraction_schedule,
 )
 
 LOOPY_LANG_VERSION = (2018, 2)
@@ -116,8 +118,8 @@ def generate_loopy(
     *contract_path*.
 
     :param schedule: An optional instance of
-        :class:`~feinsum.einsum.ContractionSchedule`. Defaults to the trivial
-        contraction schedule if not provided.
+        :class:`~feinsum.contraction_schedule.ContractionSchedule`. Defaults to
+        the trivial contraction schedule if not provided.
     """
     from functools import reduce
 
@@ -328,10 +330,10 @@ def generate_loopy_with_opt_einsum_schedule(
 ) -> "lp.TranslationUnit":
     """
     Returns a :class:`loopy.TranslationUnit` with the
-    :class:`~feinsum.einsum.ContractionSchedule` specified via
+    :class:`~feinsum.contraction_schedule.ContractionSchedule` specified via
     :func:`opt_einsum.contract_path`.
 
     :param opt_einsum_kwargs: kwargs to be passed to
-        :func:`~feinsum.einsum.get_opt_einsum_contraction_schedule`.
+        :func:`~feinsum.contraction_schedule.get_opt_einsum_contraction_schedule`.
     """
     return generate_loopy(expr, get_opt_einsum_contraction_schedule(expr))

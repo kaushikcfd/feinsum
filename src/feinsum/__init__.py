@@ -4,6 +4,10 @@ from feinsum.codegen.loopy import (
     generate_loopy,
     generate_loopy_with_opt_einsum_schedule,
 )
+from feinsum.contraction_schedule import (
+    get_opt_einsum_contraction_schedule,
+    get_trivial_contraction_schedule,
+)
 from feinsum.diagnostics import InvalidParameterError
 from feinsum.einsum import (
     Array,
@@ -11,8 +15,6 @@ from feinsum.einsum import (
     EinsumAxisAccess,
     FreeAxis,
     SummationAxis,
-    get_opt_einsum_contraction_schedule,
-    get_trivial_contraction_schedule,
 )
 from feinsum.loopy_utils import (
     get_a_matched_einsum,
