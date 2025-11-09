@@ -344,3 +344,45 @@ class BatchedEinsum:
         return replace(
             self, out_idx_set=out_idx_set, in_idx_sets=in_idx_sets, args=args
         )
+
+    @memoize_method
+    def __str__(self) -> str:
+        from tabulate import tabulate
+
+        from feinsum.codegen.loopy import _get_isl_basic_set
+
+        dtypes = "\n".join(
+            f"{arg_name}: {dtype}"
+            for arg_name, dtype in sorted(
+                self.arg_to_dtype.items(), key=lambda x: x[0]
+            )
+        )
+        output_names = ["_fe_out", *[f"_fe_out_{i}" for i in range(self.b - 1)]]
+        joined_sum_idxs = "{" + ", ".join(self.sum_indices) + "}"
+        joined_out_idxs = ", ".join(self.out_idx_set)
+        statement_lines = [
+            [
+                " ",
+                f"{out_name}[{joined_out_idxs}]",
+                "<-",
+                f"Σ_{joined_sum_idxs} {'×'.join(arg.name + '[' + ', '.join(in_idx_set) + ']' for in_idx_set, arg in zip(self.in_idx_sets, arg_row, strict=True))}",  # noqa: E501, RUF001
+            ]
+            for out_name, arg_row in zip(output_names, self.args, strict=True)
+        ]
+        statements = tabulate(
+            statement_lines,
+            tablefmt="plain",
+            colalign=("left", "right", "left", "left"),
+        )
+
+        return f"""---------------------------------------------------------------------------
+DOMAINS:
+{_get_isl_basic_set(self.index_to_dim_length)}
+---------------------------------------------------------------------------
+Data-types:
+{dtypes}
+---------------------------------------------------------------------------
+for {','.join(self.out_idx_set)}
+{statements}
+end
+---------------------------------------------------------------------------"""  # noqa: E501
