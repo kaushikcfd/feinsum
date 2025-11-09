@@ -14,10 +14,17 @@ Routines for empirical evaluation
 
 .. automodule:: feinsum.measure
 
-Helpers to build :class:`feinsum.einsum.BatchedEinsum`
-------------------------------------------------------
+Helpers to build :class:`~feinsum.einsum.BatchedEinsum`
+-------------------------------------------------------
 
 .. automodule:: feinsum.make_einsum
+
+
+Helpers to define contraction paths for :class:`~feinsum.einsum.BatchedEinsum`
+------------------------------------------------------------------------------
+
+.. automodule:: feinsum.contraction_schedule
+
 
 Interacting with code-transformation databases
 ----------------------------------------------
