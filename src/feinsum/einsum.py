@@ -218,9 +218,10 @@ class BatchedEinsum:
         for arg_row in self.args:
             for arg, idx_set in zip(arg_row, self.in_idx_sets, strict=True):
                 for axis_len, idx in zip(arg.shape, idx_set, strict=True):
-                    assert (
-                        index_to_dim.setdefault(idx, axis_len) == axis_len
-                    ), "Shape mismatch for indices across the arguments."
+                    if index_to_dim.setdefault(idx, axis_len) != axis_len:
+                        raise AssertionError(
+                            "Shape mismatch for indices across the arguments."
+                        )
 
         return Map(index_to_dim)
 
@@ -254,9 +255,8 @@ class BatchedEinsum:
         result: dict[str, ShapeT] = {}
         for arg_row in self.args:
             for arg in arg_row:
-                assert (
-                    result.setdefault(arg.name, arg.shape) == arg.shape
-                ), f"Inconsistent shapes for arg {arg.name}."
+                if result.setdefault(arg.name, arg.shape) != arg.shape:
+                    raise AssertionError(f"Inconsistent shapes for arg {arg.name}.")
         return Map(result)
 
     @cached_property
@@ -267,9 +267,8 @@ class BatchedEinsum:
         result: dict[str, np.dtype[Any]] = {}
         for arg_row in self.args:
             for arg in arg_row:
-                assert (
-                    result.setdefault(arg.name, arg.dtype) == arg.dtype
-                ), f"Inconsistent dtypes for arg {arg.name}."
+                if result.setdefault(arg.name, arg.dtype) != arg.dtype:
+                    raise AssertionError(f"Inconsistent dtypes for arg {arg.name}.")
         return Map(result)
 
     @cached_property
