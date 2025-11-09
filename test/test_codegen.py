@@ -23,6 +23,7 @@ THE SOFTWARE.
 
 import loopy as lp
 import numpy as np
+import pyopencl as cl
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests,
 )
@@ -32,6 +33,7 @@ import feinsum as f
 
 def test_wave_div_components(ctx_factory):
     cl_ctx = ctx_factory()
+    cq = cl.CommandQueue(cl_ctx)
 
     Ndofs = 35
     Ndim = 3
@@ -58,13 +60,14 @@ def test_wave_div_components(ctx_factory):
     f.timeit(
         wave_div_components,
         transform=lambda t_unit, insn_match, kernel_name: t_unit,
-        cl_ctx=cl_ctx,
+        cq=cq,
         long_dim_length=300,
     )
 
 
 def test_wave_face_mass(ctx_factory):
     cl_ctx = ctx_factory()
+    cq = cl.CommandQueue(cl_ctx)
 
     Ndofs = 15
     Nface = 4
@@ -84,13 +87,14 @@ def test_wave_face_mass(ctx_factory):
     f.timeit(
         wave_face_mass,
         transform=lambda t_unit, insn_match, kernel_name: t_unit,
-        cl_ctx=cl_ctx,
+        cq=cq,
         long_dim_length=300,
     )
 
 
 def test_wave_grad(ctx_factory):
     cl_ctx = ctx_factory()
+    cq = cl.CommandQueue(cl_ctx)
     Ndofs = 35
     Ndim = 3
 
@@ -111,7 +115,7 @@ def test_wave_grad(ctx_factory):
     f.timeit(
         wave_grad,
         transform=lambda t_unit, insn_match, kernel_name: t_unit,
-        cl_ctx=cl_ctx,
+        cq=cq,
         long_dim_length=300,
     )
 

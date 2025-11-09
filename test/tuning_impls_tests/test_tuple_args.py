@@ -2,6 +2,7 @@ from typing import Any
 
 import loopy as lp
 import numpy as np
+import pyopencl as cl
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests,
 )
@@ -38,7 +39,9 @@ def test_transform(ctx_factory):
     import os
 
     cl_ctx = ctx_factory()
+    cq = cl.CommandQueue(cl_ctx)
 
     expr = f.einsum("ijk->ij", f.array("P", ("I", 72, 4), np.float64))
-    f.autotune(expr, os.path.abspath(__file__), cl_ctx, stop_after=3,
-               long_dim_length=100)
+    f.autotune(
+        expr, os.path.abspath(__file__), cq, stop_after=3, long_dim_length=100
+    )

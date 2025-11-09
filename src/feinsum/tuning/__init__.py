@@ -345,7 +345,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         self,
         args: Any,
         einsum: BatchedEinsum,
-        cl_ctx: cl.Context,
+        cq: cl.CommandQueue,
         module_path: str,
         long_dim_length: int,
         db_path: str,
@@ -371,7 +371,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         )
 
         self.einsum = canonicalize_einsum(einsum)
-        self.cl_ctx = cl_ctx
+        self.cq = cq
         self.module_path = module_path
         self.long_dim_length = long_dim_length
         self.db_path = db_path
@@ -428,7 +428,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         arg_names = dump_arg_names(self.einsum)
         op_info = dump_op_info(self.einsum, self.long_dim_length)
         arg_to_dtype = dump_arg_to_dtype(self.einsum)
-        (dev,) = self.cl_ctx.devices
+        dev = self.cq.device
         device_name = dump_device_name(dev)
 
         cursor.execute(
@@ -483,7 +483,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         arg_to_dtype = dump_arg_to_dtype(self.einsum)
         transform_params_str = json.dumps(parameters, sort_keys=True)
         op_info = dump_op_info(self.einsum, self.long_dim_length)
-        (dev,) = self.cl_ctx.devices
+        dev = self.cq.device
         device_name = dump_device_name(dev)
 
         cursor.execute(
@@ -522,7 +522,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
         record_into_db(
             self.einsum,
-            self.cl_ctx,
+            self.cq,
             self.module_path,
             parameters,
             self.conn,
@@ -563,7 +563,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
                 + stringify_comparison_vs_roofline(
                     self.einsum,
                     transform=bound_transform,
-                    cl_ctx=self.cl_ctx,
+                    cq=self.cq,
                     long_dim_length=self.long_dim_length,
                 )
             )
@@ -573,7 +573,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
         runtime = timeit(
             self.einsum,
-            cl_ctx=self.cl_ctx,
+            cq=self.cq,
             transform=bound_transform,
             long_dim_length=self.long_dim_length,
         )
@@ -588,7 +588,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 def autotune(
     einsum: BatchedEinsum,
     module_path: str,
-    cl_ctx: cl.Context,
+    cq: cl.CommandQueue,
     *,
     db_path: str | None = None,
     long_dim_length: int = 100_000,
@@ -635,7 +635,7 @@ def autotune(
     OpentunerTuner.main(
         args=Namespace(**kwargs),
         einsum=einsum,
-        cl_ctx=cl_ctx,
+        cq=cq,
         module_path=module_path,
         db_path=db_path,
         long_dim_length=long_dim_length,

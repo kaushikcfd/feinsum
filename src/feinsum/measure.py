@@ -108,7 +108,7 @@ def generate_input_arrays(
 
 def validate_batched_einsum_transform(
     einsum: BatchedEinsum,
-    cl_ctx: cl.Context,
+    cq: cl.CommandQueue,
     transform: TransformT,
     schedule: ContractionSchedule | None = None,
 ) -> None:
@@ -119,8 +119,6 @@ def validate_batched_einsum_transform(
     """
 
     from feinsum.codegen.loopy import generate_loopy
-
-    cq = cl.CommandQueue(cl_ctx)
 
     ref_t_unit = generate_loopy(einsum, schedule=schedule)
     ref_t_unit = lp.set_options(ref_t_unit, no_numpy=True, return_dict=True)
@@ -191,13 +189,14 @@ def timeit(
     einsum: BatchedEinsum,
     *,
     transform: TransformT,
-    cl_ctx: cl.Context,
+    cq: cl.CommandQueue,
     long_dim_length: int = 100000,
     schedule: ContractionSchedule | None = None,
 ) -> float:
     """
-    Returns the runtime in seconds for executing *einsum* on OpenCL context
-    *cl_ctx*.
+    Returns the runtime in seconds for executing *einsum* on the device
+    associated with the command
+    queue *cq*.
 
     :param transform: The transformation to be applied to
         :class:`loopy.TranslationUnit` lowered from *einsum*.
@@ -207,9 +206,7 @@ def timeit(
     from feinsum.codegen.loopy import generate_loopy
 
     # Validate the transformation before fusing it
-    validate_batched_einsum_transform(einsum, cl_ctx, transform, schedule)
-
-    cq = cl.CommandQueue(cl_ctx)
+    validate_batched_einsum_transform(einsum, cq, transform, schedule)
 
     t_unit = generate_loopy(einsum, schedule=schedule)
     t_unit = lp.set_options(t_unit, no_numpy=True, return_dict=True)
@@ -341,7 +338,7 @@ def measure_giga_op_rate(
     expr: BatchedEinsum,
     *,
     transform: TransformT,
-    cl_ctx: cl.Context,
+    cq: cl.CommandQueue,
     long_dim_length: int = 100000,
     schedule: ContractionSchedule | None = None,
 ) -> Map[np.dtype[Any], float]:
@@ -352,7 +349,7 @@ def measure_giga_op_rate(
     runtime = timeit(
         expr,
         transform=transform,
-        cl_ctx=cl_ctx,
+        cq=cq,
         long_dim_length=long_dim_length,
         schedule=schedule,
     )
@@ -436,9 +433,9 @@ def stringify_comparison_vs_roofline(
     *,
     schedule: ContractionSchedule | None = None,
     transform: TransformT,
-    cl_ctx: cl.Context,
+    cq: cl.CommandQueue,
     long_dim_length: int = 100000,
-    ignore_unknown_device: bool = False,
+    ignore_unknown_device: bool = True,
 ) -> str:
     """
     Returns the prettified comparison of *expr* transformed with *transform*
@@ -447,25 +444,29 @@ def stringify_comparison_vs_roofline(
     floating point units being saturated to their maximum throughput.
 
     :param ignore_unknown_device: If *False* raises an error if a roofline
-        model is unknown for the device in *cl_ctx*. If *True*, no error is
-        raised and the roofline performance is marked as "N/A" in the output.
+        model is unknown for the device associated with *cq*. If *True*, no
+        error is raised and the roofline performance is marked as "N/A" in the
+        output.
     """
 
-    (dev,) = cl_ctx.devices
+    dev = cq.device
 
     measured_flop_rate = measure_giga_op_rate(
         expr,
         transform=transform,
         schedule=schedule,
-        cl_ctx=cl_ctx,
+        cq=cq,
         long_dim_length=long_dim_length,
     )
 
     try:
         roofline_flop_rate = get_roofline_flop_rate(expr, dev.name)
-    except NoDevicePeaksInfoError:
-        return _strify_measured_vs_roofline(
-            measured_flop_rate, dict.fromkeys(measured_flop_rate.keys(), "N/A")
-        )
+    except NoDevicePeaksInfoError as exc:
+        if ignore_unknown_device:
+            return _strify_measured_vs_roofline(
+                measured_flop_rate, dict.fromkeys(measured_flop_rate.keys(), "N/A")
+            )
+        else:
+            raise exc from exc
     else:
         return _strify_measured_vs_roofline(measured_flop_rate, roofline_flop_rate)

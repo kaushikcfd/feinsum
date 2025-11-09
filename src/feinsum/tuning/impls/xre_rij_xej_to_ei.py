@@ -259,6 +259,7 @@ if __name__ == "__main__":
     Ndof = 35
 
     cl_ctx = cl.create_some_context()
+    cq = cl.CommandQueue(cl_ctx)
 
     expr = fnsm.einsum(
         "xre,rij,xej->ei",
@@ -268,7 +269,7 @@ if __name__ == "__main__":
     )
 
     if 1:
-        fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx)
+        fnsm.autotune(expr, os.path.abspath(__file__), cq)
     else:
         # Enable while debugging ->
         # evaluate a point in the parameter space.
@@ -284,7 +285,7 @@ if __name__ == "__main__":
 
         print(
             fnsm.stringify_comparison_vs_roofline(
-                expr, transform=bound_transform, cl_ctx=cl_ctx
+                expr, transform=bound_transform, cq=cq
             )
         )
 

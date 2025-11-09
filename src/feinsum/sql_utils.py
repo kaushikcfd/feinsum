@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     import loopy as lp
     import pyopencl as cl
 
-    from feinsum.cl_utils import ContextT, DeviceT
+    from feinsum.cl_utils import DeviceT
 
     # transform: (t_unit, insn_match, kernel_name)
     TransformT = Callable[
@@ -162,13 +162,13 @@ class QueryInfo:
 
 def query(
     einsum: BatchedEinsum,
-    cl_ctx: ContextT,
+    cl_device: DeviceT,
     *,
     database: str = DEFAULT_DB,
     err_if_no_results: bool = False,
 ) -> tuple[QueryInfo, ...]:
     """
-    Returns facts of previous recorded runs of *einsum* on *cl_ctx*.
+    Returns facts of previous recorded runs of *einsum* on *cl_device*.
 
     :param err_if_no_results: If *True*, raises a :class:`RuntimeError` if no
         recorded runs corresponding to *einsum* are available in *database*.
@@ -180,12 +180,6 @@ def query(
     conn = sqlite3.connect(database)
     cursor = conn.cursor()
 
-    if len({dev.name for dev in cl_ctx.devices}) > 1:
-        raise NotImplementedError(
-            "CL contexts with multiple types of devices" " not supported."
-        )
-
-    cl_device = cl_ctx.devices[0]
     device_name = dump_device_name(cl_device)
     subscripts = einsum.get_subscripts()
     index_to_length = dump_index_to_length(einsum)
@@ -376,14 +370,14 @@ def _create_timings_table_if_non_existent(conn: sqlite3.Connection) -> None:
 
 def record_into_db(
     einsum: BatchedEinsum,
-    cl_ctx: cl.Context,
+    cq: cl.CommandQueue,
     module_path: str,
     transform_params: Mapping[str, Any],
     database: str | sqlite3.Connection = DEFAULT_DB,
     long_dim_length: int = 100_000,
 ) -> None:
     """
-    Records facts corresponding to the execution of *einsum* on *cl_ctx* with
+    Records facts corresponding to the execution of *einsum* on *cq* with
     the transformation in *module_path* along with *transform_params* and
     records it in the SQL database *database*.
     """
@@ -404,12 +398,12 @@ def record_into_db(
         + stringify_comparison_vs_roofline(
             einsum,
             transform=transform_func,
-            cl_ctx=cl_ctx,
+            cq=cq,
         )
     )
     runtime = timeit(
         einsum,
-        cl_ctx=cl_ctx,
+        cq=cq,
         transform=transform_func,
         long_dim_length=long_dim_length,
     )
@@ -426,7 +420,7 @@ def record_into_db(
     arg_names = dump_arg_names(einsum)
     arg_to_dtype = dump_arg_to_dtype(einsum)
     transform_params_str = json.dumps(transform_params, sort_keys=True)
-    (cl_device,) = cl_ctx.devices
+    cl_device = cq.device
     device_name = dump_device_name(cl_device)
     compiler_version = dump_cl_version(cl_device)
     op_info = dump_op_info(einsum, long_dim_length=long_dim_length)

@@ -12,9 +12,9 @@ Let us first create a kernel to apply transformations on:
 .. testsetup::
     >>> import numpy as np
     >>> import loopy as lp
-    >>> from feinsum.cl_utils import make_fake_cl_context
+    >>> from feinsum.cl_utils import FakeCLDevice
     >>> from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
-    >>> cl_ctx = make_fake_cl_context("NVIDIA_TITAN_V")
+    >>> cl_device = FakeCLDevice("NVIDIA_TITAN_V")
 
 .. doctest::
 
@@ -70,11 +70,11 @@ FLOP throughput.
 
 .. doctest::
   
-    >>> # Construct a 'cl_ctx' of type `pyopencl.Context`.
+    >>> # Construct a 'cl_device' of type `pyopencl.Device`.
     >>>
-    >>> ensm1_fact = max(f.query(ensm1, cl_ctx),
+    >>> ensm1_fact = max(f.query(ensm1, cl_device),
     ...                  key=lambda q: q.giga_op_rate(np.float64))
-    >>> ensm2_fact = max(f.query(ensm2, cl_ctx),
+    >>> ensm2_fact = max(f.query(ensm2, cl_device),
     ...                  key=lambda q: q.giga_op_rate(np.float64))
 
 

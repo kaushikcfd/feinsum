@@ -22,6 +22,7 @@ THE SOFTWARE.
 
 
 import loopy as lp
+import pyopencl as cl
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests,
 )
@@ -31,30 +32,29 @@ import feinsum as f
 
 def test_simple_matvec(ctx_factory):
     cl_ctx = ctx_factory()
+    cq = cl.CommandQueue(cl_ctx)
     A = f.array("A", (10, 4), "float32")
     x = f.array("x", 4, "float32")
     y = f.array("y", 4, "float32")
     expr = f.batched_einsum("ij, j -> i", [[A, x], [A, y]])
 
-    f.timeit(
-        expr, transform=lambda t_unit, insn_match, kernel_name: t_unit, cl_ctx=cl_ctx
-    )
+    f.timeit(expr, transform=lambda t_unit, insn_match, kernel_name: t_unit, cq=cq)
 
 
 def test_matvec_with_long_dim_result(ctx_factory):
     cl_ctx = ctx_factory()
+    cq = cl.CommandQueue(cl_ctx)
     A = f.array("A", ("I", 4), "float32")
     x = f.array("x", 4, "float32")
     y = f.array("y", 4, "float32")
     expr = f.batched_einsum("ij, j -> i", [[A, x], [A, y]])
 
-    f.timeit(
-        expr, transform=lambda t_unit, insn_match, kernel_name: t_unit, cl_ctx=cl_ctx
-    )
+    f.timeit(expr, transform=lambda t_unit, insn_match, kernel_name: t_unit, cq=cq)
 
 
 def test_pprint_roofline_comparison(ctx_factory):
     cl_ctx = ctx_factory()
+    cq = cl.CommandQueue(cl_ctx)
 
     Ndim = 3
     Ndofs = 35
@@ -67,7 +67,7 @@ def test_pprint_roofline_comparison(ctx_factory):
 
     f.stringify_comparison_vs_roofline(
         expr,
-        cl_ctx=cl_ctx,
+        cq=cq,
         transform=(
             lambda t_unit, insn_match, kernel_name: lp.split_iname(
                 t_unit,
@@ -78,5 +78,4 @@ def test_pprint_roofline_comparison(ctx_factory):
             )
         ),
         long_dim_length=500,
-        ignore_unknown_device=True,  # specs of CI machines is typically not known
     )
