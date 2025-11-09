@@ -37,7 +37,8 @@ if __name__ == "__main__":
 
     n_j = 4
     cl_ctx = cl.create_some_context()
+    cq = cl.CommandQueue(cl_ctx)
 
     expr = fnsm.einsum("ij->i", fnsm.array("A", ("Ni", n_j), "float64"))
 
-    fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx, long_dim_length=200_000)
+    fnsm.autotune(expr, os.path.abspath(__file__), cq, long_dim_length=200_000)

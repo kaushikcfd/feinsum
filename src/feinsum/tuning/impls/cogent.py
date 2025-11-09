@@ -508,6 +508,7 @@ if __name__ == "__main__":
     import pyopencl as cl
 
     cl_ctx = cl.create_some_context()
+    cq = cl.CommandQueue(cl_ctx)
 
     # expr = fnsm.einsum("aebf,fdec->abcd",
     #                    fnsm.array((72, 72, 72, 72), np.float64),
@@ -520,4 +521,4 @@ if __name__ == "__main__":
         fnsm.array("B", (72, 72, 72), np.float64),
     )
 
-    fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx)
+    fnsm.autotune(expr, os.path.abspath(__file__), cq)

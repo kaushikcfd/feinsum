@@ -1,5 +1,5 @@
 from feinsum.canonicalization import canonicalize_einsum
-from feinsum.cl_utils import make_fake_cl_context
+from feinsum.cl_utils import FakeCLDevice
 from feinsum.codegen.loopy import (
     generate_loopy,
     generate_loopy_with_opt_einsum_schedule,
@@ -38,6 +38,7 @@ __all__ = (
     "Array",
     "BatchedEinsum",
     "EinsumAxisAccess",
+    "FakeCLDevice",
     "FreeAxis",
     "IndexNameGenerator",
     "InvalidParameterError",
@@ -54,7 +55,6 @@ __all__ = (
     "get_opt_einsum_contraction_schedule",
     "get_roofline_flop_rate",
     "get_trivial_contraction_schedule",
-    "make_fake_cl_context",
     "match_t_unit_to_einsum",
     "measure_giga_op_rate",
     "query",

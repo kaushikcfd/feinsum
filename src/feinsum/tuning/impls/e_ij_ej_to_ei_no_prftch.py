@@ -96,6 +96,7 @@ if __name__ == "__main__":
     Nfields = 16
 
     cl_ctx = cl.create_some_context()
+    cq = cl.CommandQueue(cl_ctx)
 
     expr = fnsm.batched_einsum(
         "e,ij,ej->ei",
@@ -109,6 +110,6 @@ if __name__ == "__main__":
         ],
     )
 
-    fnsm.autotune(expr, os.path.abspath(__file__), cl_ctx)
+    fnsm.autotune(expr, os.path.abspath(__file__), cq)
 
 # vim: fdm=marker

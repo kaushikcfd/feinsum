@@ -73,6 +73,7 @@ if __name__ == "__main__":
     import os
 
     cl_ctx = cl.create_some_context()
+    cq = cl.CommandQueue(cl_ctx)
 
     my_einsum = f.einsum(
         "xik,kj->xij",
@@ -82,7 +83,7 @@ if __name__ == "__main__":
     f.autotune(
         my_einsum,
         os.path.abspath(__file__),
-        cl_ctx,
+        cq,
         long_dim_length=1_000,
         stop_after=5,
     )
