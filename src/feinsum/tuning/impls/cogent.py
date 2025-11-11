@@ -55,20 +55,20 @@ def _get_operand_names(ensm: fnsm.BatchedEinsum) -> tuple[str, str]:
     lambda ensm: IntParameter(0, math.perm(ensm.ndim, min(ensm.ndim, 4)) - 1),
 )
 @transform_param(
-    "output_tile_lengths",
-    lambda ensm: tuple(IntParameter(1, 32) for _ in range(min(ensm.ndim, 4))),
+    "log2_output_tile_lengths",
+    lambda ensm: tuple(IntParameter(1, 5) for _ in range(min(ensm.ndim, 4))),
 )
 @transform_param(
-    "t_redns",
-    lambda ensm: tuple(IntParameter(1, 16) for i in range(get_n_redn_dim(ensm))),
+    "log2_t_redns",
+    lambda ensm: tuple(IntParameter(0, 5) for i in range(get_n_redn_dim(ensm))),
 )
 @memoize_on_first_arg
 def transform(
     t_unit: lp.TranslationUnit,
     ensm: fnsm.BatchedEinsum,
     i_axis_mapping_perm: int,
-    output_tile_lengths: tuple[int, ...],
-    t_redns: tuple[int, ...],
+    log2_output_tile_lengths: tuple[int, ...],
+    log2_t_redns: tuple[int, ...],
     insn_match: Any | None = None,
     kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
@@ -78,6 +78,12 @@ def transform(
         )
     if len(ensm.all_size_params) != 0:
         raise NotImplementedError("Parametric lengths are not allowed.")
+
+    output_tile_lengths = tuple(
+        2**log2_output_tile_length
+        for log2_output_tile_length in log2_output_tile_lengths
+    )
+    t_redns = tuple(2**log2_t_redn for log2_t_redn in log2_t_redns)
 
     import itertools
 
@@ -259,7 +265,7 @@ def transform(
         vng(f"{redn_iname}_outer") for redn_iname in redn_indices
     )
 
-    iouter = vng("iouter")
+    izblock = vng("izblock")
     a_prftch_insn_id = ing("a_prftch_insn")
     b_prftch_insn_id = ing("b_prftch_insn")
 
@@ -272,6 +278,7 @@ def transform(
         inner_iname=tx_inner,
         outer_iname=tx_outer,
         inner_tag="l.0",
+        outer_tag="g.0",
     )
     t_unit = lp.split_iname(
         t_unit,
@@ -280,6 +287,7 @@ def transform(
         inner_iname=ty_inner,
         outer_iname=ty_outer,
         inner_tag="l.1",
+        outer_tag="g.1",
     )
     if i_rx is not None:
         assert rx is not None
@@ -443,46 +451,65 @@ def transform(
         within=f"reads:{acc_name} and not writes:{acc_name}",
     )
 
-    logger.info("Done with iname duplication")
+    logger.info("Done with iname duplication.")
 
-    block_inames = [
+    z_block_inames = tuple(
         (
-            tx_outer
-            if ifree_idx == i_tx
-            else (
-                ty_outer
-                if ifree_idx == i_ty
-                else (
-                    rx_outer
-                    if ifree_idx == i_rx
-                    else ry_outer if ifree_idx == i_ry else free_index
-                )
-            )
+            rx_outer
+            if ifree_idx == i_rx
+            else (ry_outer if ifree_idx == i_ry else free_index)
         )
         for ifree_idx, free_index in enumerate(free_indices)
-    ]
+        if ifree_idx not in [i_tx, i_ty]
+    )
 
-    A_prftch_iname_x, A_prftch_iname_y = [
-        iname for iname in A_prftch_inames[::-1] if iname
-    ][:2]
-    B_prftch_iname_x, B_prftch_iname_y = [
-        iname for iname in B_prftch_inames[::-1] if iname
-    ][:2]
-    t_unit = lp.split_iname(t_unit, A_prftch_iname_x, tx, inner_tag="l.0")
-    t_unit = lp.split_iname(t_unit, A_prftch_iname_y, ty, inner_tag="l.1")
-    logger.info("Done with parallelizing prftch(A)")
+    A_prftch_inames_not_none = [iname for iname in A_prftch_inames[::-1] if iname]
+    B_prftch_inames_not_none = [iname for iname in B_prftch_inames[::-1] if iname]
+    if len(A_prftch_inames_not_none) > 0:
+        t_unit = lp.split_iname(
+            t_unit, A_prftch_inames_not_none[0], tx, inner_tag="l.0"
+        )
+    else:
+        t_unit = lp.add_inames_to_insn(
+            t_unit, frozenset([tx_inner]), lp_match.Id(a_prftch_insn_id)
+        )
 
-    t_unit = lp.split_iname(t_unit, B_prftch_iname_x, tx, inner_tag="l.0")
-    t_unit = lp.split_iname(t_unit, B_prftch_iname_y, ty, inner_tag="l.1")
-    logger.info("Done with parallelizing prftch(B)")
+    if len(A_prftch_inames_not_none) > 1:
+        t_unit = lp.split_iname(
+            t_unit, A_prftch_inames_not_none[1], ty, inner_tag="l.1"
+        )
+    else:
+        t_unit = lp.add_inames_to_insn(
+            t_unit, frozenset([ty_inner]), lp_match.Id(a_prftch_insn_id)
+        )
+    logger.info("Done with parallelizing prftch(A).")
 
-    t_unit = lp.join_inames(t_unit, block_inames, iouter)
-    logger.info("Done with join inames")
+    if len(B_prftch_inames_not_none) > 0:
+        t_unit = lp.split_iname(
+            t_unit, B_prftch_inames_not_none[0], tx, inner_tag="l.0"
+        )
+    else:
+        t_unit = lp.add_inames_to_insn(
+            t_unit, frozenset([tx_inner]), lp_match.Id(b_prftch_insn_id)
+        )
 
-    t_unit = lp.tag_inames(t_unit, {iouter: "g.0"})
+    if len(B_prftch_inames_not_none) > 1:
+        t_unit = lp.split_iname(
+            t_unit, B_prftch_inames_not_none[1], ty, inner_tag="l.1"
+        )
+    else:
+        t_unit = lp.add_inames_to_insn(
+            t_unit, frozenset([ty_inner]), lp_match.Id(b_prftch_insn_id)
+        )
+    logger.info("Done with parallelizing prftch(B).")
+
+    t_unit = lp.join_inames(t_unit, z_block_inames, izblock)
+    logger.info("Done with join inames.")
+
+    t_unit = lp.tag_inames(t_unit, {izblock: "g.2"})
     t_unit = lp.add_inames_to_insn(
         t_unit,
-        frozenset([iouter]),
+        frozenset([tx_outer, ty_outer, izblock]),
         lp_match.Or((lp_match.Id(a_prftch_insn_id), lp_match.Id(b_prftch_insn_id))),
     )
 
@@ -503,9 +530,9 @@ if __name__ == "__main__":
     #                    arg_names=["A", "B"])
 
     expr = fnsm.einsum(
-        "il,ljk->ijk",
-        fnsm.array("A", (72, 72), np.float64),
-        fnsm.array("B", (72, 72, 72), np.float64),
+        "bda,dc->abc",
+        fnsm.array("A", (312, 312, 312), np.float64),
+        fnsm.array("B", (312, 24), np.float64),
     )
 
     fnsm.autotune(expr, os.path.abspath(__file__), cq)
