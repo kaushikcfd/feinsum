@@ -31,7 +31,7 @@ import opentuner
 from immutables import Map
 
 from feinsum.einsum import INT_CLASSES, BatchedEinsum, IntegralT, ShapeComponentT
-from feinsum.sql_utils import DEFAULT_DB, TIMINGS_TABLENAME
+from feinsum.sql_utils import DEFAULT_DB, TIMINGS_TABLENAME, record_into_db
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -517,23 +517,10 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         else:
             return min(stored_result[0] for stored_result in stored_results)
 
-    def record_into_db(self, runtime: float, parameters: Mapping[str, Any]) -> None:
-        from feinsum.sql_utils import record_into_db
-
-        record_into_db(
-            self.einsum,
-            self.cq,
-            self.module_path,
-            parameters,
-            self.conn,
-            self.long_dim_length,
-        )
-
     def run(
         self, desired_result: opentuner.DesiredResult, input: Any, limit: Any
     ) -> opentuner.Result:
         from feinsum.diagnostics import InvalidParameterError
-        from feinsum.measure import stringify_comparison_vs_roofline, timeit
 
         cfg = _reconstruct_transform_params_from_opentuner_config(
             desired_result.configuration.data,
@@ -555,31 +542,20 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
 
         # }}}
 
-        bound_transform = self.transform_func.bind_args(self.einsum, **cfg)
-
         try:
-            logger.info(
-                "\n"
-                + stringify_comparison_vs_roofline(
-                    self.einsum,
-                    transform=bound_transform,
-                    cq=self.cq,
-                    long_dim_length=self.long_dim_length,
-                )
+            record_into_db(
+                self.einsum,
+                self.cq,
+                self.module_path,
+                cfg,
+                self.conn,
+                self.long_dim_length,
             )
         except InvalidParameterError as err:
             logger.info(f"Ignored configuration due to '{err}'.")
             return opentuner.Result(time=np.inf)
 
-        runtime = timeit(
-            self.einsum,
-            cq=self.cq,
-            transform=bound_transform,
-            long_dim_length=self.long_dim_length,
-        )
-        self.record_into_db(runtime, cfg)
-
-        return opentuner.Result(time=runtime)
+        return opentuner.Result(time=self.query_from_db(cfg))
 
 
 # }}}
