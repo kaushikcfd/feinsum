@@ -5,6 +5,7 @@ from typing import Any
 import loopy as lp
 import numpy as np
 from more_itertools import zip_equal as szip
+from pytools import memoize_on_first_arg
 
 import feinsum as fnsm
 from feinsum.einsum import INT_CLASSES, SizeParam
@@ -34,28 +35,12 @@ def _is_ensm_tensor_contraction(ensm: fnsm.BatchedEinsum) -> bool:
     ):
         return False
 
-    all_redn_indices = (frozenset(in_idx_set1) | frozenset(in_idx_set2)) - frozenset(
-        ensm.out_idx_set
-    )
     # TC requires all reduction indices be present in both the operands
-    for redn_idx in all_redn_indices:
+    for redn_idx in ensm.sum_indices:
         if redn_idx not in in_idx_set1 or redn_idx not in in_idx_set2:
             return False
 
     return True
-
-
-def _get_indices(
-    ensm: fnsm.BatchedEinsum,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    return (
-        ensm.out_idx_set,
-        tuple(
-            idx
-            for idx in ensm.in_idx_sets[0] + ensm.in_idx_sets[1]
-            if idx not in ensm.out_idx_set
-        ),
-    )
 
 
 def _get_operand_names(ensm: fnsm.BatchedEinsum) -> tuple[str, str]:
@@ -77,6 +62,7 @@ def _get_operand_names(ensm: fnsm.BatchedEinsum) -> tuple[str, str]:
     "t_redns",
     lambda ensm: tuple(IntParameter(1, 16) for i in range(get_n_redn_dim(ensm))),
 )
+@memoize_on_first_arg
 def transform(
     t_unit: lp.TranslationUnit,
     ensm: fnsm.BatchedEinsum,
@@ -149,7 +135,8 @@ def transform(
     if not _is_ensm_tensor_contraction(ensm):
         raise ValueError(f"{ensm} is not a tensor contraction.")
 
-    ensm_free_indices, ensm_redn_indices = _get_indices(ensm)
+    ensm_free_indices = ensm.out_idx_set
+    ensm_redn_indices = ensm.sum_indices
     ensm_A, ensm_B = _get_operand_names(ensm)
 
     # {{{ sanity checks on param space

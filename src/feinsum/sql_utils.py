@@ -382,7 +382,7 @@ def record_into_db(
     records it in the SQL database *database*.
     """
     from feinsum.canonicalization import canonicalize_einsum
-    from feinsum.measure import stringify_comparison_vs_roofline, timeit
+    from feinsum.measure import _stringify_runtime_comparison_vs_roofline, timeit
     from feinsum.tuning import _get_impls_path, get_transform_func_from_module_path
 
     dirpath, transform_space_id = os.path.split(module_path)
@@ -393,20 +393,20 @@ def record_into_db(
     transform_func = get_transform_func_from_module_path(module_path).bind_args(
         einsum, **transform_params
     )
-    logger.info(
-        "\n"
-        + stringify_comparison_vs_roofline(
-            einsum,
-            transform=transform_func,
-            cq=cq,
-        )
-    )
     runtime = timeit(
         einsum,
         cq=cq,
         transform=transform_func,
         long_dim_length=long_dim_length,
     )
+
+    logger.info(
+        "\n"
+        + _stringify_runtime_comparison_vs_roofline(
+            einsum, runtime, cq.device.name, long_dim_length=long_dim_length
+        )
+    )
+
     if isinstance(database, str):
         conn = sqlite3.connect(database)
     else:

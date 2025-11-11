@@ -30,8 +30,8 @@ from feinsum.typing import ToStr, TransformT
 logger = logging.getLogger(__name__)
 
 
-N_WARMUP_ROUNDS = 20
-N_MIN_TIMING_ROUNDS = 500
+N_WARMUP_ROUNDS = 5
+N_MIN_TIMING_ROUNDS = 20
 N_MIN_SIM_SECS = 2
 
 
@@ -149,12 +149,16 @@ def validate_batched_einsum_transform(
 
     # }}}
 
-    # pylint-disable-reason: for some reason pylint thinks ref_t_unit is not callable
-    evt, ref_outs = ref_t_unit(
-        cq, **arg_dict, **ref_outs  # pylint: disable=not-callable
+    ref_t_unit_executor = ref_t_unit.executor(
+        cq, entrypoint=None, **arg_dict, **ref_outs
     )
+    t_unit_executor = t_unit.executor(
+        cq, entrypoint=None, **arg_dict, **transform_outs
+    )
+
+    evt, ref_outs = ref_t_unit_executor(cq, **arg_dict, **ref_outs)
     evt.wait()
-    evt, transform_outs = t_unit(cq, **arg_dict, **transform_outs)
+    evt, transform_outs = t_unit_executor(cq, **arg_dict, **transform_outs)
     evt.wait()
 
     if frozenset(ref_outs.keys()) != frozenset(transform_outs.keys()):
@@ -224,11 +228,12 @@ def timeit(
     t_unit = transform(t_unit, insn_match=None, kernel_name=None)
 
     arg_dict = param_dict.update(out_dict)
+    t_unit_execuctor = t_unit.executor(cq, entrypoint=None, **arg_dict)
 
     # {{{ WARMUP
 
     for _ in range(N_WARMUP_ROUNDS):
-        evt, _ = t_unit(cq, **arg_dict)
+        evt, _ = t_unit_execuctor(cq, **arg_dict)
 
     cq.finish()
 
@@ -244,7 +249,7 @@ def timeit(
         clock_start = time()
 
         for _ in range(10):
-            evt, _ = t_unit(cq, **arg_dict)
+            evt, _ = t_unit_execuctor(cq, **arg_dict)
 
         evt.wait()
         clock_end = time()
@@ -426,6 +431,39 @@ def _strify_measured_vs_roofline(
         perf_table.append([dtype.name, measured_flops, roofline_flops])
 
     return tabulate(perf_table, tablefmt="fancy_grid")
+
+
+def _stringify_runtime_comparison_vs_roofline(
+    expr: BatchedEinsum,
+    runtime: float,
+    device_name: str,
+    *,
+    long_dim_length: int = 100000,
+    ignore_unknown_device: bool = True,
+) -> str:
+
+    from pymbolic.mapper.evaluator import evaluate_to_float
+
+    eval_context = {param.name: long_dim_length for param in expr.all_size_params}
+    measured_flop_rate = Map(
+        {
+            k: evaluate_to_float(v, eval_context) / runtime
+            for k, v in _get_giga_ops_from_einsum(expr).items()
+        }
+    )
+    del eval_context
+
+    try:
+        roofline_flop_rate = get_roofline_flop_rate(expr, device_name)
+    except NoDevicePeaksInfoError as exc:
+        if ignore_unknown_device:
+            return _strify_measured_vs_roofline(
+                measured_flop_rate, dict.fromkeys(measured_flop_rate.keys(), "N/A")
+            )
+        else:
+            raise exc from exc
+    else:
+        return _strify_measured_vs_roofline(measured_flop_rate, roofline_flop_rate)
 
 
 def stringify_comparison_vs_roofline(
