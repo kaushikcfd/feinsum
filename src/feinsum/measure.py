@@ -120,54 +120,49 @@ def validate_batched_einsum_transform(
 
     from feinsum.codegen.loopy import generate_loopy
 
-    ref_t_unit = generate_loopy(einsum, schedule=schedule)
-    ref_t_unit = lp.set_options(ref_t_unit, no_numpy=True, return_dict=True)
     long_dim_length = 100
 
-    arg_dict: dict[str, cla.Array | int] = dict(
-        generate_input_arrays(cq, einsum, long_dim_length)
-    )
-    arg_dict.update(
-        dict.fromkeys(ref_t_unit.default_entrypoint.all_params(), long_dim_length)
+    t_unit = generate_loopy(einsum, schedule=schedule)
+    t_unit = transform(t_unit, insn_match=None, kernel_name=None)
+    t_unit = lp.set_options(t_unit, no_numpy=True, return_dict=True)
+    t_unit = lp.fix_parameters(
+        t_unit,
+        within=None,
+        **dict.fromkeys(t_unit.default_entrypoint.all_params(), long_dim_length),
     )
 
-    t_unit = transform(ref_t_unit, insn_match=None, kernel_name=None)
+    arg_dict: dict[str, cla.Array] = dict(
+        generate_input_arrays(cq, einsum, long_dim_length)
+    )
 
     # {{{ get output buffers
 
-    ref_outs = generate_out_arrays(
-        cq,
-        lp.fix_parameters(
-            t_unit,
-            within=None,
-            **dict.fromkeys(t_unit.default_entrypoint.all_params(), long_dim_length),
-        ),
-    )
-    transform_outs = Map(
-        {name: cla.zeros_like(ary) for name, ary in ref_outs.items()}
+    output_names = ["_fe_out", *[f"_fe_out_{i}" for i in range(einsum.b - 1)]]
+
+    ref_outs = Map(
+        (
+            output_name,
+            np.einsum(
+                einsum.get_subscripts(),
+                *[arg_dict[arg.name].get() for arg in arg_row],
+                optimize="optimal",
+            ),
+        )
+        for output_name, arg_row in zip(output_names, einsum.args, strict=True)
     )
 
     # }}}
 
-    ref_t_unit_executor = ref_t_unit.executor(
-        cq, entrypoint=None, **arg_dict, **ref_outs
-    )
-    t_unit_executor = t_unit.executor(
-        cq, entrypoint=None, **arg_dict, **transform_outs
-    )
-
-    evt, ref_outs = ref_t_unit_executor(cq, **arg_dict, **ref_outs)
-    evt.wait()
-    evt, transform_outs = t_unit_executor(cq, **arg_dict, **transform_outs)
+    t_unit_executor = t_unit.executor(cq, entrypoint=None, **arg_dict)
+    evt, transform_outs = t_unit_executor(cq, **arg_dict)
     evt.wait()
 
     if frozenset(ref_outs.keys()) != frozenset(transform_outs.keys()):
         raise RuntimeError("Output names mismatch")
 
     for name, ref_out in sorted(ref_outs.items()):
-        ref_out_np = ref_out.get()
         transform_out_np = transform_outs[name].get()
-        dtype = ref_out_np.dtype
+        dtype = ref_out.dtype
         if dtype != transform_out_np.dtype:
             raise RuntimeError(f"dtype mismatch for output '{name}'")
 
@@ -182,9 +177,7 @@ def validate_batched_einsum_transform(
         else:
             raise NotImplementedError(real_dtype)
 
-        np.testing.assert_allclose(
-            transform_out_np, ref_out_np, atol=atol, rtol=rtol
-        )
+        np.testing.assert_allclose(transform_out_np, ref_out, atol=atol, rtol=rtol)
 
     logger.info("Statistically verified the soundness of the transformation")
 
