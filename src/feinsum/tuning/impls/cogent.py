@@ -8,7 +8,7 @@ from pytools import memoize_on_first_arg
 
 import feinsum as fnsm
 from feinsum.einsum import INT_CLASSES, SizeParam
-from feinsum.tuning import BoolParameter, IntParameter, einsum_arg, transform_param
+from feinsum.tuning import IntParameter, einsum_arg, transform_param
 from feinsum.utils import get_n_redn_dim
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ def _get_operand_names(ensm: fnsm.BatchedEinsum) -> tuple[str, str]:
     "log2_t_redns",
     lambda ensm: tuple(IntParameter(0, 5) for i in range(get_n_redn_dim(ensm))),
 )
-@transform_param("unroll_rx_ry", lambda ensm: BoolParameter())
+@transform_param("unroll_rx_ry", lambda ensm: IntParameter(0, 1))
 @memoize_on_first_arg
 def transform(
     t_unit: lp.TranslationUnit,
@@ -69,7 +69,7 @@ def transform(
     i_axis_mapping_perm: int,
     log2_output_tile_lengths: tuple[int, ...],
     log2_t_redns: tuple[int, ...],
-    unroll_rx_ry: bool,
+    unroll_rx_ry: int,
     insn_match: Any | None = None,
     kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
