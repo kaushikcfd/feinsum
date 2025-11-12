@@ -568,13 +568,17 @@ def autotune(
     *,
     db_path: str | None = None,
     long_dim_length: int = 100_000,
-    stop_after: int | None = None,
+    test_limit: int | None = None,
+    stop_after: float | None = None,
 ) -> None:
     """
     For a transform space specified in *module_path*, searches the parameter
     space and records the timing results for each run in *db_path*.
 
-    :param stop_after: After these many trials the routine exits. Pass *None*
+    :param stop_after: Time in seconds after which auto-tuning should conclude.
+        Pass *None* to not impose any constraints on the amount of time spent
+        in auto-tuning.
+    :param test_limit: After these many trials the routine exits. Pass *None*
         to go on indefinitely.
     """
     if not os.path.isabs(module_path):
@@ -588,7 +592,7 @@ def autotune(
     kwargs: Mapping[str, Any] = {
         "machine_class": None,
         "parallel_compile": False,
-        "test_limit": None,
+        "test_limit": test_limit,
         "stop_after": stop_after,
         "parallelism": 4,
         "pipelining": 0,
