@@ -17,6 +17,7 @@ import pymbolic.primitives as prim
 import pyopencl as cl
 import pyopencl.array as cla
 from immutables import Map
+from pymbolic import ArithmeticExpression
 
 from feinsum.contraction_schedule import ContractionSchedule
 from feinsum.diagnostics import NoDevicePeaksInfoError
@@ -255,7 +256,7 @@ def timeit(
 
 def _get_giga_ops_from_einsum(
     expr: BatchedEinsum,
-) -> Map[np.dtype[Any], prim.Expression]:
+) -> Map[np.dtype[Any], ArithmeticExpression]:
     from loopy.symbolic import qpolynomial_to_expr
 
     from feinsum.codegen.loopy import generate_loopy_with_opt_einsum_schedule

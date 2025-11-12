@@ -28,6 +28,7 @@ from loopy.kernel.data import SubstitutionRule
 from loopy.symbolic import CombineMapper, IdentityMapper, Reduction
 from loopy.translation_unit import for_each_kernel
 from more_itertools import zip_equal as szip
+from pymbolic import ArithmeticExpression
 from pytools import memoize_on_first_arg
 
 from feinsum.diagnostics import EinsumTunitMatchError
@@ -42,30 +43,30 @@ from feinsum.einsum import (
 # {{{ matching loopy kernel against a ref. einsum
 
 
-class ReductionCollector(CombineMapper[frozenset[p.Expression], []]):
+class ReductionCollector(CombineMapper[frozenset[Reduction], []]):
     """
     A mapper that collects all instances of :class:`loopy.symbolic.Reduction`
     in an expression.
     """
 
     def combine(
-        self, values: Iterable[frozenset[p.Expression]]
-    ) -> frozenset[p.Expression]:
+        self, values: Iterable[frozenset[Reduction]]
+    ) -> frozenset[Reduction]:
         from functools import reduce
 
         return reduce(frozenset.union, values, frozenset())
 
-    def map_reduction(self, expr: Reduction) -> frozenset[p.Expression]:
+    def map_reduction(self, expr: Reduction) -> frozenset[Reduction]:
         return self.combine([frozenset([expr]), super().map_reduction(expr)])
 
-    def map_algebraic_leaf(self, expr: Any) -> frozenset[p.Expression]:
+    def map_algebraic_leaf(self, expr: Any) -> frozenset[Reduction]:
         return frozenset()
 
-    def map_constant(self, expr: Any) -> frozenset[p.Expression]:
+    def map_constant(self, expr: Any) -> frozenset[Reduction]:
         return frozenset()
 
 
-def _get_indices_from_assignee(assignee: p.Expression) -> tuple[str, ...]:
+def _get_indices_from_assignee(assignee: p.ExpressionNode) -> tuple[str, ...]:
     r"""
     Returns the accessed indices in assignee. Expects the assignee to be seen in a
     batched-einsum matchable :class:`~loopy.LoopKernel`\ 's expression.
@@ -307,7 +308,7 @@ def get_a_matched_einsum(
 
             flat_prod = flattened_product(inner_expr.children)
             if isinstance(flat_prod, p.Product):
-                einsum_terms: tuple[p.Expression, ...] = flat_prod.children
+                einsum_terms = flat_prod.children
             else:
                 einsum_terms = (flat_prod,)
         else:
@@ -527,7 +528,7 @@ class CallCollector(CombineMapper[frozenset[str], []]):
         return frozenset()
 
 
-def get_call_ids(expr: p.Expression) -> frozenset[str]:
+def get_call_ids(expr: ArithmeticExpression) -> frozenset[str]:
     """
     Returns the identifiers of the invoked functions in *expr*.
     """
@@ -576,23 +577,24 @@ class EinsumTermsHoister(IdentityMapper[[]]):
         super().__init__()
         self.reduction_inames = reduction_inames
 
-    def map_reduction(self, expr: Reduction) -> p.Expression:
+    def map_reduction(self, expr: Reduction) -> p.ExpressionNode:
         if frozenset(expr.inames) != self.reduction_inames:
-            return super().map_reduction(expr)
+            super_result = super().map_reduction(expr)
+            assert isinstance(super_result, p.ExpressionNode)
+            return super_result
 
         from loopy.library.reduction import SumReductionOperation
         from loopy.symbolic import get_dependencies
 
         if isinstance(expr.operation, SumReductionOperation):
             rec_inner = self.rec(expr.expr)
+            assert p.is_arithmetic_expression(rec_inner)
             if isinstance(rec_inner, p.Product):
                 from pymbolic.primitives import flattened_product
 
                 flattened = flattened_product(rec_inner.children)
                 if isinstance(flattened, p.Product):
-                    multiplicative_terms: tuple[p.Expression, ...] = (
-                        flattened.children
-                    )
+                    multiplicative_terms = flattened.children
                 else:
                     multiplicative_terms = (flattened,)
 
@@ -628,7 +630,9 @@ class EinsumTermsHoister(IdentityMapper[[]]):
                 allow_simultaneous=expr.allow_simultaneous,
             )
         else:
-            return super().map_reduction(expr)
+            super_result = super().map_reduction(expr)
+            assert isinstance(super_result, p.ExpressionNode)
+            return super_result
 
 
 def hoist_invariant_multiplicative_terms_in_sum_reduction(
@@ -701,9 +705,9 @@ class MultiplicativeTermReplacer(IdentityMapper[[]]):
     def __init__(
         self,
         *,
-        terms_filter: Callable[[p.Expression], bool],
+        terms_filter: Callable[[ArithmeticExpression], bool],
         subst_name: str,
-        subst_arguments: tuple[p.Expression, ...],
+        subst_arguments: tuple[p.ExpressionNode, ...],
     ) -> None:
         self.subst_name = subst_name
         self.subst_arguments = subst_arguments
@@ -713,7 +717,7 @@ class MultiplicativeTermReplacer(IdentityMapper[[]]):
         # mutable state to record the expression collected by the terms_filter
         self.collected_subst_rule: SubstitutionRule | None = None
 
-    def map_reduction(self, expr: Reduction) -> p.Expression:
+    def map_reduction(self, expr: Reduction) -> p.ExpressionNode:
         from loopy.library.reduction import SumReductionOperation
         from loopy.symbolic import SubstitutionMapper
 
@@ -729,10 +733,12 @@ class MultiplicativeTermReplacer(IdentityMapper[[]]):
 
                 flattened = flattened_product(expr.expr.children)
                 if isinstance(flattened, p.Product):
-                    terms: tuple[p.Expression, ...] = flattened.children
+                    terms = flattened.children
                 else:
+                    assert p.is_arithmetic_expression(flattened)
                     terms = (flattened,)
             else:
+                assert p.is_arithmetic_expression(expr.expr)
                 terms = (expr.expr,)
 
             unfiltered_terms, filtered_terms = partition(self.terms_filter, terms)
@@ -761,15 +767,15 @@ class MultiplicativeTermReplacer(IdentityMapper[[]]):
                 expr.allow_simultaneous,
             )
         else:
-            return super().map_reduction(expr)
+            return cast("p.ExpressionNode", super().map_reduction(expr))
 
 
 def extract_multiplicative_terms_in_sum_reduction_as_subst(
     kernel: LoopKernel,
     within: Any,
     subst_name: str,
-    arguments: Sequence[p.Expression],
-    terms_filter: Callable[[p.Expression], bool],
+    arguments: Sequence[p.ExpressionNode],
+    terms_filter: Callable[[ArithmeticExpression], bool],
 ) -> LoopKernel:
     """
     Returns a copy of *kernel* with a new substitution named *subst_name* and
