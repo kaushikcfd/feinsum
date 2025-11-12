@@ -6,7 +6,6 @@ import islpy as isl
 import loopy as lp
 import loopy.match as lp_match
 from more_itertools import chunked
-from more_itertools import zip_equal as szip
 
 import feinsum as fnsm
 import feinsum.loopy_utils as lp_utils
@@ -129,8 +128,8 @@ def transform(
 
     # }}}
 
-    for new_i, new_j, new_x, new_r, new_e, outputs_in_tile in szip(
-        new_is, new_js, new_xs, new_rs, new_es, i_stmt_tile_to_outputs
+    for new_i, new_j, new_x, new_r, new_e, outputs_in_tile in zip(
+        new_is, new_js, new_xs, new_rs, new_es, i_stmt_tile_to_outputs, strict=True
     ):
         t_unit = lp.duplicate_inames(
             t_unit,
@@ -219,10 +218,11 @@ def transform(
         knl = lp.split_reduction_inward(knl, j)
         knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
 
-        for subst_name, u, output in szip(
+        for subst_name, u, output in zip(
             subst_names,
             i_stmt_tile_to_fields[istmt_tile],
             i_stmt_tile_to_outputs[istmt_tile],
+            strict=True,
         ):
             knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
                 knl,
@@ -335,7 +335,9 @@ def transform(
 
         # {{{ precompute 'subst'
 
-        for subst_name, prcmpt_j_redn in szip(subst_names, prcmpt_j_redns):
+        for subst_name, prcmpt_j_redn in zip(
+            subst_names, prcmpt_j_redns, strict=True
+        ):
             t_unit = lp.precompute(  # type: ignore[no-untyped-call]
                 t_unit,
                 subst_name,

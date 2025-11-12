@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 import islpy as isl
 import loopy as lp
-from more_itertools import zip_equal as szip
 
 import feinsum as fnsm
 import feinsum.loopy_utils as lp_utils
@@ -103,17 +102,19 @@ def transform_with_single_j_tile_i_tile(
     assert all(len(el) <= len_stmt_tile for el in i_stmt_tile_to_fields)
     assert all(
         len(el1) == len(el2)
-        for el1, el2 in szip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs)
+        for el1, el2 in zip(
+            i_stmt_tile_to_fields, i_stmt_tile_to_outputs, strict=True
+        )
     )
 
     # }}}
 
     knl = t_unit[kernel_name]
 
-    for fields_in_tile, outputs_in_tile in szip(
-        i_stmt_tile_to_fields, i_stmt_tile_to_outputs
+    for fields_in_tile, outputs_in_tile in zip(
+        i_stmt_tile_to_fields, i_stmt_tile_to_outputs, strict=True
     ):
-        for field, output in szip(fields_in_tile, outputs_in_tile):
+        for field, output in zip(fields_in_tile, outputs_in_tile, strict=True):
             subst_name = subst_names[field]
             insn_match = lp_match.And((within, lp_match.Writes(output)))
             knl = lp_utils.extract_multiplicative_terms_in_sum_reduction_as_subst(
@@ -406,15 +407,17 @@ def transform(
     assert all(len(el) <= len_stmt_tile for el in i_stmt_tile_to_fields)
     assert all(
         len(el1) == len(el2)
-        for el1, el2 in szip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs)
+        for el1, el2 in zip(
+            i_stmt_tile_to_fields, i_stmt_tile_to_outputs, strict=True
+        )
     )
 
     # }}}
 
     # {{{ split the kernel into disparate chunks
 
-    for outputs_in_tile, new_i, new_f, new_e, new_j in szip(
-        i_stmt_tile_to_outputs, i_s, f_s, e_s, j_s
+    for outputs_in_tile, new_i, new_f, new_e, new_j in zip(
+        i_stmt_tile_to_outputs, i_s, f_s, e_s, j_s, strict=True
     ):
         insn_match = lp_match.And(
             (
@@ -453,7 +456,7 @@ def transform(
     # }}}
 
     for i_stmt_tile, (fields_in_tile, outputs_in_tile) in enumerate(
-        szip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs)
+        zip(i_stmt_tile_to_fields, i_stmt_tile_to_outputs, strict=True)
     ):
         new_i = i_s[i_stmt_tile]
         new_j = j_s[i_stmt_tile]
@@ -476,7 +479,7 @@ def transform(
 
         knl = t_unit[kernel_name]
 
-        for field, output in szip(fields_in_tile, outputs_in_tile):
+        for field, output in zip(fields_in_tile, outputs_in_tile, strict=True):
             subst_name = subst_names[field]
             # FIXME: use precompute inames based on which inner statement tile
             # does the field belong to.

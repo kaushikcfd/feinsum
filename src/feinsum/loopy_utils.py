@@ -27,7 +27,6 @@ from loopy.kernel import LoopKernel
 from loopy.kernel.data import SubstitutionRule
 from loopy.symbolic import CombineMapper, IdentityMapper, Reduction
 from loopy.translation_unit import for_each_kernel
-from more_itertools import zip_equal as szip
 from pymbolic import ArithmeticExpression
 from pytools import memoize_on_first_arg
 
@@ -458,7 +457,7 @@ def get_a_matched_einsum(
             **{val: val for val in arg_to_dtype.keys()},
             **{
                 insn.assignee_var_names()[0]: out_name
-                for insn, out_name in szip(insns, output_names)
+                for insn, out_name in zip(insns, output_names, strict=True)
             },
         }
     )

@@ -4,7 +4,6 @@ from typing import Any
 
 import loopy as lp
 import numpy as np
-from more_itertools import zip_equal as szip
 from pytools import memoize_on_first_arg
 
 import feinsum as fnsm
@@ -312,8 +311,8 @@ def transform(
 
     # {{{ split redn indices
 
-    for redn_iname, t_redn, inner_iname, outer_iname in szip(
-        redn_indices, t_redns, inner_redn_inames, outer_redn_inames
+    for redn_iname, t_redn, inner_iname, outer_iname in zip(
+        redn_indices, t_redns, inner_redn_inames, outer_redn_inames, strict=True
     ):
         if t_redn != 1:
             t_unit = lp.split_iname(
@@ -329,8 +328,8 @@ def transform(
     precompute_outer_inames = frozenset(
         {
             redn_outer_iname if t_redn != 1 else redn_iname
-            for redn_outer_iname, redn_iname, t_redn in szip(
-                outer_redn_inames, redn_indices, t_redns
+            for redn_outer_iname, redn_iname, t_redn in zip(
+                outer_redn_inames, redn_indices, t_redns, strict=True
             )
         }
     )
@@ -340,9 +339,10 @@ def transform(
     B_sweep_inames: list[str] = []
     B_prftch_inames: list[str | None] = []
 
-    for (sweep_inames, prftch_inames), in_idx_set in szip(
+    for (sweep_inames, prftch_inames), in_idx_set in zip(
         ((A_sweep_inames, A_prftch_inames), (B_sweep_inames, B_prftch_inames)),
         ensm.in_idx_sets,
+        strict=True,
     ):
         for in_idx in in_idx_set:
             if in_idx in ensm.out_idx_set:

@@ -67,6 +67,7 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
             <= {iname_f, iname_e, iname_j},
         )
 
+    knl = knl.copy(silenced_warnings=["insn_count_subgroups_upper_bound"])
     t_unit = t_unit.with_kernel(knl)
 
     for i in range(4):
@@ -80,6 +81,10 @@ def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
         )
 
     opt_einsum_t_unit = f.generate_loopy_with_opt_einsum_schedule(face_mass)
+    knl = opt_einsum_t_unit.default_entrypoint
+    opt_einsum_t_unit = opt_einsum_t_unit.with_kernel(
+        knl.copy(silenced_warnings=["insn_count_subgroups_upper_bound"])
+    )
 
     assert (lp.get_op_map(t_unit, subgroup_size=1).eval_and_sum({"E": 1})) == (
         lp.get_op_map(opt_einsum_t_unit, subgroup_size=1).eval_and_sum({"E": 1})
@@ -101,12 +106,14 @@ def test_hoist_reduction_invariant_terms(ctx_factory):
         f.array("u", (nel, ndofs)),
     )
     t_unit = f.generate_loopy(expr)
+    knl = t_unit.default_entrypoint
+    knl = knl.copy(silenced_warnings=["insn_count_subgroups_upper_bound"])
+    t_unit = t_unit.with_kernel(knl)
     sigma = f.match_t_unit_to_einsum(t_unit, expr)
 
     # {{{ hoist the "j" redn-loop over "x" loop
 
     e, i, j, r = sigma["e"], sigma["i"], sigma["j"], sigma["r"]
-    knl = t_unit.default_entrypoint
     knl = lp.split_reduction_inward(knl, j)
 
     knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(knl, j)
@@ -151,6 +158,7 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
         grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
                                            jac_subst(x_1, iel_1, r_1)*D_subst(r_1, idof_1, jdof_1)*u_subst(iel_1, jdof_1))
         """,  # noqa: E501
+        lang_version=(2018, 2),
     )
     t_unit = lp.add_dtypes(
         t_unit,
@@ -186,6 +194,7 @@ def test_einsum_matching():
         lift_3[iel_2, idof_2] = sum([iface, ifacedof],
                                     face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_3(iface, iel_2, ifacedof))
         """,  # noqa: E501
+        lang_version=(2018, 2),
     )
 
     t_unit = lp.add_dtypes(
@@ -229,6 +238,8 @@ def test_sum_redn_algebraic_transforms(ctx_factory):
         y[i] = sum([r,j], J[x, r, e]*D[r,i,j]*u[e,j])
         """,
         [lp.GlobalArg("J,D,u", dtype=np.float64, shape=lp.auto), ...],
+        silenced_warnings=["insn_count_subgroups_upper_bound"],
+        lang_version=(2018, 2),
     )
     knl = t_unit.default_entrypoint
 
