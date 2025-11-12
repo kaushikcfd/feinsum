@@ -8,7 +8,7 @@ from pytools import memoize_on_first_arg
 
 import feinsum as fnsm
 from feinsum.einsum import INT_CLASSES, SizeParam
-from feinsum.tuning import IntParameter, einsum_arg, transform_param
+from feinsum.tuning import BoolParameter, IntParameter, einsum_arg, transform_param
 from feinsum.utils import get_n_redn_dim
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,7 @@ def _get_operand_names(ensm: fnsm.BatchedEinsum) -> tuple[str, str]:
     "log2_t_redns",
     lambda ensm: tuple(IntParameter(0, 5) for i in range(get_n_redn_dim(ensm))),
 )
+@transform_param("unroll_rx_ry", lambda ensm: BoolParameter())
 @memoize_on_first_arg
 def transform(
     t_unit: lp.TranslationUnit,
@@ -68,6 +69,7 @@ def transform(
     i_axis_mapping_perm: int,
     log2_output_tile_lengths: tuple[int, ...],
     log2_t_redns: tuple[int, ...],
+    unroll_rx_ry: bool,
     insn_match: Any | None = None,
     kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
@@ -445,15 +447,20 @@ def transform(
             t_unit, iname_to_duplicate, only_var_names={acc_name}
         )
 
+    tags_to_inames_duplicate = (
+        dict.fromkeys(inames_to_duplicate, "unr") if unroll_rx_ry else {}
+    )
     t_unit = lp.duplicate_inames(
         t_unit,
         inames_to_duplicate,
         within=f"writes:{acc_name} and not reads:{acc_name}",
+        tags=tags_to_inames_duplicate,
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         inames_to_duplicate,
         within=f"reads:{acc_name} and not writes:{acc_name}",
+        tags=tags_to_inames_duplicate,
     )
 
     logger.info("Done with iname duplication.")
@@ -508,15 +515,23 @@ def transform(
         )
     logger.info("Done with parallelizing prftch(B).")
 
-    t_unit = lp.join_inames(t_unit, z_block_inames, izblock)
-    logger.info("Done with join inames.")
-
-    t_unit = lp.tag_inames(t_unit, {izblock: "g.2"})
     t_unit = lp.add_inames_to_insn(
         t_unit,
-        frozenset([tx_outer, ty_outer, izblock]),
+        frozenset([tx_outer, ty_outer]),
         lp_match.Or((lp_match.Id(a_prftch_insn_id), lp_match.Id(b_prftch_insn_id))),
     )
+
+    if z_block_inames:
+        t_unit = lp.join_inames(t_unit, z_block_inames, izblock)
+        t_unit = lp.tag_inames(t_unit, {izblock: "g.2"})
+        t_unit = lp.add_inames_to_insn(
+            t_unit,
+            frozenset([izblock]),
+            lp_match.Or(
+                (lp_match.Id(a_prftch_insn_id), lp_match.Id(b_prftch_insn_id))
+            ),
+        )
+    logger.info("Done with join inames.")
 
     return t_unit
 
