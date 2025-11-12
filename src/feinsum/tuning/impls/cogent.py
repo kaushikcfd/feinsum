@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Any
+from typing import Any, cast
 
 import loopy as lp
 import numpy as np
@@ -189,9 +189,14 @@ def transform(
 
     l_sm_a, l_sm_b = [
         product(
-            tile_length
-            for tile_length, i_tile in [(tx, i_tx), (ty, i_ty)]
-            if ensm.out_idx_set[i_tile] in idx_set
+            cast("int", tile_length)
+            for tile_length, i_tile in [
+                (tx, i_tx),
+                (ty, i_ty),
+                (rx, i_rx),
+                (ry, i_ry),
+            ]
+            if i_tile is not None and ensm.out_idx_set[i_tile] in idx_set
         )
         * product(t_redns)
         for idx_set in ensm.in_idx_sets
@@ -521,18 +526,31 @@ if __name__ == "__main__":
 
     import pyopencl as cl
 
+    from feinsum.utils import get_tccg_benchmark
+
     cl_ctx = cl.create_some_context()
     cq = cl.CommandQueue(cl_ctx)
 
-    # expr = fnsm.einsum("aebf,fdec->abcd",
-    #                    fnsm.array((72, 72, 72, 72), np.float64),
-    #                    fnsm.array((72, 72, 72, 72), np.float64),
-    #                    arg_names=["A", "B"])
+    ibenchmark = 2
+    expr = get_tccg_benchmark(ibenchmark)
+    print(f"Autotuning for {expr} on device {cq.device}")
 
-    expr = fnsm.einsum(
-        "bda,dc->abc",
-        fnsm.array("A", (312, 312, 312), np.float64),
-        fnsm.array("B", (312, 24), np.float64),
-    )
+    if 1:
+        fnsm.autotune(expr, os.path.abspath(__file__), cq)
+    else:
+        from functools import partial
 
-    fnsm.autotune(expr, os.path.abspath(__file__), cq)
+        # Enable while debugging ->
+        # evaluate a point in the parameter space.
+        bound_transform = partial(
+            transform,
+            ensm=expr,
+            i_axis_mapping_perm=5,
+            log2_output_tile_lengths=(1, 5, 5),
+            log2_t_redns=(5,),
+        )
+        print(
+            fnsm.stringify_comparison_vs_roofline(
+                expr, transform=bound_transform, cq=cq
+            )
+        )
