@@ -201,7 +201,8 @@ def generate_loopy(
             for idx, axis_len in zip(
                 idx_set, sched_arg_to_shape[operand], strict=True
             ):
-                assert idx_to_length.setdefault(idx, axis_len) == axis_len
+                if (idx_to_length.setdefault(idx, axis_len) != axis_len):
+                    raise AssertionError()
 
         iname_to_ubound.update(
             {
