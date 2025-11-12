@@ -3,6 +3,7 @@
 
 .. autofunction:: timeit
 .. autofunction:: measure_giga_op_rate
+.. autofunction:: validate_batched_einsum_transform
 .. autofunction:: stringify_comparison_vs_roofline
 """
 
@@ -20,7 +21,7 @@ from immutables import Map
 from pymbolic import ArithmeticExpression
 
 from feinsum.contraction_schedule import ContractionSchedule
-from feinsum.diagnostics import NoDevicePeaksInfoError
+from feinsum.diagnostics import NoDevicePeaksInfoError, TransformValidationError
 from feinsum.einsum import (
     INT_CLASSES,
     BatchedEinsum,
@@ -116,7 +117,7 @@ def validate_batched_einsum_transform(
     """
     If the :class:`loopy.LoopKernel` generated from *einsum* does not replicate
     the results after being transformed with *transform*, then a
-    :class:`RuntimeError` is raised.
+    :class:`~feinsum.diagnostics.TransformValidationError` is raised.
     """
 
     from feinsum.codegen.loopy import generate_loopy
@@ -178,7 +179,12 @@ def validate_batched_einsum_transform(
         else:
             raise NotImplementedError(real_dtype)
 
-        np.testing.assert_allclose(transform_out_np, ref_out, atol=atol, rtol=rtol)
+        try:
+            np.testing.assert_allclose(
+                transform_out_np, ref_out, atol=atol, rtol=rtol
+            )
+        except AssertionError as exc:
+            raise TransformValidationError(f"{exc}") from exc
 
     logger.info("Statistically verified the soundness of the transformation")
 

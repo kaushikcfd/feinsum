@@ -2,6 +2,7 @@
 .. autoclass:: EinsumTunitMatchError
 .. autoclass:: InvalidParameterError
 .. autoclass:: NoDevicePeaksInfoError
+.. autoclass:: TransformValidationError
 """
 
 __copyright__ = """Copyright (C) 2022 Kaushik Kulkarni"""
@@ -46,4 +47,10 @@ class NoDevicePeaksInfoError(LookupError):
     """
     Used internally by :mod:`feinsum` whenever peak specifications for
     a device with no known information is queried.
+    """
+
+
+class TransformValidationError(RuntimeError):
+    """
+    Used by :func:`~feinsum.measure.validate_batched_einsum_transform`.
     """
