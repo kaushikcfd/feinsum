@@ -208,7 +208,7 @@ def query(
         " WHERE ("
         "    subscripts = ?"
         "    AND index_to_length = ?"
-        "    AND arg_names = ?"
+        "    AND args = ?"
         "    AND arg_to_dtype = ?"
         "    AND device_name = ?"
         ");",
