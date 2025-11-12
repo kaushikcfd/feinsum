@@ -283,4 +283,9 @@ def test_canonicalization_of_large_graphs():
     assert are_einsums_isomorphic(expr1, expr2)
 
 
+def test_tccg_benchmark_getter():
+    for i in range(48):
+        assert isinstance(f.utils.get_tccg_benchmark(i + 1), f.BatchedEinsum)
+
+
 # vim: fdm=marker
