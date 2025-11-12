@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from feinsum.diagnostics import TransformValidationError
+
 __doc__ = """
 .. autoclass:: TuningParameter
 .. autoclass:: IntParameter
@@ -349,6 +351,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         module_path: str,
         long_dim_length: int,
         db_path: str,
+        skip_value_mismatch: bool,
         *,
         # Args to super class ->
         project_name: str | None = None,
@@ -375,6 +378,7 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         self.module_path = module_path
         self.long_dim_length = long_dim_length
         self.db_path = db_path
+        self.skip_value_mismatch = skip_value_mismatch
 
     @cached_property
     def transform_space_id(self) -> str:
@@ -554,6 +558,12 @@ class OpentunerTuner(opentuner.MeasurementInterface):  # type: ignore[misc]
         except InvalidParameterError as err:
             logger.info(f"Ignored configuration due to '{err}'.")
             return opentuner.Result(time=np.inf)
+        except TransformValidationError as err:
+            if self.skip_value_mismatch:
+                logger.info(f"Ignored configuration due to {err}.")
+                return opentuner.Result(time=np.inf)
+            else:
+                raise err from err
 
         return opentuner.Result(time=self.query_from_db(cfg))
 
@@ -570,6 +580,7 @@ def autotune(
     long_dim_length: int = 100_000,
     test_limit: int | None = None,
     stop_after: float | None = None,
+    skip_value_mismatch: bool = False,
 ) -> None:
     """
     For a transform space specified in *module_path*, searches the parameter
@@ -619,6 +630,7 @@ def autotune(
         module_path=module_path,
         db_path=db_path,
         long_dim_length=long_dim_length,
+        skip_value_mismatch=skip_value_mismatch,
     )
 
 
