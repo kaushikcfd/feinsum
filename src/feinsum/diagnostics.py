@@ -1,4 +1,6 @@
 """
+.. currentmodule:: feinsum.diagnostics
+
 .. autoclass:: EinsumTunitMatchError
 .. autoclass:: InvalidParameterError
 .. autoclass:: NoDevicePeaksInfoError
@@ -30,8 +32,8 @@ THE SOFTWARE.
 
 class EinsumTunitMatchError(ValueError):
     """
-    Raised when :func:`match_t_unit_to_einsum` is not able to match the subject
-    against the pattern.
+    Raised when :func:`~feinsum.loopy_utils.match_t_unit_to_einsum` is not able
+    to match the subject against the pattern.
     """
 
 

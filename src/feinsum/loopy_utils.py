@@ -1,4 +1,6 @@
 """
+.. currentmodule:: feinsum.loopy_utils
+
 :mod:`loopy` helpers. The aim is to keep this module as lean as possible by
 upstreaming the heavy lifting parts to :mod:`loopy` itself.
 
