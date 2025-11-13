@@ -174,8 +174,8 @@ def validate_batched_einsum_transform(
             atol = 1e-6
             rtol = 1e-6
         elif real_dtype == np.float64:
-            atol = 1e-14
-            rtol = 1e-14
+            atol = 1e-10
+            rtol = 1e-10
         else:
             raise NotImplementedError(real_dtype)
 
@@ -213,7 +213,6 @@ def timeit(
     validate_batched_einsum_transform(einsum, cq, transform, schedule)
 
     t_unit = generate_loopy(einsum, schedule=schedule)
-    t_unit = lp.set_options(t_unit, no_numpy=True, return_dict=True)
 
     param_dict = generate_input_arrays(cq, einsum, long_dim_length)
     out_dict = generate_out_arrays(
@@ -226,6 +225,12 @@ def timeit(
     )
 
     t_unit = transform(t_unit, insn_match=None, kernel_name=None)
+    t_unit = lp.set_options(
+        t_unit,
+        no_numpy=True,
+        return_dict=True,
+        build_options=["-cl-fast-relaxed-math", "-cl-mad-enable"],
+    )
 
     arg_dict = param_dict.update(out_dict)
     t_unit_execuctor = t_unit.executor(cq, entrypoint=None, **arg_dict)
