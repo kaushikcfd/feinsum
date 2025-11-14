@@ -61,7 +61,7 @@ def _get_operand_names(ensm: fnsm.BatchedEinsum) -> tuple[str, str]:
     "log2_t_redns",
     lambda ensm: tuple(IntParameter(0, 5) for i in range(get_n_redn_dim(ensm))),
 )
-@transform_param("unroll_rx_ry", lambda ensm: IntParameter(0, 0))
+@transform_param("unroll_rx_ry", lambda ensm: IntParameter(0, 1))
 @transform_param(
     "iredn_idx_to_prftch", lambda ensm: IntParameter(0, len(ensm.sum_indices) - 1)
 )
@@ -604,7 +604,7 @@ if __name__ == "__main__":
     cl_ctx = cl.create_some_context()
     cq = cl.CommandQueue(cl_ctx)
 
-    for ibenchmark in range(12, 25):
+    for ibenchmark in range(1, 49):
         expr = get_tccg_benchmark(ibenchmark)
         print(f"{ibenchmark = }.")
         print(f"Autotuning for {expr} on device {cq.device}")
