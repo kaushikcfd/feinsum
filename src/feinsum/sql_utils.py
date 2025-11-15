@@ -220,7 +220,7 @@ def query(
     query_result = tuple(
         QueryInfo(
             transform_id=fact[0],
-            transform_params=json.loads(fact[1]),
+            transform_params=load_transform_params(fact[1]),
             runtime_in_sec=fact[2],
             compiler_version=fact[3],
             giga_op_info=load_op_info(fact[4]),

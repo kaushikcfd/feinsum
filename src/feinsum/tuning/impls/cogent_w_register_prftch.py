@@ -410,7 +410,7 @@ def transform(
         within=within,
         compute_insn_id=a_prftch_insn_id,
         default_tag=None,
-        temporary_name=a_prftch_tmp
+        temporary_name=a_prftch_tmp,
     )
 
     assert (frozenset(A_prftch_inames) - {None} | precompute_outer_inames) == (
@@ -429,7 +429,7 @@ def transform(
         compute_insn_id=b_prftch_insn_id,
         within=within,
         default_tag=None,
-        temporary_name=b_prftch_tmp
+        temporary_name=b_prftch_tmp,
     )
     assert (frozenset(B_prftch_inames) - {None} | precompute_outer_inames) == (
         t_unit[kernel_name].id_to_insn[b_prftch_insn_id].within_inames
@@ -460,7 +460,7 @@ def transform(
     # {{{ prefetch outer products to registers
 
     if t_redns[iredn_idx_to_prftch] != 1:
-        sum_redn_update_insn, = [
+        (sum_redn_update_insn,) = [
             insn
             for insn in t_unit[kernel_name].instructions
             if acc_name in insn.read_dependency_names()
