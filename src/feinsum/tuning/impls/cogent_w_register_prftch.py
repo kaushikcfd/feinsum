@@ -590,7 +590,15 @@ def transform(
         )
     logger.info("Done with join inames.")
 
-    # t_unit = lp.set_options(t_unit, edit_code=True)
+    t_unit = lp.prioritize_loops(
+        t_unit,
+        [
+            redn_iname if t_redn == 1 else outer_iname
+            for redn_iname, t_redn, outer_iname in zip(
+                redn_indices, t_redns, outer_redn_inames, strict=True
+            )
+        ],
+    )
     return t_unit
 
 
