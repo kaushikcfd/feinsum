@@ -126,7 +126,12 @@ def validate_batched_einsum_transform(
 
     t_unit = generate_loopy(einsum, schedule=schedule)
     t_unit = transform(t_unit, insn_match=None, kernel_name=None)
-    t_unit = lp.set_options(t_unit, no_numpy=True, return_dict=True)
+    t_unit = lp.set_options(
+        t_unit,
+        no_numpy=True,
+        return_dict=True,
+        build_options=["-cl-fast-relaxed-math", "-cl-mad-enable"],
+    )
     t_unit = lp.fix_parameters(
         t_unit,
         within=None,
