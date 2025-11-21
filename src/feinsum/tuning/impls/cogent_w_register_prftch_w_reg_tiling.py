@@ -156,9 +156,37 @@ def transform(
     if isinstance(i_tx_dim_length, INT_CLASSES) and tx > i_tx_dim_length:
         raise fnsm.InvalidParameterError("Tx > Nx")
 
+    if (
+        isinstance(i_tx_dim_length, INT_CLASSES)
+        and i_tx == i_rx
+        and tx * rx > i_tx_dim_length
+    ):
+        raise fnsm.InvalidParameterError("Tx*Rx > Nx")
+
+    if (
+        isinstance(i_tx_dim_length, INT_CLASSES)
+        and i_tx == i_ry
+        and tx * ry > i_tx_dim_length
+    ):
+        raise fnsm.InvalidParameterError("Tx*Ry > Nx")
+
     i_ty_dim_length = ensm.index_to_dim_length[ensm.out_idx_set[i_ty]]
     if isinstance(i_ty_dim_length, INT_CLASSES) and ty > i_ty_dim_length:
         raise fnsm.InvalidParameterError("Ty > Ny")
+
+    if (
+        isinstance(i_ty_dim_length, INT_CLASSES)
+        and i_ty == i_rx
+        and ty * rx > i_ty_dim_length
+    ):
+        raise fnsm.InvalidParameterError("Ty*Rx > Ny")
+
+    if (
+        isinstance(i_ty_dim_length, INT_CLASSES)
+        and i_ty == i_ry
+        and ty * ry > i_ty_dim_length
+    ):
+        raise fnsm.InvalidParameterError("Ty*Ry > Ny")
 
     i_rx_dim_length = ensm.index_to_dim_length[ensm.out_idx_set[i_rx]]
     assert rx is not None
