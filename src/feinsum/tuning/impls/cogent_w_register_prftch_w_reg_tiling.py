@@ -502,7 +502,7 @@ def transform(
             default_tag="unr",
             temporary_address_space=lp.AddressSpace.PRIVATE,
             prefetch_insn_id=a_reg_prftch_insn_id,
-            within=within,
+            within=lp_match.Id(sum_redn_update_insn.id),
             fetch_outer_inames=sum_redn_update_insn.within_inames
             - {inner_redn_inames[iredn_idx_to_prftch]},
         )
@@ -513,7 +513,7 @@ def transform(
             default_tag="unr",
             temporary_address_space=lp.AddressSpace.PRIVATE,
             prefetch_insn_id=b_reg_prftch_insn_id,
-            within=within,
+            within=lp_match.Id(sum_redn_update_insn.id),
             fetch_outer_inames=sum_redn_update_insn.within_inames
             - {inner_redn_inames[iredn_idx_to_prftch]},
         )
