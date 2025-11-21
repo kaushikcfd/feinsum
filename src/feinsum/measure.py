@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 N_WARMUP_ROUNDS = 5
-N_MIN_TIMING_ROUNDS = 20
+N_MIN_TIMING_ROUNDS = 10
 N_MIN_SIM_SECS = 2
 
 
@@ -213,11 +213,13 @@ def timeit(
     from time import time
 
     from feinsum.codegen.loopy import generate_loopy
+    import pyopencl.tools as cl_tools
 
     # Validate the transformation before fusing it
     validate_batched_einsum_transform(einsum, cq, transform, schedule)
 
     t_unit = generate_loopy(einsum, schedule=schedule)
+    alloc = cl_tools.MemoryPool(cl_tools.ImmediateAllocator(cq))
 
     param_dict = generate_input_arrays(cq, einsum, long_dim_length)
     out_dict = generate_out_arrays(
@@ -238,12 +240,14 @@ def timeit(
     )
 
     arg_dict = param_dict.update(out_dict)
-    t_unit_execuctor = t_unit.executor(cq, entrypoint=None, **arg_dict)
+    t_unit_execuctor = t_unit.executor(
+        cq, allocator=alloc, entrypoint=None, **arg_dict
+    )
 
     # {{{ WARMUP
 
     for _ in range(N_WARMUP_ROUNDS):
-        evt, _ = t_unit_execuctor(cq, **arg_dict)
+        evt, _ = t_unit_execuctor(cq, allocator=alloc, **arg_dict)
 
     cq.finish()
 
@@ -258,14 +262,14 @@ def timeit(
 
         clock_start = time()
 
-        for _ in range(10):
-            evt, _ = t_unit_execuctor(cq, **arg_dict)
+        for _ in range(5):
+            evt, _ = t_unit_execuctor(cq, allocator=alloc, **arg_dict)
 
         evt.wait()
         clock_end = time()
 
         total_sim_time += clock_end - clock_start
-        total_rounds += 10
+        total_rounds += 5
 
     return total_sim_time / total_rounds
 
