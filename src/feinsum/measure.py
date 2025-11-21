@@ -212,8 +212,9 @@ def timeit(
     """
     from time import time
 
-    from feinsum.codegen.loopy import generate_loopy
     import pyopencl.tools as cl_tools
+
+    from feinsum.codegen.loopy import generate_loopy
 
     # Validate the transformation before fusing it
     validate_batched_einsum_transform(einsum, cq, transform, schedule)
