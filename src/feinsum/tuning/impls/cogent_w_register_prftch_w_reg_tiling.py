@@ -1,13 +1,11 @@
 import itertools
 import logging
 import math
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import loopy as lp
 import numpy as np
-
-if TYPE_CHECKING:
-    import pymbolic.primitives as prim
+import pymbolic.primitives as prim
 from pytools import memoize_on_first_arg
 
 import feinsum as fnsm
@@ -464,15 +462,22 @@ def transform(
         default_tag=None,
         temporary_name=a_prftch_tmp,
     )
-    A_prftch_inames = tuple(
-        cast("prim.Variable", idx).name
-        for idx in cast(
-            "prim.Subscript",
-            cast(
-                "lp.Assignment", t_unit[kernel_name].id_to_insn[a_prftch_insn_id]
-            ).assignee,
-        ).index_tuple
-    )
+    if (
+        A_prftch_assignee := cast(
+            "lp.Assignment", t_unit[kernel_name].id_to_insn[a_prftch_insn_id]
+        ).assignee
+    ) and isinstance(A_prftch_assignee, prim.Subscript):
+        A_prftch_inames = tuple(
+            cast("prim.Variable", idx).name
+            for idx in cast(
+                "prim.Subscript",
+                cast(
+                    "lp.Assignment", t_unit[kernel_name].id_to_insn[a_prftch_insn_id]
+                ).assignee,
+            ).index_tuple
+        )
+    else:
+        A_prftch_inames = ()
 
     logger.info("Precomputed A")
 
@@ -488,15 +493,23 @@ def transform(
         default_tag=None,
         temporary_name=b_prftch_tmp,
     )
-    B_prftch_inames = tuple(
-        cast("prim.Variable", idx).name
-        for idx in cast(
-            "prim.Subscript",
-            cast(
-                "lp.Assignment", t_unit[kernel_name].id_to_insn[b_prftch_insn_id]
-            ).assignee,
-        ).index_tuple
-    )
+
+    if (
+        B_prftch_assignee := cast(
+            "lp.Assignment", t_unit[kernel_name].id_to_insn[b_prftch_insn_id]
+        ).assignee
+    ) and isinstance(B_prftch_assignee, prim.Subscript):
+        B_prftch_inames = tuple(
+            cast("prim.Variable", idx).name
+            for idx in cast(
+                "prim.Subscript",
+                cast(
+                    "lp.Assignment", t_unit[kernel_name].id_to_insn[b_prftch_insn_id]
+                ).assignee,
+            ).index_tuple
+        )
+    else:
+        B_prftch_inames = ()
     logger.info("Precomputed B")
 
     t_unit = lp.realize_reduction(t_unit, insn_id_filter=insn_id)
