@@ -11,7 +11,7 @@ from feinsum.tuning import IntParameter
 logger = logging.getLogger(__name__)
 
 
-@fnsm.tuning.einsum_arg("ndim", lambda e: e.args[0][0].shape)
+@fnsm.tuning.einsum_arg("ndim", lambda e: e.args[0][0].shape[0])
 @fnsm.tuning.einsum_arg("ndof", lambda e: e.shape[1])
 @fnsm.tuning.transform_param("n_e_per_wg", lambda e: IntParameter(2, 32))
 @fnsm.tuning.transform_param(
