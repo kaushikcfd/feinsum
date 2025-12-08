@@ -229,9 +229,7 @@ def transform_with_single_j_tile_i_tile(
             i_stmt_tile_to_j_prcmpt_stage1[i_stmt_tile],
             nwork_items_per_e,
             inner_tag="l.0",
-            # TODO: uncommenting this leads to 20% slow down in POCL & 10%
-            # speedup in Nv-CL.
-            # outer_tag="unr"
+            outer_tag="unr",
         )
 
         t_unit = lp.split_iname(
@@ -673,47 +671,78 @@ def transform(
 
 if __name__ == "__main__":
     import os
-    from functools import partial
 
     import pyopencl as cl
 
-    Nfields = 4
     Nface = 4
-    Nfacedof = 15
-    Nvoldof = 35
+    Nfacedof = 3
+    Nvoldof = 4
 
     cl_ctx = cl.create_some_context()
     cq = cl.CommandQueue(cl_ctx)
-    expr = fnsm.batched_einsum(
-        "ifj,fe,fej->ei",
-        [
+
+    for Nfields in [3, 4, 5, 6, 19]:
+        expr = fnsm.batched_einsum(
+            "ifj,fe,fej->ei",
             [
-                fnsm.array("L", (Nvoldof, Nface, Nfacedof)),
-                fnsm.array("J", (Nface, "Nel")),
-                fnsm.array(f"v{i}", (Nface, "Nel", Nfacedof)),
-            ]
-            for i in range(Nfields)
-        ],
-    )
-
-    if 1:
-        fnsm.autotune(expr, os.path.abspath(__file__), cq)
-    else:
-        # Enable while debugging ->
-        # evaluate a point in the parameter space.
-        bound_transform = partial(
-            transform,
-            n_e_per_wg=16,
-            nwork_items_per_e=12,
-            n_stmt_tile=2,
-            n_i_tile=1,
-            n_j_tile=1,
+                [
+                    fnsm.array("L", (Nvoldof, Nface, Nfacedof)),
+                    fnsm.array("J", (Nface, "Nel")),
+                    fnsm.array(f"v{i}", (Nface, "Nel", Nfacedof)),
+                ]
+                for i in range(Nfields)
+            ],
         )
 
-        print(
-            fnsm.stringify_comparison_vs_roofline(
-                expr, transform=bound_transform, cq=cq
+        fnsm.autotune(
+            expr,
+            os.path.abspath(__file__),
+            cq,
+            test_limit=3,
+        )
+
+        best_config = min(
+            fnsm.query(expr, cq.device, err_if_no_results=True),
+            key=lambda query_info: query_info.runtime_in_sec,
+        )
+
+        from feinsum.measure import _stringify_runtime_comparison_vs_roofline
+
+        with open("log.txt", "a") as fp:
+            fp.write(f"{Nfields = }.\n")
+            fp.write("Expected perf:\n")
+            fp.write(
+                _stringify_runtime_comparison_vs_roofline(
+                    expr, best_config.runtime_in_sec, cq.device.name
+                )
             )
-        )
+            fp.write("Actual perf:\n")
+            fp.write(
+                fnsm.stringify_comparison_vs_roofline(
+                    expr, transform=best_config.transform, cq=cq
+                )
+            )
+            fp.write("\n")
+            fp.write(f"Compiler version: {best_config.compiler_version}")
+            fp.write("\n")
+
+    # Enable while debugging ->
+    # evaluate a point in the parameter space.
+    # from functools import partial
+
+    # bound_transform = partial(
+    #     transform,
+    #     n_e_per_wg=16,
+    #     nwork_items_per_e=12,
+    #     n_stmt_tile=2,
+    #     n_i_tile=1,
+    #     n_j_tile=1,
+    # )
+
+    # print(
+    #     fnsm.stringify_comparison_vs_roofline(
+    #         expr, transform=bound_transform, cq=cq
+    #     )
+    # )
 
 # vim: fdm=marker
