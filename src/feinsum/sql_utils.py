@@ -35,17 +35,12 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     # avoid making pyopencl a hard dep.
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
-    import loopy as lp
     import pyopencl as cl
 
     from feinsum.cl_utils import DeviceT
-
-    # transform: (t_unit, insn_match, kernel_name)
-    TransformT = Callable[
-        [lp.TranslationUnit, Any | None, str | None], lp.TranslationUnit
-    ]
+    from feinsum.typing import TransformT
 
 
 DEFAULT_DB = os.path.join(
