@@ -127,6 +127,16 @@ class InputAccessNode(EinsumGraphNode):
 
 
 @dataclass(frozen=True)
+class ScalarInputAccessNode(EinsumGraphNode):
+    i: int
+    j: int
+
+    @property
+    def label(self) -> str:
+        return f"({self.i + 1}, {self.j + 1})"
+
+
+@dataclass(frozen=True)
 class OutputAccessNode(EinsumGraphNode):
     index: str
     d: int
@@ -173,6 +183,8 @@ def to_bliss_color(v: EinsumGraphNode) -> int:
         return 8
     elif isinstance(v, DimNode):
         return 9
+    elif isinstance(v, ScalarInputAccessNode):
+        return 10
     else:
         raise NotImplementedError(f"Unknown node type '{type(v)}'.")
 
@@ -196,6 +208,8 @@ def to_graphviz_color(v: EinsumGraphNode) -> str:
         return "orange"
     elif isinstance(v, DimNode):
         return "thistle"
+    elif isinstance(v, ScalarInputAccessNode):
+        return "wheat1"
     else:
         raise NotImplementedError(f"Unknown node type '{type(v)}'.")
 
@@ -327,6 +341,7 @@ class InducedDirectedGraph:
             7: "navajowhite",
             8: "orange",
             9: "thistle",
+            10: "wheat1",
         }
 
         dot_code = "digraph {\n"
@@ -391,6 +406,14 @@ def to_induced_dag(
             for d, idx in enumerate(idx_set)
         }
     )
+    scalar_accesses = frozenset(
+        {
+            ScalarInputAccessNode(i, j)
+            for i in range(einsum.b)
+            for j, idx_set in enumerate(einsum.in_idx_sets)
+            if len(idx_set) == 0
+        }
+    )
 
     # See Defn. 18
     output_accesses = frozenset(
@@ -422,6 +445,7 @@ def to_induced_dag(
     n_dtypes = len(dtype_nodes)
     n_access_in = len(input_accesses)
     n_access_out = len(output_accesses)
+    n_scalar_accesses = len(scalar_accesses)
 
     # {{{ See Section A.1, define the iota mappings
 
@@ -531,6 +555,28 @@ def to_induced_dag(
         )
     )
 
+    iota_scalar_accesses = frozenbidict(
+        (i, scalar_accesses)
+        for i, scalar_accesses in enumerate(
+            sorted(
+                scalar_accesses,
+                key=lambda scalar_access_node: (
+                    scalar_access_node.i,
+                    scalar_access_node.j,
+                ),
+            ),
+            start=n_arg
+            + n_index
+            + n_access_in
+            + n_access_out
+            + einsum.b
+            + einsum.n
+            + n_dtypes
+            + n_length
+            + n_dim,
+        )
+    )
+
     iotas: frozenbidict[int, EinsumGraphNode] = frozenbidict(
         {
             **iota_arg,
@@ -542,6 +588,7 @@ def to_induced_dag(
             **iota_dtype,
             **iota_length,
             **iota_dim,
+            **iota_scalar_accesses,
         }
     )
     assert (
@@ -555,6 +602,7 @@ def to_induced_dag(
         + n_dtypes
         + n_length
         + n_dim
+        + n_scalar_accesses
     )
 
     # }}}
@@ -572,18 +620,30 @@ def to_induced_dag(
         }
     )
 
+    e_scalar_access_to_arg = frozenset(
+        {
+            (ScalarInputAccessNode(i, j), ArgNode(arg.name))
+            for i in range(einsum.b)
+            for j, (idx_set, arg) in enumerate(
+                zip(einsum.in_idx_sets, einsum.args[i], strict=True)
+            )
+            if len(idx_set) == 0
+        }
+    )
+
     e_arg_pos_to_access_in = frozenset(
         {
             (IPositionNode(access_in_node.j), access_in_node)
-            for access_in_node in input_accesses
+            for access_in_node in input_accesses | scalar_accesses
         }
     )
     e_out_to_access_in = frozenset(
         {
             (IResultNode(access_in_node.i), access_in_node)
-            for access_in_node in input_accesses
+            for access_in_node in input_accesses | scalar_accesses
         }
     )
+
     e_idx_to_access_in = frozenset(
         {
             (IndexNode(access_in_node.index), access_in_node)
@@ -643,6 +703,7 @@ def to_induced_dag(
     all_edges: frozenset[tuple[EinsumGraphNode, EinsumGraphNode]] = frozenset(
         {
             *e_access_in_to_arg,
+            *e_scalar_access_to_arg,
             *e_arg_pos_to_access_in,
             *e_out_to_access_in,
             *e_idx_to_access_in,
@@ -739,15 +800,16 @@ def from_induced_dag(
     v_dtype = frozenset(np.nonzero(induced_dag.c == 7)[0])
     v_length = frozenset(np.nonzero(induced_dag.c == 8)[0])
     v_dims = frozenset(np.nonzero(induced_dag.c == 9)[0])
+    v_scalar_accesses = frozenset(np.nonzero(induced_dag.c == 10)[0])
 
     # {{{ Check the constaints (C1) -- (C30)
 
     # C1.
-    assert np.all(np.logical_and(induced_dag.c >= 1, induced_dag.c <= 9))
+    assert np.all(np.logical_and(induced_dag.c >= 1, induced_dag.c <= 10))
     # C2.
     assert all(len(induced_dag.succs(i)) == 0 for i in v_arg)
     # C3.
-    v_access_in_union_dtype = v_access_in | v_dtype
+    v_access_in_union_dtype = v_access_in | v_dtype | v_scalar_accesses
     assert all(induced_dag.preds(i) <= v_access_in_union_dtype for i in v_arg)
     # C4.
     assert all(len(induced_dag.preds(i) & v_dtype) == 1 for i in v_arg)
@@ -768,7 +830,9 @@ def from_induced_dag(
         for i in v_access_in
     )
     # C9.
-    assert all(induced_dag.succs(i) <= v_access_in for i in v_output)
+    assert all(
+        induced_dag.succs(i) <= (v_access_in | v_scalar_accesses) for i in v_output
+    )
     # C10.
     assert all(len(induced_dag.preds(i)) == 0 for i in v_output)
     # C11.
@@ -810,7 +874,9 @@ def from_induced_dag(
     assert all(len(induced_dag.preds(i)) == 0 for i in v_arg_pos)
 
     # C20.
-    assert all(induced_dag.succs(i) <= v_access_in for i in v_arg_pos)
+    assert all(
+        induced_dag.succs(i) <= (v_access_in | v_scalar_accesses) for i in v_arg_pos
+    )
 
     # C21. (FIXME). It is incorrect in the paper.
 
@@ -834,6 +900,16 @@ def from_induced_dag(
     # C29. (FIXME)
 
     # C30. (FIXME)
+
+    # C31. Scalar accesses should only have IResult, IPos as preds and Args as succs
+    assert all(
+        induced_dag.preds(v_scalar_access) <= (v_arg_pos | v_output)
+        for v_scalar_access in v_scalar_accesses
+    )
+    assert all(
+        induced_dag.succs(v_scalar_access) <= v_arg
+        for v_scalar_access in v_scalar_accesses
+    )
 
     # }}}
 
