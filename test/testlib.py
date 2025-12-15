@@ -1,6 +1,10 @@
 import logging
+from collections.abc import Mapping, Sequence
+from typing import Any, cast
 
 import loopy as lp
+import numpy as np
+from numpy.random import Generator
 
 import feinsum as fnsm
 import feinsum.loopy_utils as lp_utils
@@ -256,3 +260,161 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
     # }}}
 
     return t_unit
+
+
+# {{{ generate random batched einsum.
+
+
+def _operand_names_iter():
+    for i in range(26):
+        yield chr(ord("A") + i)
+
+    for i in range(26):
+        for j in range(26):
+            yield (chr(ord("A") + i) + chr(ord("A") + j))
+
+
+def generate_batched_einsum(
+    rng: Generator,
+    *,
+    max_dim_size=7,
+) -> fnsm.BatchedEinsum:
+
+    b = rng.integers(low=1, high=17).item()
+    n = rng.integers(low=1, high=9).item()
+    n_free_indices = rng.integers(low=1, high=8).item()
+    n_redn_indices = rng.integers(low=0, high=8).item()
+
+    assert (
+        n_free_indices + n_redn_indices
+    ) < 27, "Can support only 26 indices in einsum."
+    output_idx_list = tuple(chr(97 + (i + 8) % 26) for i in range(n_free_indices))
+    redn_indices = tuple(
+        chr(97 + (i + n_free_indices + 8) % 26) for i in range(n_redn_indices)
+    )
+    operand_names_iter = _operand_names_iter()
+
+    def operand_names_gen(): return next(operand_names_iter)
+
+    all_indices = output_idx_list + redn_indices
+    all_lengths = [4, 8, 16, 32, 64]
+    all_dtypes = [np.float16, np.float32, np.float64]
+
+    input_idx_lists = tuple(
+        tuple(
+            rng.choice(all_indices).item()
+            for _ in range(rng.integers(low=0, high=max_dim_size + 1))
+        )
+        for _ in range(n)
+    )
+
+    while not (
+        set(sum(input_idx_lists, start=cast("tuple[str]", ())))
+        >= set(output_idx_list)
+    ):
+        # Input indices does not contain all the output indices => this is
+        # invalid for einsum grammar. Regenerate it.
+        input_idx_lists = tuple(
+            tuple(
+                rng.choice(all_indices).item()
+                for _ in range(rng.integers(low=0, high=max_dim_size + 1))
+            )
+            for _ in range(n)
+        )
+
+    index_to_length = {idx: rng.choice(all_lengths).item() for idx in all_indices}
+    operand_pos_to_dtype = tuple(
+        tuple(np.dtype(rng.choice(all_dtypes)) for _ in range(n))
+        for _ in range(b)
+    )
+    shape_x_dtype_to_names: dict[
+        tuple[tuple[int, ...], np.dtype[Any]], list[str]
+    ] = {}
+
+    arg_names: list[list[str]] = []
+    arg_to_dtype: dict[str, np.dtype[Any]] = {}
+    arg_to_shape: dict[str, tuple[int, ...]] = {}
+    for i in range(b):
+        arg_row: list[str] = []
+        for j, idx_list in enumerate(input_idx_lists):
+            shape = tuple(index_to_length[idx] for idx in idx_list)
+            dtype = operand_pos_to_dtype[i][j]
+            try:
+                potential_repeats = shape_x_dtype_to_names[shape, dtype]
+            except KeyError:
+                new_name = operand_names_gen()
+                arg_row.append(new_name)
+                shape_x_dtype_to_names[shape, dtype] = [new_name]
+                arg_to_dtype[new_name] = dtype
+                arg_to_shape[new_name] = shape
+            else:
+                should_repeat = rng.choice([False, True], p=[0.3, 0.7]).item()
+                if should_repeat:
+                    arg_row.append(rng.choice(potential_repeats).item())
+                else:
+                    new_name = operand_names_gen()
+                    arg_row.append(new_name)
+                    potential_repeats.append(new_name)
+                    arg_to_dtype[new_name] = dtype
+                    arg_to_shape[new_name] = shape
+
+        arg_names.append(arg_row)
+        del arg_row
+
+    return fnsm.batched_einsum(
+        f"{','.join([''.join(idx_list) for idx_list in input_idx_lists])}"
+        f" -> {''.join(output_idx_list)}",
+        [
+            [
+                fnsm.array(
+                    arg_name,
+                    arg_to_shape[arg_name],
+                    arg_to_dtype[arg_name],
+                )
+                for arg_name in arg_row
+            ]
+            for arg_row in arg_names
+        ],
+    )
+
+# }}}
+
+# {{{ apply substitution mapping to batched einsum.
+
+
+def apply_renaming_to_batched_einsum(
+    e1: fnsm.BatchedEinsum,
+    sigma_i: Sequence[int],
+    sigma_j: Sequence[int],
+    sigma_idx: Mapping[str, str],
+    sigma_arg: Mapping[str, str],
+) -> fnsm.BatchedEinsum:
+    """
+    Returns a batched einsum, *e2*, that is isomorphic to *e1*, such that:
+
+    - Argument at ``i, j`` in e2 will be
+      ``sigma_arg[e1.arg_names[sigma_i[i], sigma_j[j]]]``
+    """
+    assert sorted(sigma_i) == list(
+        range(len(sigma_i))
+    ), "sigma_i must be a valid permutation."
+    assert sorted(sigma_j) == list(
+        range(len(sigma_j))
+    ), "sigma_j must be a valid permutation."
+
+    e2_out_idx_list = tuple(sigma_idx[idx] for idx in e1.out_idx_set)
+    e2_in_idx_lists = tuple(
+        tuple(sigma_idx[idx] for idx in e1.in_idx_sets[j]) for j in sigma_j
+    )
+
+    return fnsm.batched_einsum(
+        f"{','.join([''.join(idx_list) for idx_list in e2_in_idx_lists])}"
+        f" -> {''.join(e2_out_idx_list)}",
+        [
+            [e1.args[i][j].copy(name=sigma_arg[e1.args[i][j].name]) for j in sigma_j]
+            for i in sigma_i
+        ],
+    )
+
+
+# }}}
