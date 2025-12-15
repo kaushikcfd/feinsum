@@ -288,4 +288,27 @@ def test_tccg_benchmark_getter():
         assert isinstance(f.utils.get_tccg_benchmark(i + 1), f.BatchedEinsum)
 
 
+def test_canonicalization_fuzz():
+    from testlib import apply_renaming_to_batched_einsum, generate_batched_einsum
+
+    rng = np.random.default_rng(0)
+    for _ in range(1024):
+        einsum = generate_batched_einsum(rng)
+
+        einsum_arg_names = tuple(sorted(einsum.all_args))
+        einsum_indices = tuple(sorted(einsum.all_indices))
+        sigma_i = rng.permutation(range(einsum.b))
+        sigma_j = rng.permutation(range(einsum.n))
+        sigma_idx = dict(
+            zip(einsum_indices, rng.permutation(einsum_indices), strict=True)
+        )
+        sigma_arg = dict(
+            zip(einsum_arg_names, rng.permutation(einsum_arg_names), strict=True)
+        )
+        renamed_einsum = apply_renaming_to_batched_einsum(
+            einsum, sigma_i, sigma_j, sigma_idx, sigma_arg
+        )
+        assert f.canonicalize_einsum(einsum) == f.canonicalize_einsum(renamed_einsum)
+
+
 # vim: fdm=marker
