@@ -791,18 +791,18 @@ def from_induced_dag(
     # Follows the reconstruction from Appendix A.2
 
     # Equation (20)
-    v_arg = frozenset(np.nonzero(induced_dag.c == 1)[0])
-    v_index = frozenset(np.nonzero(induced_dag.c == 2)[0])
-    v_access_in = frozenset(np.nonzero(induced_dag.c == 3)[0])
-    v_access_out = frozenset(np.nonzero(induced_dag.c == 4)[0])
-    v_output = frozenset(np.nonzero(induced_dag.c == 5)[0])
-    v_arg_pos = frozenset(np.nonzero(induced_dag.c == 6)[0])
-    v_dtype = frozenset(np.nonzero(induced_dag.c == 7)[0])
-    v_length = frozenset(np.nonzero(induced_dag.c == 8)[0])
-    v_dims = frozenset(np.nonzero(induced_dag.c == 9)[0])
-    v_scalar_accesses = frozenset(np.nonzero(induced_dag.c == 10)[0])
+    v_arg = frozenset(np.nonzero(induced_dag.c == 1)[0].astype(int))
+    v_index = frozenset(np.nonzero(induced_dag.c == 2)[0].astype(int))
+    v_access_in = frozenset(np.nonzero(induced_dag.c == 3)[0].astype(int))
+    v_access_out = frozenset(np.nonzero(induced_dag.c == 4)[0].astype(int))
+    v_output = frozenset(np.nonzero(induced_dag.c == 5)[0].astype(int))
+    v_arg_pos = frozenset(np.nonzero(induced_dag.c == 6)[0].astype(int))
+    v_dtype = frozenset(np.nonzero(induced_dag.c == 7)[0].astype(int))
+    v_length = frozenset(np.nonzero(induced_dag.c == 8)[0].astype(int))
+    v_dims = frozenset(np.nonzero(induced_dag.c == 9)[0].astype(int))
+    v_scalar_accesses = frozenset(np.nonzero(induced_dag.c == 10)[0].astype(int))
 
-    # {{{ Check the constaints (C1) -- (C30)
+    # {{{ Check the constraints (C1) -- (C30)
 
     # C1.
     assert np.all(np.logical_and(induced_dag.c >= 1, induced_dag.c <= 10))
