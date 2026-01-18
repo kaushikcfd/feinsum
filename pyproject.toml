@@ -67,7 +67,7 @@ extend-select = [
   "TC",
 ]
 
-ignore = ["B023", "C901", "N806"]
+ignore = ["RUF067", "B023", "C901", "N806"]
 
 [tool.mypy]
 
