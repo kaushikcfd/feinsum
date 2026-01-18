@@ -504,6 +504,24 @@ def match_t_unit_to_einsum(
     )
 
 
+def identify_as_einsum(
+    t_unit: lp.TranslationUnit,
+    einsum: BatchedEinsum,
+    *,
+    kernel_name: str | None = None,
+    insn_match: Any = None,
+    argument_substitutions: frozenset[str] | None = None,
+    long_dim_length: int = 500,
+) -> Mapping[str, str]:
+    return match_t_unit_to_einsum(
+        t_unit,
+        einsum,
+        kernel_name=kernel_name,
+        insn_match=insn_match,
+        long_dim_length=long_dim_length,
+    )
+
+
 # }}}
 
 

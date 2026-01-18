@@ -2,8 +2,9 @@ from __future__ import annotations
 
 __doc__ = """
 .. autofunction:: query
+.. autofunction:: retrieve
 .. autofunction:: get_timed_einsums_in_db
-.. autofunction:: record_into_db
+.. autofunction:: record_facts
 
 .. autoclass:: QueryInfo
 """
@@ -242,6 +243,38 @@ def query(
     return query_result
 
 
+def retrieve(
+    einsum: BatchedEinsum,
+    cl_device: DeviceT,
+    *,
+    database: str = DEFAULT_DB,
+) -> TransformT:
+    """
+    Return the transformation that yields highest FLOP-throughput
+    as per the performance facts in *database*.
+
+    :param einsum: The batched einsum for which the highest performing transform
+        is to be retrieved.
+    :param cl_device: The device for which the highest performing transform
+        is to be retrieved.
+    :param err_if_no_results: If *True*, raises a :class:`RuntimeError` if no
+        recorded runs corresponding to *einsum* are available in *database*.
+        Defaults to *False*.
+    """
+
+    def get_all_giga_op_rate(query_info: QueryInfo) -> float:
+        return sum(
+            query_info.giga_op_rate(dtype)
+            for dtype in query_info.giga_op_info.keys()
+        )
+
+    best_query = max(
+        query(einsum, cl_device, database=database, err_if_no_results=True),
+        key=get_all_giga_op_rate,
+    )
+    return best_query.transform
+
+
 def _get_batched_einsum_from_sql_row(
     subscripts: str,
     index_to_length: Mapping[str, ShapeComponentT],
@@ -363,7 +396,7 @@ def _create_timings_table_if_non_existent(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def record_into_db(
+def record_facts(
     einsum: BatchedEinsum,
     cq: cl.CommandQueue,
     module_path: str,
@@ -455,6 +488,27 @@ def record_into_db(
     )
 
     conn.commit()
+
+
+def record_into_db(
+    einsum: BatchedEinsum,
+    cq: cl.CommandQueue,
+    module_path: str,
+    transform_params: Mapping[str, Any],
+    database: str | sqlite3.Connection = DEFAULT_DB,
+    long_dim_length: int = 100_000,
+) -> None:
+    import warnings
+
+    warnings.warn(
+        "'record_into_db' is deprecated and will be discontinued in"
+        " 2026. Use 'record_facts' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return record_facts(
+        einsum, cq, module_path, transform_params, database, long_dim_length
+    )
 
 
 # vim: foldmethod=marker

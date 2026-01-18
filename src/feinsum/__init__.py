@@ -19,6 +19,7 @@ from feinsum.einsum import (
 from feinsum.loopy_utils import (
     get_a_matched_einsum,
     get_call_ids,
+    identify_as_einsum,
     match_t_unit_to_einsum,
 )
 from feinsum.make_einsum import array, batched_einsum, einsum
@@ -29,7 +30,7 @@ from feinsum.measure import (
     timeit,
     validate_batched_einsum_transform,
 )
-from feinsum.sql_utils import DEFAULT_DB, query
+from feinsum.sql_utils import DEFAULT_DB, query, record_facts
 from feinsum.tuning import autotune
 from feinsum.utils import IndexNameGenerator
 
@@ -55,9 +56,11 @@ __all__ = (
     "get_opt_einsum_contraction_schedule",
     "get_roofline_flop_rate",
     "get_trivial_contraction_schedule",
+    "identify_as_einsum",
     "match_t_unit_to_einsum",
     "measure_giga_op_rate",
     "query",
+    "record_facts",
     "stringify_comparison_vs_roofline",
     "timeit",
     "validate_batched_einsum_transform",
