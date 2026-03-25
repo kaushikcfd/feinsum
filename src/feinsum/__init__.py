@@ -30,7 +30,7 @@ from feinsum.measure import (
     timeit,
     validate_batched_einsum_transform,
 )
-from feinsum.sql_utils import DEFAULT_DB, query, record_facts
+from feinsum.sql_utils import DEFAULT_DB, query, record_facts, retrieve
 from feinsum.tuning import autotune
 from feinsum.utils import IndexNameGenerator
 
@@ -61,6 +61,7 @@ __all__ = (
     "measure_giga_op_rate",
     "query",
     "record_facts",
+    "retrieve",
     "stringify_comparison_vs_roofline",
     "timeit",
     "validate_batched_einsum_transform",
