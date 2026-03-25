@@ -316,14 +316,13 @@ def generate_loopy(
 
     # }}}
 
-    t_unit = lp.make_kernel(
+    return lp.make_kernel(
         domains,
         statements,
         kernel_data=[*knl_args, ...],
         substitutions=substitutions,
         lang_version=LOOPY_LANG_VERSION,
     )
-    return t_unit
 
 
 def generate_loopy_with_opt_einsum_schedule(

@@ -456,7 +456,7 @@ def get_a_matched_einsum(
     subst_map = frozenbidict(
         {
             **ensm_iname_to_index,
-            **{val: val for val in arg_to_dtype.keys()},
+            **{val: val for val in arg_to_dtype},
             **{
                 insn.assignee_var_names()[0]: out_name
                 for insn, out_name in zip(insns, output_names, strict=True)
@@ -562,7 +562,7 @@ def get_call_ids(expr: ArithmeticExpression) -> frozenset[str]:
 Tpart = TypeVar("Tpart")
 
 
-def partition(
+def partition[Tpart](
     pred: Callable[[Tpart], bool], iterable: Iterable[Tpart]
 ) -> tuple[list[Tpart], list[Tpart]]:
     """
@@ -678,12 +678,11 @@ def hoist_invariant_multiplicative_terms_in_sum_reduction(
 
     term_hoister = EinsumTermsHoister(reduction_inames)
 
-    kernel = map_instructions(  # type: ignore[no-untyped-call]
+    return map_instructions(  # type: ignore[no-untyped-call]
         kernel,
         insn_match=within,
         f=lambda x: x.with_transformed_expressions(term_hoister),
     )
-    return kernel
 
 
 # }}}
@@ -936,8 +935,7 @@ def decouple_domain(
     new_domains = list(kernel.domains)
     new_domains[hdi] = dom1
     new_domains.append(dom2)
-    kernel = kernel.copy(domains=new_domains)
-    return kernel
+    return kernel.copy(domains=new_domains)
 
 
 # }}}

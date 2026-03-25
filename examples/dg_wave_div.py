@@ -57,9 +57,7 @@ def variant_1(t_unit, insn_match=None, kernel_name=None):
     """
     t_unit = lp.tag_inames(t_unit, {"s": "unr"})
     t_unit = lp.split_iname(t_unit, "e", 8, outer_tag="g.0", inner_tag="l.1")
-    t_unit = lp.split_iname(t_unit, "i", 4, inner_tag="l.0", outer_tag="ilp")
-
-    return t_unit
+    return lp.split_iname(t_unit, "i", 4, inner_tag="l.0", outer_tag="ilp")
 
 
 def variant_3(t_unit):
@@ -89,8 +87,7 @@ def variant_3(t_unit):
             temporary_name=f"{vec}_prftch",
             default_tag="l.auto",
         )
-    t_unit = lp.add_inames_for_unused_hw_axes(t_unit)
-    return t_unit
+    return lp.add_inames_for_unused_hw_axes(t_unit)
 
 
 def main():

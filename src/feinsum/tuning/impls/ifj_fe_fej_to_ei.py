@@ -264,11 +264,9 @@ def transform_with_single_j_tile_i_tile(
         )
         t_unit = lp.add_dependency(t_unit, successors, predecessors)
 
-    t_unit = lp.add_inames_to_insn(
+    return lp.add_inames_to_insn(
         t_unit, inames=e_outer_names[0], insn_match=lp_match.Writes(L_fetch)
     )
-
-    return t_unit
 
 
 @fnsm.tuning.einsum_arg("nface", lambda e: e.args[0][2].shape[0])

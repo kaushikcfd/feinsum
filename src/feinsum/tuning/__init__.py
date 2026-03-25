@@ -71,10 +71,10 @@ class IntParameter(TuningParameter):
 
     def __init__(self, low: ShapeComponentT, high: ShapeComponentT):
         if not isinstance(low, INT_CLASSES):
-            raise ValueError("low must be an integer")
+            raise TypeError("low must be an integer")
 
         if not isinstance(high, INT_CLASSES):
-            raise ValueError("high must be an integer")
+            raise TypeError("high must be an integer")
 
         object.__setattr__(self, "low", low)
         object.__setattr__(self, "high", high)
@@ -185,14 +185,13 @@ class ParametrizedTransform:
         """
         from functools import partial
 
-        py_clbl = partial(
+        return partial(
             self.transform,
             **{
                 arg.var_name: arg.func(einsum) for arg in self.einsum_derivative_args
             },
             **transform_args,
         )
-        return py_clbl
 
 
 # }}}
@@ -244,7 +243,7 @@ def _convert_to_tuning_param(param: ConvertibleToTuningParamT) -> TuningParamete
     elif isinstance(param, tuple):
         return TupleParameter(tuple(_convert_to_tuning_param(el) for el in param))
     else:
-        raise ValueError(
+        raise TypeError(
             "Only instances of ConvertibleToTuningParamT" " are supported."
         )
 

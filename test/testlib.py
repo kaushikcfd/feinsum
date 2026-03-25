@@ -250,7 +250,7 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
         new_inames=["i_outer_hoist_init", f"{r_prcmpt}_init"],
     )
 
-    t_unit = lp.duplicate_inames(
+    return lp.duplicate_inames(
         t_unit,
         ["i_outer_hoist", r_prcmpt],
         within="id:insn_hoist",
@@ -258,8 +258,6 @@ def transform_3d_p4_grad(t_unit, insn_match=None, kernel_name=None):
     )
 
     # }}}
-
-    return t_unit
 
 
 # {{{ generate random batched einsum.

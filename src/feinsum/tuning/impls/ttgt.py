@@ -387,7 +387,7 @@ def transform(
     )
     new_substs = {
         **knl.substitutions,
-        **{
+
             a_gemm_subst: lp.SubstitutionRule(
                 a_gemm_subst,
                 ("d_0", "d_1"),
@@ -403,8 +403,8 @@ def transform(
                     prim.Variable(b_gemm_tmp),
                     (prim.Variable("d_0"), prim.Variable("d_1")),
                 ),
-            ),
-        },
+            )
+        ,
     }
 
     knl = knl.copy(

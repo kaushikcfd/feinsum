@@ -244,9 +244,7 @@ def transform(
 
     # }}}
 
-    t_unit = lp.tag_inames(t_unit, {r: "unr", x: "unr"})
-
-    return t_unit
+    return lp.tag_inames(t_unit, {r: "unr", x: "unr"})
 
 
 if __name__ == "__main__":

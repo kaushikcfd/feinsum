@@ -30,9 +30,7 @@ def transform(
     assert 8 <= l_0_size <= 16 and 8 <= l_1_size <= 16
 
     t_unit = lp.split_iname(t_unit, i, l_1_size, inner_tag="l.1", outer_tag="g.0")
-    t_unit = lp.split_iname(t_unit, j, l_0_size, inner_tag="l.0")
-
-    return t_unit
+    return lp.split_iname(t_unit, j, l_0_size, inner_tag="l.0")
 
 
 def test_transform(ctx_factory):

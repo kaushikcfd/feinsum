@@ -55,9 +55,7 @@ from feinsum.einsum import (
 def _preprocess_component(s: Any) -> ShapeComponentT:
     if isinstance(s, str):
         return SizeParam(s)
-    elif isinstance(s, INT_CLASSES) and (s >= 0):
-        return s
-    elif isinstance(s, SizeParam):
+    elif (isinstance(s, INT_CLASSES) and (s >= 0)) or isinstance(s, SizeParam):
         return s
     else:
         raise ValueError(f"Cannot infer shape component '{s}'.")
@@ -105,12 +103,11 @@ def _normalize_einsum_subscript(subscript: str, is_output: bool) -> tuple[str, .
                 f"Cannot parse '{acc}' in provided einsum" f" '{subscript}'."
             )
 
-    if is_output:
-        if len(set(normalized_indices)) != len(normalized_indices):
-            raise ValueError(
-                "Used an input more than once to refer to the"
-                f" output axis in '{subscript}"
-            )
+    if is_output and len(set(normalized_indices)) != len(normalized_indices):
+        raise ValueError(
+            "Used an input more than once to refer to the"
+            f" output axis in '{subscript}"
+        )
     return tuple(normalized_indices)
 
 

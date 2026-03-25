@@ -78,9 +78,7 @@ def variant_1(t_unit):
 
     t_unit = lp.tag_inames(t_unit, {iface: "unr"})
     t_unit = lp.split_iname(t_unit, e, 8, outer_tag="g.0", inner_tag="l.1")
-    t_unit = lp.split_iname(t_unit, idof, 4, inner_tag="l.0", outer_tag="ilp")
-
-    return t_unit
+    return lp.split_iname(t_unit, idof, 4, inner_tag="l.0", outer_tag="ilp")
 
 
 def variant_2(t_unit, insn_match=None, kernel_name=None):

@@ -315,7 +315,7 @@ def transform(
 
     # {{{ split free indices
 
-    if i_tx == i_rx or i_tx == i_ry:
+    if i_tx in (i_rx, i_ry):
         t_unit = lp.split_iname(
             t_unit,
             free_indices[i_tx],
@@ -346,7 +346,7 @@ def transform(
             slabs=(0, 1),
         )
 
-    if i_ty == i_rx or i_ty == i_ry:
+    if i_ty in (i_rx, i_ry):
         t_unit = lp.split_iname(
             t_unit,
             free_indices[i_ty],
@@ -376,7 +376,7 @@ def transform(
             outer_tag="g.1",
             slabs=(0, 1),
         )
-    if i_rx != i_tx and i_rx != i_ty:
+    if i_rx not in (i_tx, i_ty):
         t_unit = lp.split_iname(
             t_unit,
             free_indices[i_rx],
@@ -385,7 +385,7 @@ def transform(
             outer_iname=rx_outer,
             inner_tag="unr" if unroll_rx_ry else None,
         )
-    if i_ry != i_tx and i_ry != i_ty:
+    if i_ry not in (i_tx, i_ty):
         t_unit = lp.split_iname(
             t_unit,
             free_indices[i_ry],
@@ -649,7 +649,7 @@ def transform(
         )
     logger.info("Done with join inames.")
 
-    t_unit = lp.prioritize_loops(
+    return lp.prioritize_loops(
         t_unit,
         [
             redn_iname if t_redn == 1 else outer_iname
@@ -658,8 +658,6 @@ def transform(
             )
         ],
     )
-
-    return t_unit
 
 
 if __name__ == "__main__":

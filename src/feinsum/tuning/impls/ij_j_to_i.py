@@ -31,9 +31,7 @@ def transform(
         t_unit, ref_einsum, kernel_name=kernel_name, insn_match=insn_match
     )
     i = subst_map["i"]
-    t_unit = lp.split_iname(t_unit, i, l_0_size, inner_tag="l.0", outer_tag="g.0")
-
-    return t_unit
+    return lp.split_iname(t_unit, i, l_0_size, inner_tag="l.0", outer_tag="g.0")
 
 
 if __name__ == "__main__":

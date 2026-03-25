@@ -265,7 +265,7 @@ def retrieve(
     def get_all_giga_op_rate(query_info: QueryInfo) -> float:
         return sum(
             query_info.giga_op_rate(dtype)
-            for dtype in query_info.giga_op_info.keys()
+            for dtype in query_info.giga_op_info
         )
 
     best_query = max(
