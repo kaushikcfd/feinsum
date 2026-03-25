@@ -24,6 +24,7 @@ import numpy as np
 import numpy.typing as npt
 from immutables import Map
 
+from feinsum.diagnostics import NoFactInDatabaseError
 from feinsum.einsum import (
     INT_CLASSES,
     BatchedEinsum,
@@ -236,7 +237,7 @@ def query(
             f"{einsum.get_subscripts()} [{str_idx_to_size}]"
             f" [#outputs={einsum.b}]"
         )
-        raise RuntimeError(
+        raise NoFactInDatabaseError(
             "No facts found for the einsum:" f" `{stringified_einsum}`."
         )
 

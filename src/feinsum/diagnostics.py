@@ -56,3 +56,10 @@ class TransformValidationError(RuntimeError):
     """
     Used by :func:`~feinsum.measure.validate_batched_einsum_transform`.
     """
+
+
+class NoFactInDatabaseError(RuntimeError):
+    """
+    Raised during in call to :func:`~feinsum.sql_utils.retrieve`
+    to denote no tuning facts found in the database.
+    """
