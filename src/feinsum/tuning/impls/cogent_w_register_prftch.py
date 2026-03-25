@@ -590,7 +590,7 @@ def transform(
         )
     logger.info("Done with join inames.")
 
-    t_unit = lp.prioritize_loops(
+    return lp.prioritize_loops(
         t_unit,
         [
             redn_iname if t_redn == 1 else outer_iname
@@ -599,7 +599,6 @@ def transform(
             )
         ],
     )
-    return t_unit
 
 
 if __name__ == "__main__":

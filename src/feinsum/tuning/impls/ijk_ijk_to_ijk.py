@@ -34,9 +34,7 @@ def transform(
     )
     j, k = subst_map["j"], subst_map["k"]
     t_unit = lp.split_iname(t_unit, j, l_1_size, inner_tag="l.1", outer_tag="g.0")
-    t_unit = lp.split_iname(t_unit, k, l_0_size, inner_tag="l.0", outer_tag="unr")
-
-    return t_unit
+    return lp.split_iname(t_unit, k, l_0_size, inner_tag="l.0", outer_tag="unr")
 
 
 if __name__ == "__main__":

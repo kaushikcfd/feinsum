@@ -61,7 +61,6 @@ class EinsumGraphNode(abc.ABC):
         """
         Label used for graphviz visualization.
         """
-        pass
 
 
 @dataclass(frozen=True)

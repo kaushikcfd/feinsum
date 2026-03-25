@@ -30,11 +30,9 @@ def transform_div(t_unit, insn_match=None, kernel_name=None):
     t_unit = lp.split_iname(
         t_unit, subst_map["e"], 8, outer_tag="g.0", inner_tag="l.1"
     )
-    t_unit = lp.split_iname(
+    return lp.split_iname(
         t_unit, subst_map["i"], 4, inner_tag="l.0", outer_tag="ilp"
     )
-
-    return t_unit
 
 
 def transform_grad(t_unit, insn_match=None, kernel_name=None):
@@ -261,7 +259,7 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
         new_inames=["i_outer_hoist_init", f"{r_prcmpt}_init"],
     )
 
-    t_unit = lp.duplicate_inames(
+    return lp.duplicate_inames(
         t_unit,
         ["i_outer_hoist", r_prcmpt],
         within="id:insn_hoist",
@@ -269,8 +267,6 @@ def transform_grad(t_unit, insn_match=None, kernel_name=None):
     )
 
     # }}}
-
-    return t_unit
 
 
 def transform_face_mass(t_unit, insn_match=None, kernel_name=None):

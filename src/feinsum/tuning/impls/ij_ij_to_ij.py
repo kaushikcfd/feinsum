@@ -32,9 +32,7 @@ def transform(
     )
     i, j = subst_map["i"], subst_map["j"]
     t_unit = lp.split_iname(t_unit, i, l_1_size, inner_tag="l.1", outer_tag="g.0")
-    t_unit = lp.split_iname(t_unit, j, l_0_size, inner_tag="l.0", outer_tag="unr")
-
-    return t_unit
+    return lp.split_iname(t_unit, j, l_0_size, inner_tag="l.0", outer_tag="unr")
 
 
 if __name__ == "__main__":

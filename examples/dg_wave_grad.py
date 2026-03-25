@@ -85,10 +85,9 @@ def variant_1(t_unit, nwork_items_per_cell=4, ncells_per_workgroup=8):
         temporary_name="J_prftch",
     )
 
-    t_unit = lp.tag_inames(
+    return lp.tag_inames(
         t_unit, {e + "_outer": "g.0", e + "_inner": "l.1", i + "_inner": "l.0"}
     )
-    return t_unit
 
 
 def variant_2(t_unit, nwork_items_per_cell=4, ncells_per_workgroup=8):
@@ -111,14 +110,13 @@ def variant_2(t_unit, nwork_items_per_cell=4, ncells_per_workgroup=8):
     t_unit = lp.split_iname(
         t_unit, "iRprftch", nwork_items_per_cell * ncells_per_workgroup
     )
-    t_unit = lp.split_iname(
+    return lp.split_iname(
         t_unit,
         "iRprftch_inner",
         nwork_items_per_cell,
         inner_tag="l.0",
         outer_tag="l.1",
     )
-    return t_unit
 
 
 def variant_3(t_unit):
@@ -407,9 +405,7 @@ def paranumal_transform(t_unit, insn_match=None, kernel_name=None):
         temporary_address_space=lp.AddressSpace.PRIVATE,
         default_tag="unr",
     )
-    t_unit = lp.tag_inames(t_unit, {r: "unr", j: "unr", x: "unr"})
-
-    return t_unit
+    return lp.tag_inames(t_unit, {r: "unr", j: "unr", x: "unr"})
 
 
 def main():
