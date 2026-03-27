@@ -300,7 +300,7 @@ def _get_giga_ops_from_einsum(
     op_map = lp.get_op_map(t_unit, subgroup_size=1)
     new_op_map: dict[np.dtype[Any], prim.Expression] = {}
 
-    for dtype in {op.dtype.numpy_dtype for op in op_map}:
+    for dtype in {op.dtype.numpy_dtype for op in op_map.keys()}:  # noqa: SIM118
         if dtype.kind == "c":
             c_ops = {
                 op_type: op_map.filter_by(
