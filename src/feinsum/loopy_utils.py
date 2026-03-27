@@ -678,7 +678,7 @@ def hoist_invariant_multiplicative_terms_in_sum_reduction(
 
     term_hoister = EinsumTermsHoister(reduction_inames)
 
-    return map_instructions(  # type: ignore[no-untyped-call]
+    return map_instructions(  # type: ignore[no-untyped-call,no-any-return]
         kernel,
         insn_match=within,
         f=lambda x: x.with_transformed_expressions(term_hoister),
