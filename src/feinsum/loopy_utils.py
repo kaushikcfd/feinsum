@@ -465,6 +465,8 @@ def get_a_matched_einsum(
     )
     return beinsum, subst_map
 
+# }}}
+
 
 def match_t_unit_to_einsum(
     t_unit: lp.TranslationUnit,
@@ -711,6 +713,9 @@ class ContainsSumReduction(CombineMapper[bool, []]):
         return False
 
     def map_algebraic_leaf(self, expr: Any) -> bool:
+        return False
+
+    def map_constant(self, expr: Any) -> bool:
         return False
 
 
