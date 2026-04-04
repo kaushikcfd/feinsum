@@ -65,9 +65,8 @@ def _get_reduction_expression_with_inames(
 #     for  (int r=0; r < 3; r++)
 #       Jprcmpt[x][r] =  J[x][r][e];
 #
-#   for (int i_tile=0; i_tile < i_tiles; i_tile++) {
+#   for (int i_tile=0; i_tile < i_tiles; i_tile++)
 #     div_u_acc[i_tile] = 0;
-#   }
 #
 #   for (int j_tile = 0; j_tile < j_tiles; j_tile++) {
 #     double acc_r[3] = 0;
@@ -78,9 +77,9 @@ def _get_reduction_expression_with_inames(
 #       tmp_Ju[r][lid(1)][lid(0)] = acc_r[r];
 #     for (int i_tile = 0; i_tile < i_tiles; i_tile++) {
 #       for (int r = 0; r < 3; r++) {
-#         // Precompute Dprcmpt[:,:] <- D[0:3,
-#         //                                i_tile*i_tile_len:(i_tile+1)*i_tile_len,
-#         //                                j_tile*j_tile_len:(j_tile+1)*j_tile_len]
+#         // Precompute Dprcmpt[:,:] <- D[3,
+#         //                              i_tile*i_tile_len:(i_tile+1)*i_tile_len,
+#         //                              j_tile*j_tile_len:(j_tile+1)*j_tile_len]
 #         // Dprcmpt is a local variable.
 #         // If `prcmpt_slices_of_D` is False, move this out "r" loop ->
 #         // increase size of Dprcmpt.
@@ -94,9 +93,8 @@ def _get_reduction_expression_with_inames(
 #     }
 #   }
 #
-#   for (int i_tile=0; i_tile < i_tiles; i_tile++) {
+#   for (int i_tile=0; i_tile < i_tiles; i_tile++)
 #     div_u[e][i_tile*i_tile_len + lid(0)] = div_u_acc[i_tile];
-#   }
 # }
 
 
@@ -125,13 +123,21 @@ def transform(
 ) -> lp.TranslationUnit:
     n_e_per_wg = 2**n_e_per_wg_log2
 
-    if n_e_per_wg * math.ceil((ndof) / i_tiles) > 600:
+    if n_e_per_wg * math.ceil(ndof / i_tiles) > 600:
         raise fnsm.InvalidParameterError("Block dimension limit exceeded")
 
-    if (
-        (ndim * math.ceil((ndof) / i_tiles) * math.ceil(ndof / j_tiles))
-        + ndim * math.ceil(ndof / j_tiles) * n_e_per_wg
-    ) * 8e-3 > 47:
+    i_tile_len = math.ceil(ndof / i_tiles)
+    j_tile_len = math.ceil(ndof / j_tiles)
+
+    # D shape in local memory: [i_tile_len][j_tile_len] per r (if slices) else
+    # [ndim][i_tile_len][j_tile_len]; Ju shape: [ndim][n_e_per_wg][j_tile_len]
+    d_local_elems = (
+        i_tile_len * j_tile_len
+        if precompute_slices_of_D
+        else ndim * i_tile_len * j_tile_len
+    )
+    ju_local_elems = ndim * n_e_per_wg * j_tile_len
+    if (d_local_elems + ju_local_elems) * 8e-3 > 47:
         raise fnsm.InvalidParameterError("Shared memory limit exceeded")
 
     kernel_name = kernel_name or t_unit.default_entrypoint.name
@@ -157,7 +163,6 @@ def transform(
     )
     i = sigma["i"]
     j = sigma["j"]
-    u = sigma["u"]
     e = sigma["e"]
     D = sigma["D"]
     r = sigma["r"]
@@ -167,16 +172,20 @@ def transform(
 
     i_tile_iname = vng(f"{i}_tile")
     i_inner_iname = vng(f"{i}_inner")
-    i_tile_len = math.ceil(ndof / i_tiles)
 
     j_tile_iname = vng(f"{j}_tile")
     j_inner_iname = vng(f"{j}_inner")
-    j_tile_len = math.ceil(ndof / j_tiles)
 
-    # names for u-prefetch inames (x, e, j)
-    uprcmpt_x = vng("uprcmpt_x")
-    uprcmpt_e = vng("uprcmpt_e")
-    uprcmpt_j = vng("uprcmpt_j")
+    # names for Ju-prefetch inames (r, e, j)
+    juprcmpt_r = vng("juprcmpt_r")
+    juprcmpt_e = vng("juprcmpt_e")
+    juprcmpt_j = vng("juprcmpt_j")
+    ju_tmp_name = vng("_tmp_Ju")
+
+    # names for J private precompute inames
+    J_fetch_id = ing("J_fetch_id")
+    jprcmpt_x = vng("Jprcmpt_x")
+    jprcmpt_r = vng("Jprcmpt_r")
 
     # names for D-prefetch inames
     rprftch_D = vng("rprftchD")
@@ -185,13 +194,9 @@ def transform(
     D_fetch = vng(f"{D}_fetch")
     D_fetch_id = ing("D_fetch_id")
 
-    # names for Du substitution and its private precompute
-    du_subst_name = vng("_subst_Du")
-    du_tmp_name = vng("_tmp_Du")
-    prcmpt_x = vng("_prcmpt_x_Du")
-    prcmpt_r = vng("_prcmpt_r_Du")
-    prcmpt_itile = vng("_prcmpt_itile_Du")
-    prcmpt_Du_id = ing("_compute_Du")
+    # name for Ju substitution rule
+    ju_subst_name = vng("_subst_Ju")
+    ju_tmp_insn_id = vng("_tmp_Ju_id")
 
     # Instructions matching `within`
     (matched_insn_id,) = tuple(
@@ -202,22 +207,43 @@ def transform(
 
     # }}}
 
-    # {{{ Step 1: Split {x, r} outward and hoist J[x,r,e] out of the j-reduction
+    # {{{ Step 0: Precompute J[x,r,e] in PRIVATE memory (Jprcmpt[x][r])
     #
-    # Transforms: sum_{x,r,j} J[x,r,e]*D[r,i,j]*u[x,e,j]
-    #          -> sum_{x,r} J[x,r,e] * (sum_j D[r,i,j]*u[x,e,j])
+    # Must happen before extracting Ju_subst (while J is still directly in the
+    # main instruction and `r` is still the original iname).  Using e (unsplit)
+    # as the sole outer iname places the load outside both j_tile and all
+    # reduction loops — i.e. once per element, as in the pseudocode comment.
 
-    t_unit = lp.split_reduction_outward(t_unit, frozenset({x, r}), within=within)
+    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
+        t_unit,
+        J,
+        sweep_inames=[x, r],
+        precompute_inames=[jprcmpt_x, jprcmpt_r],
+        precompute_outer_inames=frozenset({e}),
+        temporary_address_space=lp.AddressSpace.PRIVATE,
+        default_tag="unr",
+        within=within,
+        compute_insn_id=J_fetch_id,
+    )
+
+    # }}}
+
+    # {{{ Step 1: Split x inward and hoist D[r,i,j] (invariant in x) out
+    #
+    # Transforms: sum_{x,r,j} Jprcmpt[x][r]*D[r,i,j]*u[x,e,j]
+    #          -> sum_{r,j} D[r,i,j] * (sum_x Jprcmpt[x][r]*u[x,e,j])
+
+    t_unit = lp.split_reduction_inward(t_unit, x, within=within)
     knl = t_unit[kernel_name]
     knl = lp_utils.hoist_invariant_multiplicative_terms_in_sum_reduction(
-        knl, j, within=within
+        knl, x, within=within
     )
     t_unit = t_unit.with_kernel(knl)
     del knl
 
     # }}}
 
-    # {{{ Step 2: Extract Du(x, r, e, i) = sum_j D[r,i,j]*u[x,e,j] as a subst rule
+    # {{{ Step 2: Extract Ju(r, e, j) = sum_x Jprcmpt[x][r]*u[x,e,j] as a subst rule
 
     template = _get_reduction_expression_with_inames(
         next(
@@ -225,15 +251,15 @@ def transform(
             for insn in t_unit[kernel_name].instructions
             if lp_match.Writes(sigma["_fe_out"])(t_unit[kernel_name], insn)
         ),
-        frozenset({j}),
+        frozenset({x}),
     )
     t_unit = cast(
         "lp.TranslationUnit",
         lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
             t_unit,
             template=template,
-            subst_name=du_subst_name,
-            parameters=(x, r, e, i),
+            subst_name=ju_subst_name,
+            parameters=(r, e, j),
             within=within,
         ),
     )
@@ -251,7 +277,7 @@ def transform(
         inner_iname=e_inner,
         outer_iname=e_outer,
         within=within,
-        # slabs=(0, 1),
+        slabs=(0, 1)
     )
 
     t_unit = lp.split_iname(
@@ -262,6 +288,7 @@ def transform(
         inner_iname=i_inner_iname,
         within=within,
         inner_tag="l.0",
+        outer_tag="unr",
     )
 
     t_unit = lp.split_iname(
@@ -275,32 +302,79 @@ def transform(
 
     # }}}
 
-    # {{{ Step 4: Precompute u in LOCAL memory
+    # {{{ Step 4: Precompute Ju = sum_x J[x,r,e]*u[x,e,j] in LOCAL memory
     #
-    # u_local[x, e_inner, j_inner] is loaded collaboratively per (e_outer, j_tile).
+    # tmp_Ju[r, e_inner, j_inner] loaded collaboratively per (e_outer, j_tile).
+    # Shape: [ndim, n_e_per_wg, j_tile_len]
 
     t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
-        u,
-        sweep_inames=[x, e_inner, j_inner_iname],
-        precompute_inames=[uprcmpt_x, uprcmpt_e, uprcmpt_j],
+        ju_subst_name,
+        sweep_inames=[r, e_inner, j_inner_iname],
+        precompute_inames=[juprcmpt_r, juprcmpt_e, juprcmpt_j],
         precompute_outer_inames=frozenset({e_outer, j_tile_iname}),
         temporary_address_space=lp.AddressSpace.LOCAL,
+        temporary_name=ju_tmp_name,
         within=within,
+        compute_insn_id=ju_tmp_insn_id,
         default_tag=None,
     )
-    t_unit = lp.tag_inames(t_unit, {uprcmpt_e: "l.1"})
+    t_unit = lp.tag_inames(t_unit, {juprcmpt_r: "unr", juprcmpt_e: "l.1"})
     if j_tile_len == i_tile_len:
-        t_unit = lp.tag_inames(t_unit, {uprcmpt_j: "l.0"})
+        t_unit = lp.tag_inames(t_unit, {juprcmpt_j: "l.0"})
     else:
-        t_unit = lp.split_iname(t_unit, uprcmpt_j, i_tile_len, inner_tag="l.0")
+        t_unit = lp.split_iname(t_unit, juprcmpt_j, i_tile_len, inner_tag="l.0")
 
     # }}}
 
-    # {{{ Step 5: Precompute D in LOCAL memory
+    # {{{ Step 5: relalize reduction on ju_tmp_id
+
+    t_unit = lp.realize_reduction(t_unit, insn_id_filter=ju_tmp_insn_id)
+
+    (acc_x,) = (
+        t_unit[kernel_name].id_to_insn[ju_tmp_insn_id].read_dependency_names()
+        - t_unit[kernel_name].all_inames()
+    )
+    t_unit = lp.privatize_temporaries_with_inames(
+        t_unit, juprcmpt_r, only_var_names=frozenset({acc_x})
+    )
+
+    (acc_x_init_id,) = [
+        insn.id
+        for insn in t_unit[kernel_name].instructions
+        if (
+            acc_x in insn.write_dependency_names()
+            and acc_x not in insn.read_dependency_names()
+        )
+    ]
+    (acc_x_assign_id,) = [
+        insn.id
+        for insn in t_unit[kernel_name].instructions
+        if (
+            acc_x in insn.read_dependency_names()
+            and acc_x not in insn.write_dependency_names()
+        )
+    ]
+
+    t_unit = lp.duplicate_inames(
+        t_unit,
+        juprcmpt_r,
+        within=lp_match.Id(acc_x_init_id),
+        tags={juprcmpt_r: "unr"},
+    )
+    t_unit = lp.duplicate_inames(
+        t_unit,
+        juprcmpt_r,
+        within=lp_match.Id(acc_x_assign_id),
+        tags={juprcmpt_r: "unr"},
+    )
+
+    # }}}
+
+    # {{{ Step 6: Precompute D in LOCAL memory
     #
-    # D_local[r, i_inner, j_inner] is loaded collaboratively per
-    # (e_outer, i_tile, j_tile), reproducing Dprcmpt from the kernel comment.
+    # Dprcmpt[i_inner, j_inner] per (r, e_outer, i_tile, j_tile) when slicing,
+    # or Dprcmpt[r, i_inner, j_inner] per (e_outer, i_tile, j_tile) otherwise.
 
     t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
@@ -311,7 +385,9 @@ def transform(
         precompute_inames=[None, iprftch_D, jprftch_D]
         if precompute_slices_of_D
         else [rprftch_D, iprftch_D, jprftch_D],
-        precompute_outer_inames=frozenset({r, e_outer, i_tile_iname, j_tile_iname}),
+        precompute_outer_inames=frozenset({r, e_outer, i_tile_iname, j_tile_iname})
+        if precompute_slices_of_D
+        else frozenset({e_outer, i_tile_iname, j_tile_iname}),
         temporary_address_space=lp.AddressSpace.LOCAL,
         temporary_name=D_fetch,
         compute_insn_id=D_fetch_id,
@@ -319,93 +395,13 @@ def transform(
         within=within,
     )
     t_unit = lp.tag_inames(t_unit, {iprftch_D: "l.0"})
+    if not precompute_slices_of_D:
+        t_unit = lp.tag_inames(t_unit, {rprftch_D: "unr"})
     t_unit = lp.split_iname(t_unit, jprftch_D, n_e_per_wg, inner_tag="l.1")
 
     # }}}
 
-    # {{{ Step 6: Precompute Du = sum_{x,r,j_tile,j_inner} D*u in PRIVATE memory
-    #
-    # Du_tmp[x, r] is computed per (e_outer, e_inner, i_tile, i_inner), after
-    # privatize this becomes Du[x, r, i_tile], reproducing du_acc[x][r][i_tile].
-
-    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
-        t_unit,
-        du_subst_name,
-        sweep_inames=[x, r],
-        precompute_inames=[prcmpt_x, prcmpt_r],
-        precompute_outer_inames=frozenset({
-            e_outer,
-            e_inner,
-            i_tile_iname,
-            i_inner_iname,
-        }),
-        temporary_address_space=lp.AddressSpace.PRIVATE,
-        compute_insn_id=prcmpt_Du_id,
-        default_tag=None,
-        temporary_name=du_tmp_name,
-        within=within,
-    )
-    t_unit = lp.privatize_temporaries_with_inames(t_unit, i_tile_iname, du_tmp_name)
-    t_unit = lp.duplicate_inames(
-        t_unit,
-        i_tile_iname,
-        lp_match.Or((lp_match.Id(prcmpt_Du_id), lp_match.Id(D_fetch_id))),
-        prcmpt_itile,
-    )
-    # t_unit = lp.tag_inames(t_unit, {prcmpt_itile: "unr"})
-
-    # }}}
-
-    # {{{ Step 7: Realize reduction + privatize Du accumulator over (x, r, i_tile)
-
-    t_unit = lp.realize_reduction(t_unit, insn_id_filter=prcmpt_Du_id)
-
-    (acc_name,) = (
-        t_unit[kernel_name].id_to_insn[prcmpt_Du_id].read_dependency_names()
-        - t_unit[kernel_name].all_inames()
-    )
-
-    inames_to_dup = (
-        frozenset({prcmpt_x, prcmpt_r, prcmpt_itile})
-        & t_unit[kernel_name].all_inames()
-    )
-    t_unit = lp.privatize_temporaries_with_inames(
-        t_unit, inames_to_dup, only_var_names=frozenset({acc_name})
-    )
-
-    (acc_init_id,) = [
-        insn.id
-        for insn in t_unit[kernel_name].instructions
-        if (
-            acc_name in insn.write_dependency_names()
-            and acc_name not in insn.read_dependency_names()
-        )
-    ]
-    (acc_assign_id,) = [
-        insn.id
-        for insn in t_unit[kernel_name].instructions
-        if (
-            acc_name in insn.read_dependency_names()
-            and acc_name not in insn.write_dependency_names()
-        )
-    ]
-
-    t_unit = lp.duplicate_inames(
-        t_unit,
-        inames_to_dup,
-        within=lp_match.Id(acc_init_id),
-        # tags={prcmpt_x: "unr", prcmpt_r: "unr", prcmpt_itile: "unr"},
-    )
-    t_unit = lp.duplicate_inames(
-        t_unit,
-        inames_to_dup,
-        within=lp_match.Id(acc_assign_id),
-        # tags={prcmpt_x: "unr", prcmpt_r: "unr", prcmpt_itile: "unr"},
-    )
-
-    # }}}
-
-    # {{{ Step 8: Realize outer reduction over {x, r} + privatize acc over i_tile
+    # {{{ Step 7: Realize reduction over {r, j_inner} + privatize acc over i_tile
 
     t_unit = lp.realize_reduction(
         t_unit,
@@ -440,35 +436,25 @@ def transform(
         t_unit,
         i_tile_iname,
         within=lp_match.Id(out_acc_init_id),
-        # tags={i_tile_iname: "unr"},
+        tags={i_tile_iname: "unr"}
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         i_tile_iname,
         within=lp_match.Id(out_acc_assign_id),
-        # tags={i_tile_iname: "unr"},
-    )
-    # t_unit = lp.tag_inames(t_unit, {r: "unr", x: "unr"})
-
-    # }}}
-
-    # {{{ Step 9: Precompute J[x,r,e] in PRIVATE memory
-
-    t_unit = lp.precompute(  # type: ignore[no-untyped-call]
-        t_unit,
-        J,
-        sweep_inames=[],
-        precompute_outer_inames=frozenset({x, r, i_inner_iname, e_inner, e_outer}),
-        temporary_address_space=lp.AddressSpace.PRIVATE,
-        default_tag=None,
-        within=within,
+        tags={i_tile_iname: "unr"}
     )
 
     # }}}
 
-    t_unit = lp.prioritize_loops(t_unit, (prcmpt_r, prcmpt_itile))
-    t_unit = lp.prioritize_loops(t_unit, (r, i_tile_iname))
-    t_unit = lp.prioritize_loops(t_unit, (j_inner_iname, prcmpt_x))
+    t_unit = lp.add_inames_to_insn(t_unit, i_inner_iname, lp_match.Id(J_fetch_id))
+
+    # x outer, r inner for both the J prefetch and the Ju update, matching the
+    # pseudocode loop order (u[x][e][j] is fetched once per x across all r).
+    t_unit = lp.prioritize_loops(t_unit, (jprcmpt_x, jprcmpt_r))
+    t_unit = lp.prioritize_loops(t_unit, (x, juprcmpt_r))
+
+    t_unit = lp.tag_inames(t_unit, {r: "unr", x: "unr"})
 
     return t_unit
 
@@ -489,8 +475,7 @@ if __name__ == "__main__":
     )
     t_unit = transform(
         t_unit, ndim=3, ndof=20, n_e_per_wg_log2=2, i_tiles=2, j_tiles=2,
-        precompute_slices_of_D=True,
+        precompute_slices_of_D=False,
     )
-    print(lp.generate_code_v2(t_unit).device_code())
 
 # vim: fdm=marker
