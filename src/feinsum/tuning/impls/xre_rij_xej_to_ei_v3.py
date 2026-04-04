@@ -1,5 +1,5 @@
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from typing import Any, cast
 
 import loopy as lp
@@ -8,7 +8,7 @@ from pymbolic.typing import Expression
 
 import feinsum as fnsm
 from feinsum import loopy_utils as lp_utils
-from feinsum.tuning import IntParameter
+from feinsum.tuning import BoolParameter, IntParameter
 
 
 def _fset_union(fsets: Iterable[frozenset[str]]) -> frozenset[str]:
@@ -21,11 +21,6 @@ def fe_out(i: int) -> str:
     if i == 0:
         return "_fe_out"
     return f"_fe_out_{i - 1}"
-
-
-def _get_3d_arg(args: Sequence[fnsm.Array]) -> fnsm.Array:
-    (arg,) = [arg for arg in args if arg.ndim == 3]
-    return arg
 
 
 def _get_reduction_expression_with_inames(
@@ -61,48 +56,41 @@ def _get_reduction_expression_with_inames(
 #                 double div_u[N][20]) {
 #
 #   int e = ne_per_wg * gid(0) + lid(1);
-#   double du_acc[3][3][i_tiles];
 #   double div_u_acc[i_tiles];
-#   double uprcmpt[3][ne_per_wg][j_tile_len]; // local var.
+#   double Jprcmpt[3][3];
+#   double tmp_Ju[3][ne_per_wg][j_tile_len]; // local var.
 #   double Dprcmpt[i_tile_len][j_tile_len]; // local var.
 #
-#   for (int i_tile=0; i_tile < i_tiles; i_tile++) {
-#     for  (int x=0; x < 3; x++)
-#       for  (int r=0; r < 3; r++)
-#         du_acc[x][r][i_tile] =  0;
-#   }
+#   for  (int x=0; x < 3; x++)
+#     for  (int r=0; r < 3; r++)
+#       Jprcmpt[x][r] =  J[x][r][e];
 #
 #   for (int i_tile=0; i_tile < i_tiles; i_tile++) {
 #     div_u_acc[i_tile] = 0;
 #   }
 #
 #   for (int j_tile = 0; j_tile < j_tiles; j_tile++) {
-#     // Precompute uprcmpt[:,:,:] <- u[0:3,
-#     //                                ne_per_wg*gid(0):ne_per_wg*gid(0)+ne_per_wg,
-#     //                                j_tile*j_tile_len:(j_tile+1)*j_tile_len]
-#     // uprcmpt is a local variable
+#     double acc_r[3] = 0;
+#     for (int x = 0; x < 3; x++)
+#       for (int r = 0; r < 3; r++)
+#         acc_r[r] += u[x][e][j_tile*j_tile_len+lid(0)];
+#     for (int r = 0; r < 3; r++)
+#       tmp_Ju[r][lid(1)][lid(0)] = acc_r[r];
 #     for (int i_tile = 0; i_tile < i_tiles; i_tile++) {
 #       for (int r = 0; r < 3; r++) {
-#         // Precompute Dprcmpt[:,:] <- D[r,
-#         //                              i_tile*i_tile_len:(i_tile+1)*i_tile_len,
-#         //                              j_tile*j_tile_len:(j_tile+1)*j_tile_len]
+#         // Precompute Dprcmpt[:,:] <- D[0:3,
+#         //                                i_tile*i_tile_len:(i_tile+1)*i_tile_len,
+#         //                                j_tile*j_tile_len:(j_tile+1)*j_tile_len]
 #         // Dprcmpt is a local variable.
+#         // If `prcmpt_slices_of_D` is False, move this out "r" loop ->
+#         // increase size of Dprcmpt.
 #
 #         for (int j = 0; j < j_tile_len; j++)
-#           for (int x = 0; x < 3; x++)
-#             du_acc[x][r][i_tile] += (
-#                   Dprcmpt[i_tile*i_tile_len + lid(0)][j_tile*j_tile_len+j]
-#                   * uprcmpt[x][lid(1)][j]
-#             );
+#           div_u_acc[i_tile] += (
+#                 Dprcmpt[i_tile*i_tile_len + lid(0)][j_tile*j_tile_len+j]
+#                 * uprcmpt[r][lid(1)][j]
+#           );
 #       }
-#     }
-#   }
-#
-#   for (int x=0; x < 3; x++) {
-#     for (int r=0; r < 3; r++) {
-#       double Jprcmpt = J[x][r][e];
-#       for (int i_tile=0; i_tile < i_tiles; i_tile++)
-#         div_u_acc[i_tile] += Jprcmpt*du_acc[x][r][i_tile];
 #     }
 #   }
 #
@@ -121,6 +109,9 @@ def _get_reduction_expression_with_inames(
 @fnsm.tuning.transform_param(
     "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2))
 )
+@fnsm.tuning.transform_param(
+    "precompute_slices_of_D", lambda e: BoolParameter()
+)
 def transform(
     t_unit: lp.TranslationUnit,
     ndim: int,
@@ -128,6 +119,7 @@ def transform(
     n_e_per_wg_log2: int,
     i_tiles: int,
     j_tiles: int,
+    precompute_slices_of_D: bool,  # noqa: N803
     insn_match: Any | None = None,
     kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
@@ -187,6 +179,7 @@ def transform(
     uprcmpt_j = vng("uprcmpt_j")
 
     # names for D-prefetch inames
+    rprftch_D = vng("rprftchD")
     iprftch_D = vng("iprftchD")
     jprftch_D = vng("jprftchD")
     D_fetch = vng(f"{D}_fetch")
@@ -258,7 +251,7 @@ def transform(
         inner_iname=e_inner,
         outer_iname=e_outer,
         within=within,
-        slabs=(0, 1),
+        # slabs=(0, 1),
     )
 
     t_unit = lp.split_iname(
@@ -269,7 +262,6 @@ def transform(
         inner_iname=i_inner_iname,
         within=within,
         inner_tag="l.0",
-        outer_tag="unr",
     )
 
     t_unit = lp.split_iname(
@@ -313,8 +305,12 @@ def transform(
     t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         D,
-        sweep_inames=[i_inner_iname, j_inner_iname],
-        precompute_inames=[None, iprftch_D, jprftch_D],
+        sweep_inames=[i_inner_iname, j_inner_iname]
+        if precompute_slices_of_D
+        else [r, i_inner_iname, j_inner_iname],
+        precompute_inames=[None, iprftch_D, jprftch_D]
+        if precompute_slices_of_D
+        else [rprftch_D, iprftch_D, jprftch_D],
         precompute_outer_inames=frozenset({r, e_outer, i_tile_iname, j_tile_iname}),
         temporary_address_space=lp.AddressSpace.LOCAL,
         temporary_name=D_fetch,
@@ -345,7 +341,7 @@ def transform(
         }),
         temporary_address_space=lp.AddressSpace.PRIVATE,
         compute_insn_id=prcmpt_Du_id,
-        default_tag="unr",
+        default_tag=None,
         temporary_name=du_tmp_name,
         within=within,
     )
@@ -356,7 +352,7 @@ def transform(
         lp_match.Or((lp_match.Id(prcmpt_Du_id), lp_match.Id(D_fetch_id))),
         prcmpt_itile,
     )
-    t_unit = lp.tag_inames(t_unit, {prcmpt_itile: "unr"})
+    # t_unit = lp.tag_inames(t_unit, {prcmpt_itile: "unr"})
 
     # }}}
 
@@ -398,13 +394,13 @@ def transform(
         t_unit,
         inames_to_dup,
         within=lp_match.Id(acc_init_id),
-        tags={prcmpt_x: "unr", prcmpt_r: "unr", prcmpt_itile: "unr"},
+        # tags={prcmpt_x: "unr", prcmpt_r: "unr", prcmpt_itile: "unr"},
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         inames_to_dup,
         within=lp_match.Id(acc_assign_id),
-        tags={prcmpt_x: "unr", prcmpt_r: "unr", prcmpt_itile: "unr"},
+        # tags={prcmpt_x: "unr", prcmpt_r: "unr", prcmpt_itile: "unr"},
     )
 
     # }}}
@@ -444,15 +440,15 @@ def transform(
         t_unit,
         i_tile_iname,
         within=lp_match.Id(out_acc_init_id),
-        tags={i_tile_iname: "unr"},
+        # tags={i_tile_iname: "unr"},
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         i_tile_iname,
         within=lp_match.Id(out_acc_assign_id),
-        tags={i_tile_iname: "unr"},
+        # tags={i_tile_iname: "unr"},
     )
-    t_unit = lp.tag_inames(t_unit, {r: "unr", x: "unr"})
+    # t_unit = lp.tag_inames(t_unit, {r: "unr", x: "unr"})
 
     # }}}
 
@@ -492,7 +488,9 @@ if __name__ == "__main__":
         lang_version=(2018, 2),
     )
     t_unit = transform(
-        t_unit, ndim=3, ndof=20, n_e_per_wg_log2=2, i_tiles=2, j_tiles=2
+        t_unit, ndim=3, ndof=20, n_e_per_wg_log2=2, i_tiles=2, j_tiles=2,
+        precompute_slices_of_D=True,
     )
+    print(lp.generate_code_v2(t_unit).device_code())
 
 # vim: fdm=marker
