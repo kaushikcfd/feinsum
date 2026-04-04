@@ -1,5 +1,5 @@
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any, cast
 
 import loopy as lp
@@ -21,6 +21,11 @@ def fe_out(i: int) -> str:
     if i == 0:
         return "_fe_out"
     return f"_fe_out_{i - 1}"
+
+
+def _get_3d_arg(args: Sequence[fnsm.Array]) -> fnsm.Array:
+    (arg,) = [arg for arg in args if arg.ndim == 3]
+    return arg
 
 
 def _get_reduction_expression_with_inames(
@@ -98,26 +103,27 @@ def _get_reduction_expression_with_inames(
 #   }
 # }
 @fnsm.tuning.einsum_arg("noutputs", lambda e: e.b)
-@fnsm.tuning.einsum_arg("ndim", lambda e: e.shape[0])
-@fnsm.tuning.einsum_arg("ndof", lambda e: e.shape[2])
-@fnsm.tuning.transform_param("n_e_per_wg", lambda e: IntParameter(2, 32))
+@fnsm.tuning.einsum_arg("ndim", lambda e: _get_3d_arg(e.args[0]).shape[0])
+@fnsm.tuning.einsum_arg("ndof", lambda e: e.shape[1])
+@fnsm.tuning.transform_param("n_e_per_wg_log2", lambda e: IntParameter(1, 5))
 @fnsm.tuning.transform_param(
-    "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2))
+    "j_tiles", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2))
 )
 @fnsm.tuning.transform_param(
-    "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[2] / 2))
+    "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2))
 )
 def transform(
     t_unit: lp.TranslationUnit,
     noutputs: int,
     ndim: int,
     ndof: int,
-    n_e_per_wg: int,
+    n_e_per_wg_log2: int,
     i_tiles: int,
     j_tiles: int,
     insn_match: Any | None = None,
     kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
+    n_e_per_wg = 2**n_e_per_wg_log2
 
     if n_e_per_wg * math.ceil((ndof) / i_tiles) > 600:
         raise fnsm.InvalidParameterError("Block dimension limit exceeded")
@@ -251,7 +257,7 @@ def transform(
         inner_iname=e_inner,
         outer_iname=e_outer,
         within=within,
-        # slabs=(0, 1),
+        slabs=(0, 1),
     )
 
     t_unit = lp.split_iname(
