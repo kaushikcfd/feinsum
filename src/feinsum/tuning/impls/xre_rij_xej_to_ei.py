@@ -34,7 +34,7 @@ def transform(
     insn_match: Any | None = None,
     kernel_name: str | None = None,
 ) -> lp.TranslationUnit:
-    from loopy.match import parse_match
+    from loopy.match import Id, parse_match
 
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
@@ -42,6 +42,7 @@ def transform(
     knl = t_unit[kernel_name]
     (insn_id,) = [insn.id for insn in knl.instructions if within(knl, insn)]
     del knl
+    within = Id(insn_id)
 
     ref_einsum = fnsm.einsum(
         "xre,rij,xej->ei",
@@ -55,7 +56,8 @@ def transform(
     vng = t_unit.default_entrypoint.get_var_name_generator()
     ing = t_unit.default_entrypoint.get_instruction_id_generator()
     subst_map = fnsm.match_t_unit_to_einsum(
-        t_unit, ref_einsum, insn_match=insn_match, kernel_name=kernel_name
+        t_unit, ref_einsum, insn_match=insn_match, kernel_name=kernel_name,
+        long_dim_length=36
     )
     i = subst_map["i"]
     j = subst_map["j"]

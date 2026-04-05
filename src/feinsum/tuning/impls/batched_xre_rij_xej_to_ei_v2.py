@@ -58,6 +58,14 @@ def transform(
     ing = t_unit[kernel_name].get_instruction_id_generator()
     e_inner_iname = vng(e_iname + "_inner")
     e_outer_iname = vng(e_iname + "_outer")
+    within = lp_match.parse_match(insn_match)
+    within = lp_match.Or(
+        tuple(
+            lp_match.Id(insn.id)
+            for insn in t_unit[kernel_name].instructions
+            if within(t_unit[kernel_name], insn)
+        )
+    )
 
     # work groups of 4 elements (matching p_NblockV=4)
     t_unit = lp.split_iname(
@@ -68,7 +76,7 @@ def transform(
         inner_tag="l.1",
         inner_iname=e_inner_iname,
         outer_iname=e_outer_iname,
-        within=insn_match,
+        within=within,
         slabs=(0, 1),
     )
 
@@ -87,7 +95,7 @@ def transform(
         sweep_inames=[x_iname, e_inner_iname, j_iname],
         precompute_inames=[iprcmpt_x, iprcmpt_e, iprcmpt_j],
         temporary_address_space=lp.AddressSpace.LOCAL,
-        within=insn_match,
+        within=within,
     )
     t_unit = lp.tag_inames(
         t_unit, {iprcmpt_x: "unr", iprcmpt_e: "l.1", iprcmpt_j: "l.0"}
@@ -95,17 +103,17 @@ def transform(
 
     # Extract terms corresponding to "D * u" into a subst.
     t_unit = lp.split_reduction_outward(
-        t_unit, {x_iname, r_iname}, within=insn_match
+        t_unit, {x_iname, r_iname}, within=within
     )
 
     knl = t_unit[kernel_name]
     knl = hoist_invariant_multiplicative_terms_in_sum_reduction(
-        knl, j_iname, within=insn_match
+        knl, j_iname, within=within
     )
     du_subst_name = vng("_tmp_Du")
     knl = extract_multiplicative_terms_in_sum_reduction_as_subst(
         knl,
-        within=insn_match,
+        within=within,
         subst_name=du_subst_name,
         arguments=[prim.Variable(x_iname), prim.Variable(r_iname)],
         terms_filter=lambda t: isinstance(t, Reduction),
@@ -125,7 +133,7 @@ def transform(
         temporary_address_space=lp.AddressSpace.PRIVATE,
         compute_insn_id=prcmpt_Du_id,
         default_tag="unr",
-        within=insn_match,
+        within=within,
     )
     t_unit = lp.realize_reduction(t_unit, insn_id_filter=prcmpt_Du_id)
     (acc_name,) = (

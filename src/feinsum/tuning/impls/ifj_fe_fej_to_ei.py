@@ -35,6 +35,13 @@ def transform_with_single_j_tile_i_tile(
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
     within = lp_match.parse_match(insn_match)
+    within = lp_match.Or(
+        tuple(
+            lp_match.Id(insn.id)
+            for insn in t_unit[kernel_name].instructions
+            if within(t_unit[kernel_name], insn)
+        )
+    )
 
     ref_einsum = fnsm.batched_einsum(
         "ifj,fe,fej->ei",
@@ -54,7 +61,8 @@ def transform_with_single_j_tile_i_tile(
     vng = t_unit[kernel_name].get_var_name_generator()
     ing = t_unit[kernel_name].get_instruction_id_generator()
     subst_map = fnsm.match_t_unit_to_einsum(
-        t_unit, ref_einsum, insn_match=insn_match, kernel_name=kernel_name
+        t_unit, ref_einsum, insn_match=insn_match, kernel_name=kernel_name,
+        long_dim_length=36
     )
     i = subst_map["i"]
     j = subst_map["j"]
@@ -323,6 +331,14 @@ def transform(
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
     within = lp_match.parse_match(insn_match)
+    within = lp_match.Or(
+        tuple(
+            lp_match.Id(insn.id)
+            for insn in t_unit[kernel_name].instructions
+            if within(t_unit[kernel_name], insn)
+        )
+    )
+
     ref_einsum = fnsm.batched_einsum(
         "ifj,fe,fej->ei",
         [
@@ -343,7 +359,8 @@ def transform(
     vng = t_unit.default_entrypoint.get_var_name_generator()
     ing = t_unit.default_entrypoint.get_instruction_id_generator()
     subst_map = fnsm.match_t_unit_to_einsum(
-        t_unit, ref_einsum, insn_match=insn_match, kernel_name=kernel_name
+        t_unit, ref_einsum, insn_match=insn_match, kernel_name=kernel_name,
+        long_dim_length=36
     )
     i = subst_map["i"]
     j = subst_map["j"]

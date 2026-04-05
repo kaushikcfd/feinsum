@@ -95,9 +95,15 @@ def transform(
         hoist_invariant_multiplicative_terms_in_sum_reduction,
     )
 
-    print(f"{dim =}, {ndof = }, {b = }.")
-
+    kernel_name = kernel_name or t_unit.default_entrypoint.name
     within = lp_match.parse_match(insn_match)
+    within = lp_match.Or(
+        tuple(
+            lp_match.Id(insn.id)
+            for insn in t_unit[kernel_name].instructions
+            if within(t_unit[kernel_name], insn)
+        )
+    )
 
     ref_einsum = fnsm.batched_einsum(
         "re,rij,ej->ei",
@@ -125,7 +131,6 @@ def transform(
     r_iname = sigma["r"]
     u_var = sigma["u"]
 
-    kernel_name = kernel_name or t_unit.default_entrypoint.name
     knl = t_unit[kernel_name]
     vng = knl.get_var_name_generator()
     ing = knl.get_instruction_id_generator()

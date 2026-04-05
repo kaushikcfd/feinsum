@@ -41,6 +41,13 @@ def transform(
     )
 
     within = lp_match.parse_match(insn_match)
+    within = lp_match.Or(
+        tuple(
+            lp_match.Id(insn.id)
+            for insn in t_unit[kernel_name].instructions
+            if within(t_unit[kernel_name], insn)
+        )
+    )
 
     ref_einsum = fnsm.batched_einsum(
         "ifj,fe,fej->ei",

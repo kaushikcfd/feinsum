@@ -136,6 +136,13 @@ def transform(
 
     kernel_name = kernel_name or t_unit.default_entrypoint.name
     within = lp_match.parse_match(insn_match)
+    within = lp_match.Or(
+        tuple(
+            lp_match.Id(insn.id)
+            for insn in t_unit[kernel_name].instructions
+            if within(t_unit[kernel_name], insn)
+        )
+    )
 
     ref_einsum = fnsm.batched_einsum(
         "re,rij,ej->ei",
@@ -154,7 +161,8 @@ def transform(
     vng = t_unit.default_entrypoint.get_var_name_generator()
     ing = t_unit.default_entrypoint.get_instruction_id_generator()
     sigma = fnsm.match_t_unit_to_einsum(
-        t_unit, ref_einsum, insn_match=within, kernel_name=kernel_name
+        t_unit, ref_einsum, insn_match=within, kernel_name=kernel_name,
+        long_dim_length=36
     )
     i = sigma["i"]
     j = sigma["j"]
@@ -488,7 +496,9 @@ def transform(
             precompute_outer_inames=frozenset((r, i_inner_iname, e_inner, e_outer)),
             temporary_address_space=lp.AddressSpace.PRIVATE,
             default_tag=None,
-            within=within,
+            within=lp_match.And(
+                (lp_match.Iname(e_outer), lp_match.Iname(e_inner), lp_match.Iname(r))
+            ),
         )
 
     # }}}
