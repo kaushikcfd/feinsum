@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     # avoid making pyopencl a hard dep.
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     import pyopencl as cl
 
@@ -249,6 +249,7 @@ def retrieve(
     cl_device: DeviceT,
     *,
     database: str = DEFAULT_DB,
+    consider_query: Callable[[QueryInfo], bool] | None = None,
 ) -> TransformT:
     """
     Return the transformation that yields highest FLOP-throughput
@@ -261,16 +262,33 @@ def retrieve(
     :param err_if_no_results: If *True*, raises a :class:`RuntimeError` if no
         recorded runs corresponding to *einsum* are available in *database*.
         Defaults to *False*.
+    :param consider_query: Callable that determines whether to consider a query
+        in the set of optimizing candidates. A query, q, is considered only if
+        ``consider_query(q)`` is True. By default, ``consider_query = lambda q:
+        True``.
     """
 
     def get_all_giga_op_rate(query_info: QueryInfo) -> float:
         return sum(
-            query_info.giga_op_rate(dtype)
-            for dtype in query_info.giga_op_info
+            query_info.giga_op_rate(dtype) for dtype in query_info.giga_op_info
+        )
+
+    if consider_query is None:
+        consider_query = lambda q: True  # noqa: E731
+
+    queries = [
+        q
+        for q in query(einsum, cl_device, database=database, err_if_no_results=True)
+        if consider_query(q)
+    ]
+    if not queries:
+        raise NoFactInDatabaseError(
+            f"No facts found for the einsum: `{einsum}`, "
+            f"with the filtering function: {consider_query!r}."
         )
 
     best_query = max(
-        query(einsum, cl_device, database=database, err_if_no_results=True),
+        queries,
         key=get_all_giga_op_rate,
     )
     return best_query.transform
