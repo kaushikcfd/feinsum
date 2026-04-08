@@ -323,44 +323,48 @@ if __name__ == "__main__":
     import pyopencl as cl
 
     Ndim = 3
-    Ndof = 4
     Nfield = 5
 
     cl_ctx = cl.create_some_context()
     cq = cl.CommandQueue(cl_ctx)
 
-    expr = fnsm.batched_einsum(
-        "xre,rij,xej->ei",
-        [
+    for Ndof in [20, 35]:
+        expr = fnsm.batched_einsum(
+            "xre,rij,xej->ei",
             [
-                fnsm.array("J", (Ndim, Ndim, "Nel")),
-                fnsm.array("D", (Ndim, Ndof, Ndof)),
-                fnsm.array(f"u{i}", (Ndim, "Nel", Ndof)),
-            ]
-            for i in range(Nfield)
-        ],
-    )
-
-    if 1:
-        fnsm.autotune(expr, os.path.abspath(__file__), cq)
-    else:
-        # Enable while debugging ->
-        # evaluate a point in the parameter space.
-        bound_transform = partial(
-            transform,
-            ndim=Ndim,
-            ndof=Ndof,
-            noutputs=Nfield,
-            n_e_per_wg_log2=4,
-            nwork_items_per_e=5,
-            i_tiles=15,
-            j_tiles=2,
+                [
+                    fnsm.array("J", (Ndim, Ndim, "Nel")),
+                    fnsm.array("D", (Ndim, Ndof, Ndof)),
+                    fnsm.array(f"u{i}", (Ndim, "Nel", Ndof)),
+                ]
+                for i in range(Nfield)
+            ],
         )
 
-        print(
-            fnsm.stringify_comparison_vs_roofline(
-                expr, transform=bound_transform, cq=cq
+        fnsm.autotune(expr, os.path.abspath(__file__), cq, test_limit=60)
+        best_config = min(
+            [
+                q
+                for q in fnsm.query(expr, cq.device, err_if_no_results=True)
+                if q.transform_id == "batched_xre_rij_xej_to_ei_v3.py"
+            ],
+            key=lambda query_info: query_info.runtime_in_sec,
+        )
+
+        from feinsum.measure import _stringify_runtime_comparison_vs_roofline
+
+        print(best_config.transform_id)
+
+        with open("log.txt", "a") as fp:
+            fp.write(f"{Ndof = }.\n")
+            fp.write("Expected perf:\n")
+            fp.write(
+                _stringify_runtime_comparison_vs_roofline(
+                    expr, best_config.runtime_in_sec, cq.device.name
+                )
             )
-        )
+            fp.write("Actual perf:\n")
+            fp.write("\n")
+
 
 # vim: fdm=marker
