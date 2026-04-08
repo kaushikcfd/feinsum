@@ -83,7 +83,11 @@ def transform(
     vng = t_unit.default_entrypoint.get_var_name_generator()
     ing = t_unit.default_entrypoint.get_instruction_id_generator()
     subst_map = fnsm.match_t_unit_to_einsum(
-        t_unit, ref_einsum, insn_match=within, kernel_name=kernel_name
+        t_unit,
+        ref_einsum,
+        insn_match=within,
+        kernel_name=kernel_name,
+        long_dim_length=36,
     )
     i = subst_map["i"]
     j = subst_map["j"]
