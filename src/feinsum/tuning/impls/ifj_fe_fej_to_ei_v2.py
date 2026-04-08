@@ -40,6 +40,8 @@ def transform(
         extract_multiplicative_terms_in_sum_reduction_as_subst,
     )
 
+    kernel_name = kernel_name or t_unit.default_entrypoint.name
+
     within = lp_match.parse_match(insn_match)
     within = lp_match.Or(
         tuple(
