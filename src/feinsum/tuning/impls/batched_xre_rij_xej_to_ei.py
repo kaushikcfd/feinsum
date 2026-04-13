@@ -57,11 +57,16 @@ def transform(
     ) * 8e-3 > 47:
         raise fnsm.InvalidParameterError("Shared memory limit exceeded")
 
-    from loopy.match import parse_match
-
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
-    within = parse_match(insn_match)
+    within = lp_match.parse_match(insn_match)
+    within = lp_match.Or(
+        tuple(
+            lp_match.Id(insn.id)
+            for insn in t_unit[kernel_name].instructions
+            if within(t_unit[kernel_name], insn)
+        )
+    )
     ref_outputs = ["_fe_out"] + [
         f"_fe_out_{ioutput}" for ioutput in range(noutputs - 1)
     ]
