@@ -7,6 +7,7 @@ import loopy as lp
 
 import feinsum as fnsm
 import feinsum.loopy_utils as lp_utils
+from feinsum.loopy_utils.cse import hoist_cses
 from feinsum.tuning import IntParameter
 
 if TYPE_CHECKING:
@@ -160,6 +161,31 @@ def transform_with_single_j_tile_i_tile(
             compute_insn_id=compute_fxj_id[field],
             default_tag=None,
         )
+
+    # {{{ CSE
+
+    t_unit = lp.expand_subst(
+        t_unit,
+        within=lp_match.And(
+            (
+                lp_match.Iname(e_prcmpt_stage1),
+                lp_match.Iname(f_prcmpt_stage1),
+                lp_match.Iname(j_prcmpt_stage1),
+            )
+        ),
+    )
+    t_unit = hoist_cses(
+        t_unit,
+        within=lp_match.And(
+            (
+                lp_match.Iname(e_prcmpt_stage1),
+                lp_match.Iname(f_prcmpt_stage1),
+                lp_match.Iname(j_prcmpt_stage1),
+            )
+        ),
+    )
+
+    # }}}
 
     t_unit = lp.tag_inames(t_unit, {e_prcmpt_stage1: "l.1"})
     t_unit = lp.split_iname(
@@ -397,6 +423,32 @@ def transform(
             ],
             default_tag=None,
         )
+
+    # {{{ CSE
+
+    t_unit = lp.expand_subst(
+        t_unit,
+        within=lp_match.And(
+            (
+                lp_match.Iname(e_prcmpt_stage1),
+                lp_match.Iname(f_prcmpt_stage1),
+                lp_match.Iname(j_prcmpt_stage1),
+            )
+        ),
+    )
+    t_unit = hoist_cses(
+        t_unit,
+        within=lp_match.And(
+            (
+                lp_match.Iname(e_prcmpt_stage1),
+                lp_match.Iname(f_prcmpt_stage1),
+                lp_match.Iname(j_prcmpt_stage1),
+            )
+        ),
+    )
+
+    # }}}
+
     t_unit = lp.tag_inames(t_unit, {e_prcmpt_stage1: "l.1"})
     t_unit = lp.split_iname(
         t_unit,
@@ -482,6 +534,8 @@ def transform(
         new_inames=[new_iname_names_map[iname] for iname in inames_to_duplicate],
         tags=dict.fromkeys(inames_to_duplicate, "unr"),
     )
+    t_unit = lp.prioritize_loops(t_unit, (j_inner_name, f))
+
     # lp.generate_code_v2(t_unit)
 
     return t_unit

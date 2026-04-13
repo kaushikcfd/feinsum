@@ -5,6 +5,7 @@ import loopy as lp
 import loopy.match as lp_match
 
 import feinsum as fnsm
+from feinsum.loopy_utils.cse import hoist_cses
 from feinsum.tuning import BoolParameter, IntParameter
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,31 @@ def transform(
     t_unit = lp.tag_inames(
         t_unit, {iprcmpt_e: "l.1", iprcmpt_f: "unr", iprcmpt_j: "l.0"}
     )
+
+    # {{{ CSE
+
+    t_unit = lp.expand_subst(
+        t_unit,
+        within=lp_match.And(
+            (
+                lp_match.Iname(iprcmpt_e),
+                lp_match.Iname(iprcmpt_f),
+                lp_match.Iname(iprcmpt_j),
+            )
+        ),
+    )
+    t_unit = hoist_cses(
+        t_unit,
+        within=lp_match.And(
+            (
+                lp_match.Iname(iprcmpt_e),
+                lp_match.Iname(iprcmpt_f),
+                lp_match.Iname(iprcmpt_j),
+            )
+        ),
+    )
+
+    # }}}
 
     # Step 4: Precompute M[i,f,j] as a scalar temp per (f,j) step.
     # With f,j in precompute_outer_inames (empty sweep), loopy creates one
