@@ -206,6 +206,7 @@ def transform(
         for insn in t_unit[kernel_name].instructions
         if within(t_unit[kernel_name], insn)
     )
+    within = lp_match.Id(matched_insn_id)
 
     # }}}
 
