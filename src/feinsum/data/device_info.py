@@ -11,10 +11,16 @@ DEV_TO_PEAK_GFLOPS = {
         "float32": 3916.0,
         "float64": 122.4,
     },
+    # forcing vector only for now for loopy.
+    "NVIDIA H200 NVL": {
+        "float32": 67000,
+        "float64": 34000,
+    },
 }
 
 # Mapping from device name to peak bandwidth in GB/s
 DEV_TO_PEAK_BW = {
     "NVIDIA TITAN V": 652.8,
     "NVIDIA GeForce GTX 1650": 192.0,
+    "NVIDIA H200 NVL": 4800,
 }
