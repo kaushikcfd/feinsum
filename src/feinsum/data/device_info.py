@@ -11,10 +11,10 @@ DEV_TO_PEAK_GFLOPS = {
         "float32": 3916.0,
         "float64": 122.4,
     },
-    # forcing vector only for now for loopy.
+    # forcing vector only (for now) for loopy.
     "NVIDIA H200 NVL": {
-        "float32": 67000,
-        "float64": 34000,
+        "float32": 60000,  # https://www.nvidia.com/en-in/data-center/h200/
+        "float64": 30000,  # https://www.nvidia.com/en-in/data-center/h200/
     },
 }
 
@@ -22,5 +22,5 @@ DEV_TO_PEAK_GFLOPS = {
 DEV_TO_PEAK_BW = {
     "NVIDIA TITAN V": 652.8,
     "NVIDIA GeForce GTX 1650": 192.0,
-    "NVIDIA H200 NVL": 4800,
+    "NVIDIA H200 NVL": 4800,  # https://www.nvidia.com/en-in/data-center/h200/
 }

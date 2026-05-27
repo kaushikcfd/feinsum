@@ -130,7 +130,12 @@ def validate_batched_einsum_transform(
         t_unit,
         no_numpy=True,
         return_dict=True,
-        build_options=["-cl-fast-relaxed-math", "-cl-mad-enable"],
+        build_options=[
+            "-cl-fast-relaxed-math",
+            "-cl-mad-enable",
+            "-cl-no-signed-zeros",
+            "-cl-unsafe-math-optimizations",
+        ],
     )
     t_unit = lp.fix_parameters(
         t_unit,
@@ -237,7 +242,12 @@ def timeit(
         t_unit,
         no_numpy=True,
         return_dict=True,
-        build_options=["-cl-fast-relaxed-math", "-cl-mad-enable"],
+        build_options=[
+            "-cl-fast-relaxed-math",
+            "-cl-mad-enable",
+            "-cl-no-signed-zeros",
+            "-cl-unsafe-math-optimizations",
+        ],
     )
 
     arg_dict = param_dict.update(out_dict)
