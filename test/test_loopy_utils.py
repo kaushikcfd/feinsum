@@ -29,6 +29,7 @@ import feinsum as f
 import loopy as lp
 import numpy as np
 import feinsum.loopy_utils as lp_utils
+from feinsum.loopy_utils.replace_with_fma import replace_with_fma
 
 
 def test_extract_subexpr_of_associative_op_as_subst(ctx_factory):
@@ -269,3 +270,68 @@ def test_sum_redn_algebraic_transforms(ctx_factory):
 
     assert x1 == 33075
     assert x2 == 7980  # i.e. this demonstrates a 4.14x reduction in flops
+
+
+# {{{ replace_with_fma tests
+
+def _make_simple_kernel(expr: str, dtype) -> lp.TranslationUnit:
+    args = [lp.GlobalArg("a,b,c,d,y", dtype, shape=("n",)), lp.ValueArg("n")]
+    return lp.make_kernel(
+        "{[i]: 0<=i<n}",
+        f"y[i] = {expr}",
+        args,
+        lang_version=(2018, 2),
+    )
+
+
+def test_replace_with_fma_two_factors(ctx_factory):
+    # a[i]*b[i] + c[i]  ->  fma(a[i], b[i], c[i])
+    ctx = ctx_factory()
+    ref = _make_simple_kernel("a[i]*b[i] + c[i]", np.float64)
+    t_unit = replace_with_fma(ref)
+    assert "fma(" in lp.generate_code_v2(t_unit).device_code()
+    lp.auto_test_vs_ref(ref, ctx, t_unit, parameters={"n": 128})
+
+
+def test_replace_with_fma_addend_on_left(ctx_factory):
+    # c[i] + a[i]*b[i]  ->  fma(a[i], b[i], c[i])
+    ctx = ctx_factory()
+    ref = _make_simple_kernel("c[i] + a[i]*b[i]", np.float64)
+    t_unit = replace_with_fma(ref)
+    assert "fma(" in lp.generate_code_v2(t_unit).device_code()
+    lp.auto_test_vs_ref(ref, ctx, t_unit, parameters={"n": 128})
+
+
+def test_replace_with_fma_three_factors(ctx_factory):
+    # a[i]*b[i]*c[i] + d[i]  ->  fma(a[i], b[i]*c[i], d[i])
+    ctx = ctx_factory()
+    ref = _make_simple_kernel("a[i]*b[i]*c[i] + d[i]", np.float64)
+    t_unit = replace_with_fma(ref)
+    assert "fma(" in lp.generate_code_v2(t_unit).device_code()
+    lp.auto_test_vs_ref(ref, ctx, t_unit, parameters={"n": 128})
+
+
+def test_replace_with_fma_no_rewrite_for_integers(ctx_factory):
+    # integer expressions must not be rewritten
+    ctx = ctx_factory()
+    ref = _make_simple_kernel("a[i]*b[i] + c[i]", np.int32)
+    t_unit = replace_with_fma(ref)
+    assert "fma(" not in lp.generate_code_v2(t_unit).device_code()
+    lp.auto_test_vs_ref(ref, ctx, t_unit, parameters={"n": 128})
+
+
+def test_replace_with_fma_no_rewrite_for_negation(ctx_factory):
+    # -a[i] + b[i] must not be rewritten (bare negation, not a true multiply)
+    ctx = ctx_factory()
+    args = [lp.GlobalArg("a,b,y", np.float64, shape=("n",)), lp.ValueArg("n")]
+    ref = lp.make_kernel(
+        "{[i]: 0<=i<n}",
+        "y[i] = -a[i] + b[i]",
+        args,
+        lang_version=(2018, 2),
+    )
+    t_unit = replace_with_fma(ref)
+    assert "fma(" not in lp.generate_code_v2(t_unit).device_code()
+    lp.auto_test_vs_ref(ref, ctx, t_unit, parameters={"n": 128})
+
+# }}}
