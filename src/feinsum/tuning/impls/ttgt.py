@@ -302,7 +302,7 @@ def transform(
         within_inames=frozenset({i_gemm, j_gemm}),
         depends_on=t_unit[kernel_name].id_to_insn[insn_id].depends_on,
     )
-    gbarrier_insn = lp.BarrierInstruction(  # type: ignore[no-untyped-call]
+    gbarrier_insn = lp.BarrierInstruction(
         id=ing("gbarrier_gemm_transpose"),
         synchronization_kind="global",
         mem_kind="global",

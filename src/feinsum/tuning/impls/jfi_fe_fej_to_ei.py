@@ -498,7 +498,7 @@ def transform(
     acc_names = {vng(f"acc_{f}_{j_tile_name}_{j_inner_name}") for _ in fields}
     assert (set(t_unit[kernel_name].temporary_variables) & acc_names) == acc_names
     t_unit = lp.privatize_temporaries_with_inames(
-        t_unit, set(inames_to_duplicate), only_var_names=acc_names
+        t_unit, frozenset(inames_to_duplicate), only_var_names=frozenset(acc_names)
     )
     t_unit = lp.tag_inames(t_unit, {f: "unr"})
 

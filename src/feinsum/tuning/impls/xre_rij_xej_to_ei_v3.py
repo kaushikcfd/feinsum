@@ -253,15 +253,12 @@ def transform(
         ),
         frozenset({x}),
     )
-    t_unit = cast(
-        "lp.TranslationUnit",
-        lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
-            t_unit,
-            template=template,
-            subst_name=ju_subst_name,
-            parameters=(r, e, j),
-            within=within,
-        ),
+    t_unit = lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
+        t_unit,
+        template=template,
+        subst_name=ju_subst_name,
+        parameters=(r, e, j),
+        within=within,
     )
 
     # }}}

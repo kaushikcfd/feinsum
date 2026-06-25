@@ -108,7 +108,7 @@ def transform(
     inames_to_duplicate = frozenset([i_outer])
     assert acc_name.startswith("acc")
     t_unit = lp.privatize_temporaries_with_inames(
-        t_unit, inames_to_duplicate, only_var_names={acc_name}
+        t_unit, inames_to_duplicate, only_var_names=frozenset({acc_name})
     )
     t_unit = lp.duplicate_inames(
         t_unit,

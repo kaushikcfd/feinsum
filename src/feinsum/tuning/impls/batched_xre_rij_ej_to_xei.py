@@ -373,7 +373,7 @@ def transform(
             acc_names.add(acc_name)
 
         t_unit = lp.privatize_temporaries_with_inames(
-            t_unit, inames_to_duplicate, only_var_names=acc_names
+            t_unit, inames_to_duplicate, only_var_names=frozenset(acc_names)
         )
 
         t_unit = lp.duplicate_inames(

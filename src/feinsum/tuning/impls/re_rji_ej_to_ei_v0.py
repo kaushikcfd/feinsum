@@ -246,15 +246,12 @@ def transform(
             )(t_unit[kernel_name], insn)
         )
     )
-    t_unit = cast(
-        "lp.TranslationUnit",
-        lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
-            t_unit,
-            template=template,
-            subst_name=du_subst_name,
-            parameters=(r, e, i),
-            within=within,
-        ),
+    t_unit = lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
+        t_unit,
+        template=template,
+        subst_name=du_subst_name,
+        parameters=(r, e, i),
+        within=within,
     )
 
     # }}}
@@ -509,10 +506,10 @@ def transform(
     )
     assert len(acc_names) == noutputs
     t_unit = lp.privatize_temporaries_with_inames(
-        t_unit, i_tile_iname, only_var_names=acc_names
+        t_unit, i_tile_iname, only_var_names=frozenset(acc_names)
     )
     t_unit = lp.privatize_temporaries_with_inames(
-        t_unit, e_r_e, only_var_names=acc_names
+        t_unit, e_r_e, only_var_names=frozenset(acc_names)
     )
 
     acc_init_ids_tmp = []
@@ -555,7 +552,7 @@ def transform(
             tuple(lp_match.Id(acc_init_id) for acc_init_id in acc_init_ids)
         ),
         new_inames=(i_tile_init, e_r_e_init),
-        tags={i_tile_iname: "unr", e_r_e: e_r_e_tags},
+        tags={i_tile_iname: "unr", e_r_e: e_r_e_tags},  # type: ignore[dict-item]
     )
     e_r_e_assign = vng(f"{e_r_e}")
     i_tile_assign = vng(f"{i_tile_iname}")
@@ -566,7 +563,7 @@ def transform(
             tuple(lp_match.Id(acc_assign_id) for acc_assign_id in acc_assign_ids)
         ),
         new_inames=(i_tile_assign, e_r_e_assign),
-        tags={i_tile_iname: "unr", e_r_e: e_r_e_tags},
+        tags={i_tile_iname: "unr", e_r_e: e_r_e_tags},  # type: ignore[dict-item]
     )
     t_unit = lp.tag_inames(t_unit, {r: "unr"})
 

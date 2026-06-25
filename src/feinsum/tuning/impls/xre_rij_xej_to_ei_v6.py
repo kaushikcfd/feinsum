@@ -234,15 +234,12 @@ def transform(
         ),
         frozenset({x}),
     )
-    t_unit = cast(
-        "lp.TranslationUnit",
-        lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
-            t_unit,
-            template=template,
-            subst_name=ju_subst_name,
-            parameters=(r, e, j),
-            within=within,
-        ),
+    t_unit = lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
+        t_unit,
+        template=template,
+        subst_name=ju_subst_name,
+        parameters=(r, e, j),
+        within=within,
     )
 
     # }}}
@@ -369,7 +366,7 @@ def transform(
         t_unit,
         juprcmpt_e_re,
         within=lp_match.Id(J_fetch_id),
-        tags={juprcmpt_e_re: t_unit[kernel_name].iname_tags(juprcmpt_e_re)},
+        tags={juprcmpt_e_re: t_unit[kernel_name].iname_tags(juprcmpt_e_re)},  # type: ignore[dict-item]
     )
     t_unit = lp.tag_inames(t_unit, {jprcmpt_x: "unr", jprcmpt_r: "unr"})
 
@@ -408,13 +405,13 @@ def transform(
         t_unit,
         juprcmpt_r,
         within=lp_match.Id(acc_x_init_id),
-        tags={juprcmpt_r: t_unit[kernel_name].iname_tags(juprcmpt_r)},
+        tags={juprcmpt_r: t_unit[kernel_name].iname_tags(juprcmpt_r)},  # type: ignore[dict-item]
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         juprcmpt_r,
         within=lp_match.Id(acc_x_assign_id),
-        tags={juprcmpt_r: t_unit[kernel_name].iname_tags(juprcmpt_r)},
+        tags={juprcmpt_r: t_unit[kernel_name].iname_tags(juprcmpt_r)},  # type: ignore[dict-item]
     )
 
     # }}}
@@ -461,8 +458,8 @@ def transform(
         (e_r_e, i_tile_iname),
         within=lp_match.Id(out_acc_init_id),
         tags={
-            i_tile_iname: t_unit[kernel_name].iname_tags(i_tile_iname),
-            e_r_e: t_unit[kernel_name].iname_tags(e_r_e),
+            i_tile_iname: t_unit[kernel_name].iname_tags(i_tile_iname),  # type: ignore[dict-item]
+            e_r_e: t_unit[kernel_name].iname_tags(e_r_e),  # type: ignore[dict-item]
         },
     )
     e_r_e_assign, i_tile_iname_assign = vng("e_r_e"), vng("itile")
@@ -472,8 +469,8 @@ def transform(
         within=lp_match.Id(out_acc_assign_id),
         new_inames=(e_r_e_assign, i_tile_iname_assign),
         tags={
-            i_tile_iname: t_unit[kernel_name].iname_tags(i_tile_iname),
-            e_r_e: t_unit[kernel_name].iname_tags(e_r_e),
+            i_tile_iname: t_unit[kernel_name].iname_tags(i_tile_iname),  # type: ignore[dict-item]
+            e_r_e: t_unit[kernel_name].iname_tags(e_r_e),  # type: ignore[dict-item]
         },
     )
 
@@ -497,23 +494,20 @@ def transform(
     import pymbolic.primitives as prim
 
     ju_priv_subst = vng("_subst_Ju_priv")
-    t_unit = cast(
-        "lp.TranslationUnit",
-        lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
-            t_unit,
-            subst_name=ju_priv_subst,
-            template=prim.Variable(ju_tmp_name)[
-                prim.Variable(r),
-                (
-                    prim.Variable(e_s_e) * r_e + prim.Variable(e_r_e)
-                    if r_e != 1
-                    else prim.Variable(e_s_e) + prim.Variable(e_r_e)
-                ),
-                prim.Variable(j_inner_iname),
-            ],
-            parameters=(e_r_e, j_inner_iname),
-            within=lp_match.Id(main_update_insn_id),
-        ),
+    t_unit = lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
+        t_unit,
+        subst_name=ju_priv_subst,
+        template=prim.Variable(ju_tmp_name)[
+            prim.Variable(r),
+            (
+                prim.Variable(e_s_e) * r_e + prim.Variable(e_r_e)
+                if r_e != 1
+                else prim.Variable(e_s_e) + prim.Variable(e_r_e)
+            ),
+            prim.Variable(j_inner_iname),
+        ],
+        parameters=(e_r_e, j_inner_iname),
+        within=lp_match.Id(main_update_insn_id),
     )
     ju_priv_name = vng("_tmp_Ju_priv")
     ju_priv_e_r_e = vng("ju_priv_e_r_e")
@@ -538,7 +532,7 @@ def transform(
     )
 
     t_unit = t_unit.with_kernel(
-        lp.map_instructions(  # type: ignore[no-untyped-call]
+        lp.map_instructions(
             t_unit[kernel_name],
             lp_match.Id(ju_priv_fetch_id),
             lambda insn: (

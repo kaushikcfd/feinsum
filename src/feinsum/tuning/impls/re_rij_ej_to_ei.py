@@ -241,15 +241,12 @@ def transform(
             )(t_unit[kernel_name], insn)
         )
     )
-    t_unit = cast(
-        "lp.TranslationUnit",
-        lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
-            t_unit,
-            template=template,
-            subst_name=du_subst_name,
-            parameters=(r, e, i),
-            within=within,
-        ),
+    t_unit = lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
+        t_unit,
+        template=template,
+        subst_name=du_subst_name,
+        parameters=(r, e, i),
+        within=within,
     )
 
     # }}}
@@ -435,7 +432,7 @@ def transform(
     )
     assert len(acc_names) == noutputs
     t_unit = lp.privatize_temporaries_with_inames(
-        t_unit, i_tile_iname, only_var_names=acc_names
+        t_unit, i_tile_iname, only_var_names=frozenset(acc_names)
     )
 
     acc_init_ids_tmp = []
