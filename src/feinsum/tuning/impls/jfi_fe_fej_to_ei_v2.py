@@ -44,13 +44,12 @@ def transform(
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
     within = lp_match.parse_match(insn_match)
-    within = lp_match.Or(
-        tuple(
-            lp_match.Id(insn.id)
-            for insn in t_unit[kernel_name].instructions
-            if within(t_unit[kernel_name], insn)
-        )
+    matched_insn_ids = tuple(
+        insn.id
+        for insn in t_unit[kernel_name].instructions
+        if within(t_unit[kernel_name], insn)
     )
+    within = lp_match.Or(tuple(lp_match.Id(id) for id in matched_insn_ids))
 
     ref_einsum = fnsm.batched_einsum(
         "jfi,fe,fej->ei",
@@ -176,6 +175,11 @@ def transform(
     fj_iname = vng("fj")
     t_unit = lp.join_inames(t_unit, [f_iname, j_iname], fj_iname, within=within)
 
+    # Step 6: Use replace_with_fma for multiply adds.
+    from feinsum.loopy_utils.replace_with_fma import replace_with_fma
+    t_unit = lp.realize_reduction(t_unit, insn_id_filter=matched_insn_ids)
+    t_unit = replace_with_fma(t_unit, within=lp_match.Iname(fj_iname))
+
     if unroll_j:
         t_unit = lp.tag_inames(t_unit, {fj_iname: "unr"})
 
@@ -192,16 +196,16 @@ if __name__ == "__main__":
     #     _flux_1(_0, _1, _2) := u_1[_0, _1, _2]
     #     _flux_2(_0, _1, _2) := u_2[_0, _1, _2]
     #     _flux_3(_0, _1, _2) := u_3[_0, _1, _2]
-    #     out_0[e, i] = tmp_0[e, i] + sum([f, j], _LIFT(i, f, j)
+    #     out_0[e, i] = tmp_0[e, i] + sum([f, j], _LIFT(j, f, i)
     #                                            * _sgeo(f, e)
     #                                            * _flux_0(f, e, j))
-    #     out_1[e, i] = tmp_1[e, i] + sum([f, j], _LIFT(i, f, j)
+    #     out_1[e, i] = tmp_1[e, i] + sum([f, j], _LIFT(j, f, i)
     #                                             * _sgeo(f, e)
     #                                             * _flux_1(f, e, j))
-    #     out_2[e, i] = tmp_2[e, i] + sum([f, j], _LIFT(i, f, j)
+    #     out_2[e, i] = tmp_2[e, i] + sum([f, j], _LIFT(j, f, i)
     #                                             * _sgeo(f, e)
     #                                             * _flux_2(f, e, j))
-    #     out_3[e, i] = tmp_3[e, i] + sum([f, j], _LIFT(i, f, j)
+    #     out_3[e, i] = tmp_3[e, i] + sum([f, j], _LIFT(j, f, i)
     #                                             * _sgeo(f, e)
     #                                             * _flux_3(f, e, j))
     #     """,
@@ -218,14 +222,12 @@ if __name__ == "__main__":
     # )
     # t_unit = transform(
     #     t_unit,
-    #     nface=4,
-    #     nvoldof=4,
-    #     nfacedof=3,
-    #     nfields=4,
-    #     n_e_per_wg_log2=1,
-    #     n_i_tile=1,
-    #     n_j_tile=1,
-    #     nwork_items_per_e=1,
+    #     b=4,
+    #     nf=4,
+    #     ni=4,
+    #     nj=3,
+    #     n_e_per_wg_log2=4,
+    #     unroll_j=False,
     # )
     # print(lp.generate_code_v2(t_unit).device_code())
     # 1/0
