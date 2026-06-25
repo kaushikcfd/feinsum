@@ -401,6 +401,14 @@ def transform(
             and acc_x not in insn.write_dependency_names()
         )
     ]
+    (acc_x_update_id,) = [
+        insn.id
+        for insn in t_unit[kernel_name].instructions
+        if (
+            acc_x in insn.read_dependency_names()
+            and acc_x in insn.write_dependency_names()
+        )
+    ]
 
     t_unit = lp.duplicate_inames(
         t_unit,
@@ -571,6 +579,19 @@ def transform(
         temporary_name=d_priv_name,
         default_tag=None,
         within=lp_match.Id(main_update_insn_id),
+    )
+
+    # }}}
+
+    # {{{ replace_with_fma
+
+    from feinsum.loopy_utils.replace_with_fma import replace_with_fma
+
+    t_unit = replace_with_fma(
+        t_unit,
+        within=lp_match.Or(
+            [lp_match.Id(acc_x_update_id), lp_match.Id(main_update_insn_id)]
+        ),
     )
 
     # }}}
