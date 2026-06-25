@@ -602,9 +602,7 @@ def transform(
             new_inames=du_assign_names,
             tags=dict.fromkeys(du_assign_names, "unr"),
         )
-        t_unit = lp.tag_inames(
-            t_unit, dict.fromkeys(du_existing_base, "unr")
-        )
+        t_unit = lp.tag_inames(t_unit, dict.fromkeys(du_existing_base, "unr"))
 
         # }}}
 

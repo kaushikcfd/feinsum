@@ -174,6 +174,7 @@ def replace_with_fma(
     """
 
     from loopy.kernel.function_interface import CallableKernel
+
     t_unit = lp.infer_unknown_types(t_unit)
 
     clbls = t_unit.callables_table

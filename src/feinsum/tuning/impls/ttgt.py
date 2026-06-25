@@ -387,24 +387,22 @@ def transform(
     )
     new_substs = {
         **knl.substitutions,
-
-            a_gemm_subst: lp.SubstitutionRule(
-                a_gemm_subst,
-                ("d_0", "d_1"),
-                prim.Subscript(
-                    prim.Variable(a_gemm_tmp),
-                    (prim.Variable("d_0"), prim.Variable("d_1")),
-                ),
+        a_gemm_subst: lp.SubstitutionRule(
+            a_gemm_subst,
+            ("d_0", "d_1"),
+            prim.Subscript(
+                prim.Variable(a_gemm_tmp),
+                (prim.Variable("d_0"), prim.Variable("d_1")),
             ),
-            b_gemm_subst: lp.SubstitutionRule(
-                b_gemm_subst,
-                ("d_0", "d_1"),
-                prim.Subscript(
-                    prim.Variable(b_gemm_tmp),
-                    (prim.Variable("d_0"), prim.Variable("d_1")),
-                ),
-            )
-        ,
+        ),
+        b_gemm_subst: lp.SubstitutionRule(
+            b_gemm_subst,
+            ("d_0", "d_1"),
+            prim.Subscript(
+                prim.Variable(b_gemm_tmp),
+                (prim.Variable("d_0"), prim.Variable("d_1")),
+            ),
+        ),
     }
 
     knl = knl.copy(

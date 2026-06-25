@@ -107,9 +107,7 @@ def _get_reduction_expression_with_inames(
 @fnsm.tuning.transform_param(
     "i_tiles", lambda e: IntParameter(1, math.ceil(e.shape[1] / 2))
 )
-@fnsm.tuning.transform_param(
-    "precompute_slices_of_D", lambda e: BoolParameter()
-)
+@fnsm.tuning.transform_param("precompute_slices_of_D", lambda e: BoolParameter())
 def transform(
     t_unit: lp.TranslationUnit,
     ndim: int,
@@ -274,7 +272,7 @@ def transform(
         inner_iname=e_inner,
         outer_iname=e_outer,
         within=within,
-        slabs=(0, 1)
+        slabs=(0, 1),
     )
 
     t_unit = lp.split_iname(
@@ -376,15 +374,21 @@ def transform(
     t_unit = lp.precompute(  # type: ignore[no-untyped-call]
         t_unit,
         D,
-        sweep_inames=[i_inner_iname, j_inner_iname]
-        if precompute_slices_of_D
-        else [r, i_inner_iname, j_inner_iname],
-        precompute_inames=[None, iprftch_D, jprftch_D]
-        if precompute_slices_of_D
-        else [rprftch_D, iprftch_D, jprftch_D],
-        precompute_outer_inames=frozenset({r, e_outer, i_tile_iname, j_tile_iname})
-        if precompute_slices_of_D
-        else frozenset({e_outer, i_tile_iname, j_tile_iname}),
+        sweep_inames=(
+            [i_inner_iname, j_inner_iname]
+            if precompute_slices_of_D
+            else [r, i_inner_iname, j_inner_iname]
+        ),
+        precompute_inames=(
+            [None, iprftch_D, jprftch_D]
+            if precompute_slices_of_D
+            else [rprftch_D, iprftch_D, jprftch_D]
+        ),
+        precompute_outer_inames=(
+            frozenset({r, e_outer, i_tile_iname, j_tile_iname})
+            if precompute_slices_of_D
+            else frozenset({e_outer, i_tile_iname, j_tile_iname})
+        ),
         temporary_address_space=lp.AddressSpace.LOCAL,
         temporary_name=D_fetch,
         compute_insn_id=D_fetch_id,
@@ -433,13 +437,13 @@ def transform(
         t_unit,
         i_tile_iname,
         within=lp_match.Id(out_acc_init_id),
-        tags={i_tile_iname: "unr"}
+        tags={i_tile_iname: "unr"},
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         i_tile_iname,
         within=lp_match.Id(out_acc_assign_id),
-        tags={i_tile_iname: "unr"}
+        tags={i_tile_iname: "unr"},
     )
 
     # }}}
@@ -471,7 +475,12 @@ if __name__ == "__main__":
         lang_version=(2018, 2),
     )
     t_unit = transform(
-        t_unit, ndim=3, ndof=20, n_e_per_wg_log2=2, i_tiles=2, j_tiles=2,
+        t_unit,
+        ndim=3,
+        ndof=20,
+        n_e_per_wg_log2=2,
+        i_tiles=2,
+        j_tiles=2,
         precompute_slices_of_D=False,
     )
 

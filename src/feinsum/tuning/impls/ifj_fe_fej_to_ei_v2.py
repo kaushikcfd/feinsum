@@ -176,13 +176,15 @@ def transform(
         t_unit,
         M_subst,
         sweep_inames=[],
-        precompute_outer_inames=frozenset({
-            e_outer_iname,
-            e_inner_iname,
-            i_iname,
-            f_iname,
-            j_iname,
-        }),
+        precompute_outer_inames=frozenset(
+            {
+                e_outer_iname,
+                e_inner_iname,
+                i_iname,
+                f_iname,
+                j_iname,
+            }
+        ),
         temporary_address_space=lp.AddressSpace.PRIVATE,
         within=within,
     )

@@ -30,7 +30,8 @@ def transform_with_single_j_tile_i_tile(
     import loopy.match as lp_match
     from loopy.symbolic import get_dependencies
     from pymbolic import variables
-    n_e_per_wg = 2 ** n_e_per_wg_log2
+
+    n_e_per_wg = 2**n_e_per_wg_log2
 
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
@@ -259,7 +260,7 @@ def transform(
             kernel_name=kernel_name,
         )
 
-    n_e_per_wg = 2 ** n_e_per_wg_log2
+    n_e_per_wg = 2**n_e_per_wg_log2
     kernel_name = kernel_name or t_unit.default_entrypoint.name
 
     within = lp_match.parse_match(insn_match)

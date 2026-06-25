@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any
 
 import loopy as lp
 import loopy.match as lp_match
