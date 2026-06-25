@@ -386,7 +386,9 @@ def measure_giga_op_rate(
 
     from pymbolic.mapper.evaluator import evaluate_to_float
 
-    eval_context: dict[str, int | float] = {param.name: long_dim_length for param in expr.all_size_params}
+    eval_context: dict[str, int | float] = {
+        param.name: long_dim_length for param in expr.all_size_params
+    }
     return Map(
         {
             k: evaluate_to_float(v, eval_context) / runtime
@@ -406,7 +408,9 @@ def get_roofline_flop_rate(
     dtype_to_gflops_expr = _get_giga_ops_from_einsum(expr)
     ngbs = _get_footprint_gbytes(expr, long_dim_length)
 
-    eval_context2: dict[str, int | float] = {param.name: long_dim_length for param in expr.all_size_params}
+    eval_context2: dict[str, int | float] = {
+        param.name: long_dim_length for param in expr.all_size_params
+    }
     dtype_to_gflops = {
         dtype: evaluate_to_float(giga_ops_aff, eval_context2)
         for dtype, giga_ops_aff in dtype_to_gflops_expr.items()
@@ -467,7 +471,9 @@ def _stringify_runtime_comparison_vs_roofline(
 
     from pymbolic.mapper.evaluator import evaluate_to_float
 
-    eval_context: dict[str, int | float] = {param.name: long_dim_length for param in expr.all_size_params}
+    eval_context: dict[str, int | float] = {
+        param.name: long_dim_length for param in expr.all_size_params
+    }
     measured_flop_rate = Map(
         {
             k: evaluate_to_float(v, eval_context) / runtime

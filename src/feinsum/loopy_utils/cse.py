@@ -278,9 +278,7 @@ class CSEMapper(IdentityMapper[[frozenset[Expression]]]):
             self.initialized_cses.add(cse_var)
         return p.Variable(cse_var)
 
-    def rec(
-        self, expr: Expression, predicates: frozenset[Expression]
-    ) -> Expression:
+    def rec(self, expr: Expression, predicates: frozenset[Expression]) -> Expression:
         mapped_expr = super().rec(expr, predicates)
         return self._maybe_replace_with_cse(expr, mapped_expr, predicates)
 
@@ -364,6 +362,7 @@ def hoist_cses(
         True
     """
     from loopy.match import parse_match
+
     within = parse_match(within)
     insn_ids = {insn.id for insn in kernel.instructions if within(kernel, insn)}
     if not insn_ids:

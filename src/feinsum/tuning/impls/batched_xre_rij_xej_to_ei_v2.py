@@ -102,9 +102,7 @@ def transform(
     )
 
     # Extract terms corresponding to "D * u" into a subst.
-    t_unit = lp.split_reduction_outward(
-        t_unit, {x_iname, r_iname}, within=within
-    )
+    t_unit = lp.split_reduction_outward(t_unit, {x_iname, r_iname}, within=within)
 
     knl = t_unit[kernel_name]
     knl = hoist_invariant_multiplicative_terms_in_sum_reduction(
