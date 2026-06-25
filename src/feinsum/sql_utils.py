@@ -86,7 +86,7 @@ def dump_op_info(einsum: BatchedEinsum, long_dim_length: int) -> str:
 
     from feinsum.measure import _get_giga_ops_from_einsum
 
-    eval_context = {
+    eval_context: dict[str, int | float] = {
         dim.name: long_dim_length
         for dim in einsum.index_to_dim_length.values()
         if isinstance(dim, SizeParam)

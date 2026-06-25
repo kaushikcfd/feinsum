@@ -230,7 +230,7 @@ def transform(
     acc_name = f"acc_{r}_{j_tile}_{j_inner}"
     assert acc_name in t_unit[kernel_name].temporary_variables
     t_unit = lp.privatize_temporaries_with_inames(
-        t_unit, inames_to_duplicate, only_var_names={acc_name}
+        t_unit, inames_to_duplicate, only_var_names=frozenset({acc_name})
     )
 
     t_unit = lp.duplicate_inames(

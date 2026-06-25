@@ -444,7 +444,7 @@ def transform(
 
     for iname_to_duplicate in inames_to_duplicate:
         t_unit = lp.privatize_temporaries_with_inames(
-            t_unit, iname_to_duplicate, only_var_names={acc_name}
+            t_unit, iname_to_duplicate, only_var_names=frozenset({acc_name})
         )
 
     tags_to_inames_duplicate = (

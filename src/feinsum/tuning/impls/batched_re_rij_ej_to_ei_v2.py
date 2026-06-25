@@ -171,25 +171,22 @@ def transform(
     )
     t_unit = t_unit.with_kernel(knl)
     du_subst_name = vng("_tmp_Du")
-    t_unit = cast(
-        "lp.TranslationUnit",
-        lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
-            t_unit,
-            template=next(
-                iter(
-                    _get_reduction_expression_with_inames(
-                        insn.expression, frozenset({j_iname})
-                    )
-                    for insn in t_unit[kernel_name].instructions
-                    if lp_match.Or(
-                        tuple(lp_match.Writes(sigma[fe_out(i)]) for i in range(b))
-                    )(t_unit[kernel_name], insn)
+    t_unit = lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
+        t_unit,
+        template=next(
+            iter(
+                _get_reduction_expression_with_inames(
+                    insn.expression, frozenset({j_iname})
                 )
-            ),
-            subst_name=du_subst_name,
-            parameters=(r_iname,),
-            within=within,
+                for insn in t_unit[kernel_name].instructions
+                if lp_match.Or(
+                    tuple(lp_match.Writes(sigma[fe_out(i)]) for i in range(b))
+                )(t_unit[kernel_name], insn)
+            )
         ),
+        subst_name=du_subst_name,
+        parameters=(r_iname,),
+        within=within,
     )
     prcmpt_r = vng("_prcmpt_r_Du")
     prcmpt_Du_id = ing("_compute_Du")

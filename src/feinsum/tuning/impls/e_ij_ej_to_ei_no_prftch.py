@@ -80,8 +80,8 @@ def transform(
             (i_outer, j),
             within=lp_match.And((within, lp_match.Writes(out))),
             tags={
-                i_outer: t_unit[kernel_name].inames[i_outer].tags,
-                j: t_unit[kernel_name].inames[j].tags,
+                i_outer: t_unit[kernel_name].inames[i_outer].tags,  # type: ignore[dict-item]
+                j: t_unit[kernel_name].inames[j].tags,  # type: ignore[dict-item]
             },
         )
     return t_unit

@@ -628,7 +628,7 @@ def transform(
             set(t_unit[kernel_name].temporary_variables) & acc_names
         ) == acc_names
         t_unit = lp.privatize_temporaries_with_inames(
-            t_unit, set(inames_to_duplicate), only_var_names=acc_names
+            t_unit, frozenset(inames_to_duplicate), only_var_names=frozenset(acc_names)
         )
         t_unit = lp.tag_inames(t_unit, {new_f: "unr"})
 

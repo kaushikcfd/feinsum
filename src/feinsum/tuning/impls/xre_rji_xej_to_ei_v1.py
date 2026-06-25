@@ -229,15 +229,12 @@ def transform(
             frozenset({x}),
         )
         ju_subst_name = vng("_subst_Ju")
-        t_unit = cast(
-            "lp.TranslationUnit",
-            lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
-                t_unit,
-                template=template,
-                subst_name=ju_subst_name,
-                parameters=(r, e, j),
-                within=lp_match.Writes(fe_out_name),
-            ),
+        t_unit = lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
+            t_unit,
+            template=template,
+            subst_name=ju_subst_name,
+            parameters=(r, e, j),
+            within=lp_match.Writes(fe_out_name),
         )
         ju_subst_names.append(ju_subst_name)
 
@@ -371,7 +368,7 @@ def transform(
         t_unit,
         juprcmpt_e_re,
         within=lp_match.Id(J_fetch_id),
-        tags={juprcmpt_e_re: t_unit[kernel_name].iname_tags(juprcmpt_e_re)},
+        tags={juprcmpt_e_re: t_unit[kernel_name].iname_tags(juprcmpt_e_re)},  # type: ignore[dict-item]
     )
     t_unit = lp.tag_inames(t_unit, {jprcmpt_x: "unr", jprcmpt_r: "unr"})
 
@@ -417,13 +414,13 @@ def transform(
         t_unit,
         juprcmpt_r,
         within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in acc_x_init_ids)),
-        tags=juprcmpt_r_tags,
+        tags=juprcmpt_r_tags,  # type: ignore[arg-type]
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         juprcmpt_r,
         within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in acc_x_assign_ids)),
-        tags=juprcmpt_r_tags,
+        tags=juprcmpt_r_tags,  # type: ignore[arg-type]
     )
 
     # }}}
@@ -489,7 +486,7 @@ def transform(
         t_unit,
         (e_r_e, i_tile_iname),
         within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in out_acc_init_ids)),
-        tags=out_acc_tags,
+        tags=out_acc_tags,  # type: ignore[arg-type]
     )
     e_r_e_assign = vng("e_r_e")
     i_tile_iname_assign = vng("itile")
@@ -498,7 +495,7 @@ def transform(
         (e_r_e, i_tile_iname),
         within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in out_acc_assign_ids)),
         new_inames=(e_r_e_assign, i_tile_iname_assign),
-        tags=out_acc_tags,
+        tags=out_acc_tags,  # type: ignore[arg-type]
     )
 
     # }}}
@@ -520,23 +517,20 @@ def transform(
         ju_tmp_insn_id = ju_tmp_insn_ids[iout]
 
         ju_priv_subst = vng("_subst_Ju_priv")
-        t_unit = cast(
-            "lp.TranslationUnit",
-            lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
-                t_unit,
-                subst_name=ju_priv_subst,
-                template=prim.Variable(ju_tmp_name)[
-                    prim.Variable(r),
-                    (
-                        prim.Variable(e_s_e) * r_e + prim.Variable(e_r_e)
-                        if r_e != 1
-                        else prim.Variable(e_s_e) + prim.Variable(e_r_e)
-                    ),
-                    prim.Variable(j_inner_iname),
-                ],
-                parameters=(e_r_e, j_inner_iname),
-                within=lp_match.Id(main_update_insn_id),
-            ),
+        t_unit = lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
+            t_unit,
+            subst_name=ju_priv_subst,
+            template=prim.Variable(ju_tmp_name)[
+                prim.Variable(r),
+                (
+                    prim.Variable(e_s_e) * r_e + prim.Variable(e_r_e)
+                    if r_e != 1
+                    else prim.Variable(e_s_e) + prim.Variable(e_r_e)
+                ),
+                prim.Variable(j_inner_iname),
+            ],
+            parameters=(e_r_e, j_inner_iname),
+            within=lp_match.Id(main_update_insn_id),
         )
         ju_priv_name = vng("_tmp_Ju_priv")
         ju_priv_fetch_id = ing("ju_prftch_id")
@@ -556,10 +550,10 @@ def transform(
         )
 
         t_unit = t_unit.with_kernel(
-            lp.map_instructions(  # type: ignore[no-untyped-call]
+            lp.map_instructions(
                 t_unit[kernel_name],
                 lp_match.Id(ju_priv_fetch_id),
-                lambda insn, fid=ju_priv_fetch_id, tid=ju_tmp_insn_id: (
+                lambda insn, fid=ju_priv_fetch_id, tid=ju_tmp_insn_id: (  # type: ignore[misc]
                     insn
                     if insn.id != fid
                     else insn.copy(depends_on=frozenset({tid}))

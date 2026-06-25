@@ -294,15 +294,12 @@ def transform(
                 t_unit[kernel_name], insn
             )
         )
-        t_unit = cast(
-            "lp.TranslationUnit",
-            lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
-                t_unit,
-                template=template,
-                subst_name=u_to_du[u],
-                parameters=(r, e, i),
-                within=lp_match.And((within, _writes_any(outputs))),
-            ),
+        t_unit = lp.extract_subst(  # pyright: ignore[reportUnknownMemberType]
+            t_unit,
+            template=template,
+            subst_name=u_to_du[u],
+            parameters=(r, e, i),
+            within=lp_match.And((within, _writes_any(outputs))),
         )
 
     # }}}
@@ -649,10 +646,10 @@ def transform(
         )
         assert len(acc_names) == len(batch_outputs)
         t_unit = lp.privatize_temporaries_with_inames(
-            t_unit, i_tile_iname, only_var_names=acc_names
+            t_unit, i_tile_iname, only_var_names=frozenset(acc_names)
         )
         t_unit = lp.privatize_temporaries_with_inames(
-            t_unit, e_r_e, only_var_names=acc_names
+            t_unit, e_r_e, only_var_names=frozenset(acc_names)
         )
 
         acc_init_ids, acc_assign_ids = zip(
@@ -671,7 +668,7 @@ def transform(
             (i_tile_iname, e_r_e),
             within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in acc_init_ids)),
             new_inames=(i_tile_init, e_r_e_init),
-            tags=dup_tags,
+            tags=dup_tags,  # type: ignore[arg-type]
         )
         e_r_e_assign, i_tile_assign = vng(f"{e_r_e}"), vng(f"{i_tile_iname}")
         t_unit = lp.duplicate_inames(
@@ -679,7 +676,7 @@ def transform(
             (i_tile_iname, e_r_e),
             within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in acc_assign_ids)),
             new_inames=(i_tile_assign, e_r_e_assign),
-            tags=dup_tags,
+            tags=dup_tags,  # type: ignore[arg-type]
         )
         t_unit = lp.tag_inames(t_unit, {new_r: "unr"})
 
