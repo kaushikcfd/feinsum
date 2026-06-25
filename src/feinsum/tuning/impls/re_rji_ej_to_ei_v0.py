@@ -596,6 +596,31 @@ def transform(
 
     # }}}
 
+    # {{{ Step 10. Use replace_with_fma.
+
+    outer_acc_update_ids = tuple(
+        insn.id
+        for insn in t_unit[kernel_name].instructions
+        if any(
+            acc_name in insn.read_dependency_names()
+            and acc_name in insn.write_dependency_names()
+            for acc_name in acc_names
+        )
+    )
+    assert len(outer_acc_update_ids) == noutputs
+
+    from feinsum.loopy_utils.replace_with_fma import replace_with_fma
+
+    t_unit = replace_with_fma(
+        t_unit,
+        within=lp_match.Or(
+            [lp_match.Id(du_update_insn_id)]
+            + [lp_match.Id(id) for id in outer_acc_update_ids]
+        ),
+    )
+
+    # }}}
+
     t_unit = lp.prioritize_loops(t_unit, (r, i_tile_iname))
 
     if 0:
