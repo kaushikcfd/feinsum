@@ -32,6 +32,7 @@ import loopy as lp
 import loopy.match as lp_match
 import pymbolic.primitives as p
 from constantdict import constantdict
+from loopy.diagnostic import TypeInferenceFailure
 from loopy.symbolic import (
     ExpansionState,
     RuleAwareIdentityMapper,
@@ -42,6 +43,8 @@ from pymbolic import flattened_product
 from pymbolic.primitives import is_arithmetic_expression
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from loopy.library.reduction import ReductionOpFunction
     from loopy.translation_unit import CallablesTable
     from pymbolic.typing import Expression
@@ -103,7 +106,11 @@ class FMAReplacer(RuleAwareIdentityMapper[[]]):
         self.type_reader = type_reader
 
     def map_sum(self, expr: p.Sum, expn_state: ExpansionState) -> Expression:
-        dtypes = self.type_reader(expr, return_dtype_set=True)
+        try:
+            dtypes = self.type_reader(expr, return_dtype_set=True)
+        except TypeInferenceFailure:
+            dtypes: Sequence[lp.LoopyType] = ()
+
         if len(dtypes) != 1:
             return super().map_sum(expr, expn_state)
 
