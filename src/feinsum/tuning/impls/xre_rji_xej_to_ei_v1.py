@@ -409,6 +409,19 @@ def transform(
         )
         for acc_x in acc_x_names
     ]
+
+    acc_x_update_ids = [
+        next(
+            insn.id
+            for insn in t_unit[kernel_name].instructions
+            if (
+                acc_x in insn.read_dependency_names()
+                and acc_x in insn.write_dependency_names()
+            )
+        )
+        for acc_x in acc_x_names
+    ]
+
     juprcmpt_r_tags = {juprcmpt_r: t_unit[kernel_name].iname_tags(juprcmpt_r)}
     t_unit = lp.duplicate_inames(
         t_unit,
@@ -596,6 +609,22 @@ def transform(
         temporary_name=d_priv_name,
         default_tag=None,
         within=within_all_updates,
+    )
+
+    # }}}
+
+    # {{{ replace_with_fma
+
+    from feinsum.loopy_utils.replace_with_fma import replace_with_fma
+
+    t_unit = replace_with_fma(
+        t_unit,
+        within=lp_match.Or(
+            tuple(
+                lp_match.Id(insn_id)
+                for insn_id in acc_x_update_ids + main_update_insn_ids
+            )
+        ),
     )
 
     # }}}
