@@ -43,7 +43,6 @@ from pymbolic import flattened_product
 from pymbolic.primitives import is_arithmetic_expression
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
 
     from loopy.library.reduction import ReductionOpFunction
     from loopy.translation_unit import CallablesTable
@@ -109,7 +108,7 @@ class FMAReplacer(RuleAwareIdentityMapper[[]]):
         try:
             dtypes = self.type_reader(expr, return_dtype_set=True)
         except TypeInferenceFailure:
-            dtypes: Sequence[lp.LoopyType] = ()
+            dtypes = ()
 
         if len(dtypes) != 1:
             return super().map_sum(expr, expn_state)
