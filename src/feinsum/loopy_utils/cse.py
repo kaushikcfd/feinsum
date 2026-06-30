@@ -37,7 +37,7 @@ from loopy.symbolic import (
     WalkMapper,
     get_dependencies,
 )
-from loopy.translation_unit import make_clbl_inf_ctx
+from loopy.translation_unit import CallablesTable, make_clbl_inf_ctx
 from loopy.type_inference import TypeInferenceMapper
 from pymbolic.typing import Expression
 
@@ -303,9 +303,100 @@ def get_nsuccs(exprs: tuple[Expression, ...]) -> constantdict[Expression, int]:
 
 
 @lp.for_each_kernel
-def hoist_cses(
-    kernel: lp.LoopKernel, within: ToMatchConvertible = None
+def _hoist_cses(
+    kernel: lp.LoopKernel,
+    callables_table: CallablesTable,
+    within: ToMatchConvertible = None,
 ) -> lp.LoopKernel:
+    from loopy.match import parse_match
+
+    within = parse_match(within)
+    insn_ids = {insn.id for insn in kernel.instructions if within(kernel, insn)}
+    if not insn_ids:
+        raise LoopyError("No instructions found satisfying within.")
+
+    if len({kernel.id_to_insn[id_].within_inames for id_ in insn_ids}) != 1:
+        raise LoopyError(
+            "hoist_cses requires all instructions to be nested in the same loop"
+            " nest."
+        )
+
+    inames = kernel.id_to_insn[next(iter(insn_ids))].within_inames
+    for iname in inames:
+        insn_ids &= kernel.iname_to_insns()[iname]
+
+    expr_to_nsucc = get_nsuccs(
+        tuple(kernel.id_to_insn[id_].expression for id_ in sorted(insn_ids))
+    )
+
+    ing = kernel.get_instruction_id_generator()
+    vng = kernel.get_var_name_generator()
+    cse_to_var_name: dict[Expression, str] = {}
+    cse_var_to_insn_id: dict[str, str] = {}
+
+    for expr, nsucc in expr_to_nsucc.items():
+        # consider subexpressions with repeat accesses that are not algebraic leafs.
+        if nsucc >= 2 and (
+            isinstance(expr, p.ExpressionNode)
+            and not (
+                isinstance(
+                    expr, (p.Variable, p.NaN, p.FunctionSymbol, ResolvedFunction)
+                )
+            )
+        ):
+            var_name = vng("_cse")
+            cse_to_var_name[expr] = var_name
+            cse_var_to_insn_id[var_name] = ing("_cse_def")
+
+    cse_mapper = CSEMapper(
+        constantdict(cse_to_var_name),
+        constantdict(cse_var_to_insn_id),
+        reduce(
+            lambda x, y: x | y,
+            (kernel.id_to_insn[id_].depends_on for id_ in insn_ids),
+            cast("frozenset[str]", frozenset()),
+        )
+        - insn_ids,
+        inames,
+        TypeInferenceMapper(kernel, make_clbl_inf_ctx(callables_table, frozenset())),  # type: ignore[no-untyped-call]
+    )
+    new_insns: list[lp.InstructionBase] = []
+    for id_ in sorted(insn_ids):
+        insn = kernel.id_to_insn[id_]
+
+        new_insns.append(
+            insn.with_transformed_expressions(
+                lambda expr, id_=id_: cse_mapper(
+                    expr, kernel.id_to_insn[id_].predicates
+                )
+            ).copy(
+                depends_on=insn.depends_on | frozenset(cse_var_to_insn_id.values())
+            )
+        )
+
+    return kernel.copy(
+        instructions=(
+            cse_mapper.new_insns
+            + new_insns
+            + [insn for insn in kernel.instructions if insn.id not in insn_ids]
+        ),
+        temporary_variables=constantdict(
+            {
+                **kernel.temporary_variables,
+                **{
+                    cse_var_name: lp.TemporaryVariable(
+                        cse_var_name, None, (), lp.AddressSpace.PRIVATE
+                    )
+                    for cse_var_name in cse_to_var_name.values()
+                },
+            }
+        ),
+    )
+
+
+def hoist_cses(
+    t_unit: lp.TranslationUnit, within: ToMatchConvertible = None
+) -> lp.TranslationUnit:
     """
     Hoist repeated subexpressions in a loop nest into private temporaries.
 
@@ -361,87 +452,4 @@ def hoist_cses(
         ... )
         True
     """
-    from loopy.match import parse_match
-
-    within = parse_match(within)
-    insn_ids = {insn.id for insn in kernel.instructions if within(kernel, insn)}
-    if not insn_ids:
-        raise LoopyError("No instructions found satisfying within.")
-
-    if len({kernel.id_to_insn[id_].within_inames for id_ in insn_ids}) != 1:
-        raise LoopyError(
-            "hoist_cses requires all instructions to be nested in the same loop"
-            " nest."
-        )
-
-    inames = kernel.id_to_insn[next(iter(insn_ids))].within_inames
-    for iname in inames:
-        insn_ids &= kernel.iname_to_insns()[iname]
-
-    expr_to_nsucc = get_nsuccs(
-        tuple(kernel.id_to_insn[id_].expression for id_ in sorted(insn_ids))
-    )
-
-    ing = kernel.get_instruction_id_generator()
-    vng = kernel.get_var_name_generator()
-    cse_to_var_name: dict[Expression, str] = {}
-    cse_var_to_insn_id: dict[str, str] = {}
-
-    for expr, nsucc in expr_to_nsucc.items():
-        # consider subexpressions with repeat accesses that are not algebraic leafs.
-        if nsucc >= 2 and (
-            isinstance(expr, p.ExpressionNode)
-            and not (
-                isinstance(
-                    expr, (p.Variable, p.NaN, p.FunctionSymbol, ResolvedFunction)
-                )
-            )
-        ):
-            var_name = vng("_cse")
-            cse_to_var_name[expr] = var_name
-            cse_var_to_insn_id[var_name] = ing("_cse_def")
-
-    cse_mapper = CSEMapper(
-        constantdict(cse_to_var_name),
-        constantdict(cse_var_to_insn_id),
-        reduce(
-            lambda x, y: x | y,
-            (kernel.id_to_insn[id_].depends_on for id_ in insn_ids),
-            cast("frozenset[str]", frozenset()),
-        )
-        - insn_ids,
-        inames,
-        TypeInferenceMapper(kernel, make_clbl_inf_ctx(constantdict(), frozenset())),  # type: ignore[no-untyped-call]
-    )
-    new_insns: list[lp.InstructionBase] = []
-    for id_ in sorted(insn_ids):
-        insn = kernel.id_to_insn[id_]
-
-        new_insns.append(
-            insn.with_transformed_expressions(
-                lambda expr, id_=id_: cse_mapper(
-                    expr, kernel.id_to_insn[id_].predicates
-                )
-            ).copy(
-                depends_on=insn.depends_on | frozenset(cse_var_to_insn_id.values())
-            )
-        )
-
-    return kernel.copy(
-        instructions=(
-            cse_mapper.new_insns
-            + new_insns
-            + [insn for insn in kernel.instructions if insn.id not in insn_ids]
-        ),
-        temporary_variables=constantdict(
-            {
-                **kernel.temporary_variables,
-                **{
-                    cse_var_name: lp.TemporaryVariable(
-                        cse_var_name, None, (), lp.AddressSpace.PRIVATE
-                    )
-                    for cse_var_name in cse_to_var_name.values()
-                },
-            }
-        ),
-    )
+    return _hoist_cses(t_unit, t_unit.callables_table, within)
