@@ -304,6 +304,9 @@ def transform(
 
     # }}}
 
+    all_du_update_insn_ids: list[str] = []
+    all_outer_acc_names: list[str] = []
+
     u_to_upriv_fetch_id: dict[str, str] = {}
     for us_in_batch in itertools.batched(
         us, len(us) // n_fields_in_a_group, strict=True
@@ -575,6 +578,8 @@ def transform(
             du_init_insn_ids.append(acc_init_id)
             du_assign_insn_ids.append(acc_assign_id)
 
+        all_du_update_insn_ids.extend(du_update_insn_ids)
+
         # init and assign must be schedulable outside the j-tile loop independently
         # of the update instructions; give each role its own iname copies.
         # Only duplicate inames that actually exist (prcmpt_re absent when r_e=1,
@@ -643,6 +648,7 @@ def transform(
             )
         )
         assert len(acc_names) == len(batch_outputs)
+        all_outer_acc_names.extend(acc_names)
         t_unit = lp.privatize_temporaries_with_inames(
             t_unit, i_tile_iname, only_var_names=frozenset(acc_names)
         )
@@ -701,6 +707,31 @@ def transform(
         t_unit = lp.prioritize_loops(t_unit, (new_r, i_tile_iname))
 
     t_unit = lp.remove_unused_inames(t_unit)
+
+    # {{{ replace_with_fma
+
+    outer_acc_update_ids = tuple(
+        insn.id
+        for insn in t_unit[kernel_name].instructions
+        if any(
+            name in insn.read_dependency_names()
+            and name in insn.write_dependency_names()
+            for name in all_outer_acc_names
+        )
+    )
+    assert len(outer_acc_update_ids) == len(all_outer_acc_names)
+
+    from feinsum.loopy_utils.replace_with_fma import replace_with_fma
+
+    t_unit = replace_with_fma(
+        t_unit,
+        within=lp_match.Or(
+            [lp_match.Id(id_) for id_ in all_du_update_insn_ids]
+            + [lp_match.Id(id_) for id_ in outer_acc_update_ids]
+        ),
+    )
+
+    # }}}
 
     if 0:
         # enable for debugging.
