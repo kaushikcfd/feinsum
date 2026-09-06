@@ -3,7 +3,6 @@ import math
 from collections.abc import Collection, Iterable, Sequence
 from typing import Any, cast
 
-import islpy as isl
 import loopy as lp
 import loopy.match as lp_match
 from constantdict import constantdict
@@ -331,7 +330,7 @@ def transform(
                     "Collection[str]",
                     t_unit[kernel_name]
                     .get_inames_domain(e)
-                    .get_var_names(isl.dim_type.param),
+                    .space.param_names,
                 ),
             )
         )

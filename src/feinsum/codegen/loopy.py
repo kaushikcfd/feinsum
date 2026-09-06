@@ -8,8 +8,8 @@
 from collections.abc import Mapping
 from typing import Any, cast
 
-import islpy as isl
 import loopy as lp
+import namedisl as nisl
 import numpy as np
 import pymbolic.primitives as p
 from pytools import UniqueNameGenerator, memoize_on_first_arg
@@ -36,36 +36,32 @@ LOOPY_LANG_VERSION = (2018, 2)
 
 def _get_isl_basic_set(
     index_to_dim_length: Mapping[str, ShapeComponentT],
-) -> isl.BasicSet:
+) -> nisl.BasicSet:
     dim_name_to_ubound: dict[str, str | IntegralT] = {
         idx: dim.name if isinstance(dim, SizeParam) else dim
         for idx, dim in index_to_dim_length.items()
     }
 
-    space = isl.Space.create_from_names(
-        isl.DEFAULT_CONTEXT,
-        set=sorted(dim_name_to_ubound),
-        params=sorted(
+    space = nisl.Space.from_names(
+        out=sorted(dim_name_to_ubound),
+        param=sorted(
             bound for bound in dim_name_to_ubound.values() if isinstance(bound, str)
         ),
     )
-    bset = isl.BasicSet.universe(space)
+    bset = nisl.BasicSet.universe(space)
+    var_affs = bset.var_affs
 
     for dim_name, ubound in sorted(dim_name_to_ubound.items()):
         if isinstance(ubound, str):
-            bset = bset.add_constraint(
-                isl.Constraint.ineq_from_names(
-                    space, {1: -1, ubound: 1, dim_name: -1}
-                )
-            )
+            constraint_aff = var_affs[ubound] - var_affs[dim_name] - 1
         else:
             assert isinstance(ubound, INT_CLASSES)
-            bset = bset.add_constraint(
-                isl.Constraint.ineq_from_names(space, {1: ubound - 1, dim_name: -1})
-            )
+            constraint_aff = ubound - 1 - var_affs[dim_name]
 
         bset = bset.add_constraint(
-            isl.Constraint.ineq_from_names(space, {1: 0, dim_name: 1})
+            nisl.Constraint.inequality_from_aff(constraint_aff)
+        ).add_constraint(
+            nisl.Constraint.inequality_from_aff(var_affs[dim_name])
         )
 
     return bset
@@ -219,7 +215,7 @@ def generate_loopy(
 
     # {{{ generate domains.
 
-    domains: list[isl.BasicSet] = []
+    domains: list[nisl.Set] = []
 
     for i_step in range(schedule.nsteps):
         inames = tuple(
@@ -232,7 +228,9 @@ def generate_loopy(
             )
         )
         domains.append(
-            _get_isl_basic_set({iname: iname_to_ubound[iname] for iname in inames})
+            _get_isl_basic_set(
+                {iname: iname_to_ubound[iname] for iname in inames}
+            ).as_set()
         )
 
     # }}}

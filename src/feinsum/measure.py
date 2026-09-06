@@ -72,7 +72,10 @@ def _generate_random_np_array(
             size=shape, dtype=real_dtype
         ) + dtype.type(1j) * rng.random(size=shape, dtype=real_dtype)
     elif dtype.kind == "i":
-        return rng.integers(low=-100, high=100, size=shape, dtype=dtype)  # type: ignore[no-any-return]
+        return cast(
+            "npt.NDArray[Any]",
+            rng.integers(low=-100, high=100, size=shape, dtype=dtype),
+        )
     else:
         return rng.random(size=shape, dtype=dtype)
 
@@ -310,7 +313,7 @@ def _get_giga_ops_from_einsum(
     op_map = lp.get_op_map(t_unit, subgroup_size=1)
     new_op_map: dict[np.dtype[Any], prim.Expression] = {}
 
-    for dtype in {op.dtype.numpy_dtype for op in op_map.keys()}:  # noqa: SIM118
+    for dtype in {op.dtype.numpy_dtype for op in op_map.keys()}:  # ruff: ignore[in-dict-keys]
         if dtype.kind == "c":
             c_ops = {
                 op_type: op_map.filter_by(
@@ -334,8 +337,8 @@ def _get_giga_ops_from_einsum(
 
         new_op_map.setdefault(dtype, 0)
 
-        if pwqpoly.n_piece() > 0:
-            ((_, qpoly),) = pwqpoly.get_pieces()
+        if pwqpoly.pieces():
+            ((_, qpoly),) = pwqpoly.pieces()
             new_op_map[dtype] = new_op_map[dtype] + qpolynomial_to_expr(qpoly) * 1e-9  # type: ignore[operator]
 
     return Map(new_op_map)

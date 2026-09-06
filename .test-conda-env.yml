@@ -9,7 +9,6 @@ dependencies:
 - pocl
 - mako
 - pyopencl
-- islpy
 - sphinx-autodoc-typehints
 - sphinx<8.2
 - mypy
@@ -24,4 +23,5 @@ dependencies:
   - "tabulate"
   - "pytz"
   - "mypy"
+  - "namedisl"
   - "git+https://github.com/inducer/loopy.git"

@@ -18,7 +18,6 @@ from typing import (
     cast,
 )
 
-import islpy as isl
 import loopy as lp
 import numpy as np
 import pymbolic.primitives as p
@@ -29,6 +28,7 @@ from loopy.kernel import LoopKernel
 from loopy.kernel.data import SubstitutionRule
 from loopy.symbolic import CombineMapper, IdentityMapper, Reduction
 from loopy.translation_unit import for_each_kernel
+from namedisl import DimType
 from pymbolic import ArithmeticExpression
 from pytools import memoize_on_first_arg
 
@@ -104,7 +104,7 @@ def _get_iname_length(
     bounds = kernel.get_iname_bounds(iname)
     lbound_pwaff = bounds.lower_bound_pw_aff
     static_min_lbound_pwaff = static_min_of_pw_aff(lbound_pwaff, constants_only=True)
-    if static_min_lbound_pwaff.get_constant_val().to_python() != 0:
+    if static_min_lbound_pwaff.constant.to_python() != 0:
         raise EinsumTunitMatchError(
             f"Iname {iname} that appears as an einsum index"
             f" in {kernel.name} does not have '0' as its"
@@ -115,8 +115,8 @@ def _get_iname_length(
     ubound_pw_aff = bounds.upper_bound_pw_aff
     ubound = static_max_of_pw_aff(ubound_pw_aff, constants_only=False)
 
-    if ubound.is_cst():
-        ubound_val = ubound.get_pieces()[0][1].get_constant_val().to_python()
+    if ubound.is_constant():
+        ubound_val = ubound.constant.to_python()
         assert isinstance(ubound_val, int)
         if ubound_val >= long_dim_length:
             assert iname_to_index[iname].islower()
@@ -914,7 +914,7 @@ def decouple_domain(
         if kernel.get_home_domain_index(iname) != hdi:
             raise LoopyError("inames are not a part of the same home domain.")
 
-    all_dims = frozenset(kernel.domains[hdi].get_var_dict())
+    all_dims = kernel.domains[hdi].space.names
     for parent_iname in parent_inames:
         if parent_iname not in all_dims:
             raise LoopyError(
@@ -927,16 +927,12 @@ def decouple_domain(
 
     for iname in sorted(all_dims):
         if iname in inames:
-            dt, pos = dom1.get_var_dict()[iname]
-            dom1 = dom1.project_out(dt, pos, 1)
+            dom1 = dom1.project_out(iname)
         elif iname in parent_inames:
-            dt, pos = dom2.get_var_dict()[iname]
-            if dt != isl.dim_type.param:
-                n_params = dom2.dim(isl.dim_type.param)
-                dom2 = dom2.move_dims(isl.dim_type.param, n_params, dt, pos, 1)
+            if iname not in dom2.space.dim_names(DimType.param):
+                dom2 = dom2.move_dims([iname], DimType.param)
         else:
-            dt, pos = dom2.get_var_dict()[iname]
-            dom2 = dom2.project_out(dt, pos, 1)
+            dom2 = dom2.project_out(iname)
 
     new_domains = list(kernel.domains)
     new_domains[hdi] = dom1

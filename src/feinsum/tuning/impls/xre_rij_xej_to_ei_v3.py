@@ -115,7 +115,7 @@ def transform(
     n_e_per_wg_log2: int,
     i_tiles: int,
     j_tiles: int,
-    precompute_slices_of_D: bool,  # noqa: N803
+    precompute_slices_of_D: bool,  # ruff: ignore[invalid-argument-name]
     insn_match: Any | None = None,
     kernel_name: str | None = None,
 ) -> lp.TranslationUnit:

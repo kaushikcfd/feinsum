@@ -2,7 +2,6 @@ import logging
 import math
 from typing import TYPE_CHECKING, Any, cast
 
-import islpy as isl
 import loopy as lp
 import loopy.match as lp_match
 from more_itertools import chunked
@@ -152,7 +151,7 @@ def transform(
                     "Collection[str]",
                     t_unit[kernel_name]
                     .get_inames_domain(e)
-                    .get_var_names(isl.dim_type.param),
+                    .space.param_names,
                 ),
             )
         )

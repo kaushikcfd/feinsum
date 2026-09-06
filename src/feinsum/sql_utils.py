@@ -274,7 +274,7 @@ def retrieve(
         )
 
     if consider_query is None:
-        consider_query = lambda q: True  # noqa: E731
+        consider_query = lambda q: True  # ruff: ignore[lambda-assignment]
 
     queries = [
         q

@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 # {{{ supported tuning parameters
 
 
-class TuningParameter(abc.ABC):  # noqa: B024
+class TuningParameter(abc.ABC):  # ruff: ignore[abstract-base-class-without-abstract-method]
     """
     Records the parameter space of a code-transformation.
 
@@ -107,7 +107,7 @@ ConvertibleToTuningParamT = tuple[Any, ...] | TuningParameter
 
 
 @dataclass(frozen=True, repr=True)
-class einsum_arg:  # noqa: N801
+class einsum_arg:  # ruff: ignore[invalid-class-name]
     """
     Decorate to a template transformation to inform
     :func:`autotune` about a static argument to the transformation
@@ -136,7 +136,7 @@ class einsum_arg:  # noqa: N801
 
 
 @dataclass(frozen=True, repr=True)
-class transform_param:  # noqa: N801
+class transform_param:  # ruff: ignore[invalid-class-name]
     """
     Decorate to a template transformation to inform
     :func:`autotune` about the parameter space.
