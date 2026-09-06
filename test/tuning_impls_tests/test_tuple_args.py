@@ -3,7 +3,7 @@ from typing import Any
 import loopy as lp
 import numpy as np
 import pyopencl as cl
-from pyopencl.tools import (  # noqa
+from pyopencl.tools import (  # ruff: ignore[unused-import]
     pytest_generate_tests_for_pyopencl as pytest_generate_tests,
 )
 

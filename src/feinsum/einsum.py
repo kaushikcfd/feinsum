@@ -364,7 +364,7 @@ class BatchedEinsum:
                 " ",
                 f"{out_name}[{joined_out_idxs}]",
                 "<-",
-                f"Σ_{joined_sum_idxs} {'×'.join(arg.name + '[' + ', '.join(in_idx_set) + ']' for in_idx_set, arg in zip(self.in_idx_sets, arg_row, strict=True))}",  # noqa: E501, RUF001
+                f"Σ_{joined_sum_idxs} {'×'.join(arg.name + '[' + ', '.join(in_idx_set) + ']' for in_idx_set, arg in zip(self.in_idx_sets, arg_row, strict=True))}",  # ruff: ignore[line-too-long, ambiguous-unicode-character-string]
             ]
             for out_name, arg_row in zip(output_names, self.args, strict=True)
         ]
@@ -384,4 +384,4 @@ Data-types:
 for {','.join(self.out_idx_set)}
 {statements}
 end
----------------------------------------------------------------------------"""  # noqa: E501
+---------------------------------------------------------------------------"""  # ruff: ignore[line-too-long]

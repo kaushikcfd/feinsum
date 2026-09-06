@@ -523,12 +523,18 @@ def report_face_mass_performance(cl_ctx):
 def match_and_transfer_tranform():
     t_unit = lp.make_kernel(
         [
-            "{[iel_0, idof_0, jdof_0, r_0]:"
-            " 0<=iel_0<10000 and 0<=idof_0,jdof_0<35 and 0<=r_0<3}",
-            "{[iel_1, idof_1, jdof_1, r_1, x_1]:"
-            " 0<=iel_1<10000 and 0<=idof_1,jdof_1<35 and 0<=r_1,x_1<3}",
-            "{[iel_2, idof_2, ifacedof, iface]:"
-            " 0<=iel_2<10000 and 0<=idof_2<35 and 0<=ifacedof<15 and 0<=iface<4}",
+            (
+                "{[iel_0, idof_0, jdof_0, r_0]:"
+                " 0<=iel_0<10000 and 0<=idof_0,jdof_0<35 and 0<=r_0<3}"
+            ),
+            (
+                "{[iel_1, idof_1, jdof_1, r_1, x_1]:"
+                " 0<=iel_1<10000 and 0<=idof_1,jdof_1<35 and 0<=r_1,x_1<3}"
+            ),
+            (
+                "{[iel_2, idof_2, ifacedof, iface]:"
+                " 0<=iel_2<10000 and 0<=idof_2<35 and 0<=ifacedof<15 and 0<=iface<4}"
+            ),
         ],
         """
         # ----- Substitutions
@@ -576,7 +582,7 @@ def match_and_transfer_tranform():
             lift_3[iel_2, idof_2] = sum([iface, ifacedof], \
                                         s_Jface(iel_2, iface)*s_Rlift(iface, idof_2, ifacedof)*s_flux_vz(iface, iel_2, ifacedof))
         end
-        """,  # noqa: E501
+        """,  # ruff: ignore[line-too-long]
     )
 
     t_unit = lp.add_dtypes(

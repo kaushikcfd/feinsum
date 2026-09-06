@@ -2,7 +2,6 @@ import logging
 import math
 from typing import TYPE_CHECKING, Any, cast
 
-import islpy as isl
 import loopy as lp
 
 import feinsum as fnsm
@@ -193,7 +192,7 @@ def transform_with_single_j_tile_i_tile(
             "Collection[str]",
             t_unit[kernel_name]
             .get_inames_domain(e)
-            .get_var_names(isl.dim_type.param),
+            .space.param_names,
         )
         assert all(isinstance(parent_iname, str) for parent_iname in parent_inames)
         t_unit = t_unit.with_kernel(
@@ -465,7 +464,7 @@ def transform(
                     "Collection[str]",
                     t_unit[kernel_name]
                     .get_inames_domain(e)
-                    .get_var_names(isl.dim_type.param),
+                    .space.param_names,
                 ),
             )
         )

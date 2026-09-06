@@ -524,7 +524,7 @@ def to_induced_dag(
         for i, length_node in enumerate(
             sorted(
                 axis_lengths,
-                key=lambda length_node: str(length_node),
+                key=str,
             ),
             start=n_arg
             + n_index
@@ -541,7 +541,7 @@ def to_induced_dag(
         for i, dim_node in enumerate(
             sorted(
                 all_dims,
-                key=lambda dim_node: str(dim_node),
+                key=str,
             ),
             start=n_arg
             + n_index

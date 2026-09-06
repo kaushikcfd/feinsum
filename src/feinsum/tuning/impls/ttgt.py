@@ -1,9 +1,9 @@
 import logging
 from typing import Any, cast
 
-import islpy as isl
 import loopy as lp
 import loopy.match as lp_match
+import namedisl as nisl
 import numpy as np
 import pymbolic.primitives as prim
 from constantdict import constantdict
@@ -261,36 +261,17 @@ def transform(
         cast("int", ensm.index_to_dim_length[idx]) for idx in ensm_redn_indices
     )
 
-    gemm_isl_space = isl.Space.create_from_names(
-        isl.DEFAULT_CONTEXT, set=[i_gemm, j_gemm, k_gemm]
-    )
-    gemm_domain = (
-        isl.BasicSet.universe(gemm_isl_space)
-        .add_constraint(
-            isl.Constraint.ineq_from_names(gemm_isl_space, {1: 0, i_gemm: 1})
+    gemm_space = nisl.Space.from_names(out=[i_gemm, j_gemm, k_gemm])
+    gemm_domain = nisl.BasicSet.universe(gemm_space)
+    gemm_var_affs = gemm_domain.var_affs
+    for iname, length in (
+        (i_gemm, length_i), (j_gemm, length_j), (k_gemm, length_k)
+    ):
+        gemm_domain = gemm_domain.add_constraint(
+            nisl.Constraint.inequality_from_aff(gemm_var_affs[iname])
+        ).add_constraint(
+            nisl.Constraint.inequality_from_aff(length - 1 - gemm_var_affs[iname])
         )
-        .add_constraint(
-            isl.Constraint.ineq_from_names(
-                gemm_isl_space, {1: length_i - 1, i_gemm: -1}
-            )
-        )
-        .add_constraint(
-            isl.Constraint.ineq_from_names(gemm_isl_space, {1: 0, j_gemm: 1})
-        )
-        .add_constraint(
-            isl.Constraint.ineq_from_names(
-                gemm_isl_space, {1: length_j - 1, j_gemm: -1}
-            )
-        )
-        .add_constraint(
-            isl.Constraint.ineq_from_names(gemm_isl_space, {1: 0, k_gemm: 1})
-        )
-        .add_constraint(
-            isl.Constraint.ineq_from_names(
-                gemm_isl_space, {1: length_k - 1, k_gemm: -1}
-            )
-        )
-    )
     gemm_insn = lp.Assignment(
         f"{c_gemm_tmp}[{i_gemm}, {j_gemm}]",
         (

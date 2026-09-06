@@ -27,7 +27,7 @@ dependencies = [
     "numpy>=1.20",
     "loopy",
     "pytools",
-    "islpy",
+    "namedisl",
     "more-itertools",
     "pytz",
     "opentuner",
@@ -67,7 +67,7 @@ extend-select = [
   "TC",
 ]
 
-ignore = ["RUF067", "B023", "C901", "N806"]
+ignore = ["non-empty-init-module", "function-uses-loop-variable", "complex-structure", "non-lowercase-variable-in-function"]
 
 [tool.mypy]
 

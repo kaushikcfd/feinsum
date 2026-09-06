@@ -21,7 +21,7 @@ THE SOFTWARE.
 """
 
 
-from pyopencl.tools import (  # noqa
+from pyopencl.tools import (  # ruff: ignore[unused-import, unsorted-imports]
     pytest_generate_tests_for_pyopencl as pytest_generate_tests,
 )
 
@@ -158,7 +158,7 @@ def test_wave_grad_transform_knowledge_transfer(ctx_factory):
 
         grad_out[x_1, iel_1, idof_1] = sum([jdof_1, r_1], \
                                            jac_subst(x_1, iel_1, r_1)*D_subst(r_1, idof_1, jdof_1)*u_subst(iel_1, jdof_1))
-        """,  # noqa: E501
+        """,  # ruff: ignore[line-too-long]
         lang_version=(2018, 2),
     )
     t_unit = lp.add_dtypes(
@@ -194,7 +194,7 @@ def test_einsum_matching():
                                     face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_2(iface, iel_2, ifacedof))
         lift_3[iel_2, idof_2] = sum([iface, ifacedof],
                                     face_jac_subst(iel_2, iface)*lift_subst(iface, idof_2, ifacedof)*flux_subst_3(iface, iel_2, ifacedof))
-        """,  # noqa: E501
+        """,  # ruff: ignore[line-too-long]
         lang_version=(2018, 2),
     )
 

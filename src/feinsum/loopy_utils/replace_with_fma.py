@@ -53,7 +53,7 @@ def _try_replace_expr_with_fma(
     product: Expression,
     addend: Expression,
 ) -> p.Call | None:
-    """
+    r"""
     If *product* is a :class:`~pymbolic.primitives.Product` that qualifies for
     FMA replacement, return :math:`\\operatorname{fma}(a, b, \\text{addend})`
     as a :class:`~pymbolic.primitives.Call`; otherwise return *None*.

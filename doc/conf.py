@@ -216,7 +216,7 @@ intersphinx_mapping = {
     "pytools": ("https://documen.tician.de/pytools/", None),
     "pymbolic": ("https://documen.tician.de/pymbolic/", None),
     "loopy": ("https://documen.tician.de/loopy/", None),
-    "islpy": ("https://documen.tician.de/islpy/", None),
+    "namedisl": ("https://documen.tician.de/namedisl/", None),
     "opt_einsum": ("https://optimized-einsum.readthedocs.io/en/stable/", None),
 }
 
