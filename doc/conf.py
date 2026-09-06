@@ -20,7 +20,9 @@ autoclass_content = "class"
 copybutton_prompt_text = r">>> |\.\.\. |\$ |In \[\d*\]: | {2,5}\.\.\.: | {5,8}: "
 copybutton_prompt_is_regexp = True
 
-sphinxconfig_missing_reference_aliases: dict[str, str] = {}
+sphinxconfig_missing_reference_aliases: dict[str, str] = {
+    "ExpressionNode": "py:class:pymbolic.ExpressionNode",
+}
 
 
 def linkcode_resolve(
@@ -175,6 +177,10 @@ def process_autodoc_missing_reference(
             node, contnode)
 
     return new_node
+
+
+def setup(app: Sphinx) -> None:
+    app.connect("missing-reference", process_autodoc_missing_reference)
 
 
 extensions = [
