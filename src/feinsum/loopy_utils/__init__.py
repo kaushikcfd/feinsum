@@ -927,12 +927,12 @@ def decouple_domain(
 
     for iname in sorted(all_dims):
         if iname in inames:
-            dom1 = dom1.project_out(iname)
+            dom1 = dom1.project_out([iname])
         elif iname in parent_inames:
             if iname not in dom2.space.dim_names(DimType.param):
                 dom2 = dom2.move_dims([iname], DimType.param)
         else:
-            dom2 = dom2.project_out(iname)
+            dom2 = dom2.project_out([iname])
 
     new_domains = list(kernel.domains)
     new_domains[hdi] = dom1
