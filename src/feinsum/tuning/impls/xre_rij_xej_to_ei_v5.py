@@ -378,7 +378,7 @@ def transform(
         t_unit,
         juprcmpt_e_re,
         within=lp_match.Id(J_fetch_id),
-        tags={juprcmpt_e_re: t_unit[kernel_name].iname_tags(juprcmpt_e_re)},  # type: ignore[dict-item]
+        tags={juprcmpt_e_re: t_unit[kernel_name].iname_tags(juprcmpt_e_re)},
     )
     t_unit = lp.tag_inames(t_unit, {jprcmpt_x: "unr", jprcmpt_r: "unr"})
 
@@ -417,13 +417,13 @@ def transform(
         t_unit,
         juprcmpt_r,
         within=lp_match.Id(acc_x_init_id),
-        tags={juprcmpt_r: t_unit[kernel_name].iname_tags(juprcmpt_r)},  # type: ignore[dict-item]
+        tags={juprcmpt_r: t_unit[kernel_name].iname_tags(juprcmpt_r)},
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         juprcmpt_r,
         within=lp_match.Id(acc_x_assign_id),
-        tags={juprcmpt_r: t_unit[kernel_name].iname_tags(juprcmpt_r)},  # type: ignore[dict-item]
+        tags={juprcmpt_r: t_unit[kernel_name].iname_tags(juprcmpt_r)},
     )
 
     # }}}
@@ -492,8 +492,8 @@ def transform(
         (e_r_e, i_tile_iname),
         within=lp_match.Id(out_acc_init_id),
         tags={
-            i_tile_iname: t_unit[kernel_name].iname_tags(i_tile_iname),  # type: ignore[dict-item]
-            e_r_e: t_unit[kernel_name].iname_tags(e_r_e),  # type: ignore[dict-item]
+            i_tile_iname: t_unit[kernel_name].iname_tags(i_tile_iname),
+            e_r_e: t_unit[kernel_name].iname_tags(e_r_e),
         },
     )
     e_r_e_assign, i_tile_iname_assign = vng("e_r_e"), vng("itile")
@@ -503,8 +503,8 @@ def transform(
         within=lp_match.Id(out_acc_assign_id),
         new_inames=(e_r_e_assign, i_tile_iname_assign),
         tags={
-            i_tile_iname: t_unit[kernel_name].iname_tags(i_tile_iname),  # type: ignore[dict-item]
-            e_r_e: t_unit[kernel_name].iname_tags(e_r_e),  # type: ignore[dict-item]
+            i_tile_iname: t_unit[kernel_name].iname_tags(i_tile_iname),
+            e_r_e: t_unit[kernel_name].iname_tags(e_r_e),
         },
     )
 
