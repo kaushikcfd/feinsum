@@ -28,7 +28,9 @@ from pyopencl.tools import (  # ruff: ignore[unused-import, unsorted-imports]
 import feinsum as f
 import loopy as lp
 import numpy as np
+import pytest
 import feinsum.loopy_utils as lp_utils
+from feinsum.diagnostics import EinsumTunitMatchError
 from feinsum.loopy_utils.replace_with_fma import replace_with_fma
 
 
@@ -226,6 +228,67 @@ def test_einsum_matching():
     inferred_einsum, _ = f.get_a_matched_einsum(t_unit)
     assert f.canonicalize_einsum(inferred_einsum) == f.canonicalize_einsum(
         ref_einsum
+    )
+
+
+@pytest.mark.parametrize(
+    "expression",
+    ["u[indices[i, j]]", "u_subst(i)", "0.0"],
+)
+def test_einsum_matching_missing_operand_indices(expression):
+    t_unit = lp.make_kernel(
+        "{[i, j]: 0 <= i < 4 and 0 <= j < 3}",
+        f"""
+        u_subst(_0) := u[_0]
+        out[i, j] = {expression}
+        """,
+        lang_version=(2018, 2),
+    )
+
+    with pytest.raises(EinsumTunitMatchError, match="Output indices"):
+        f.get_a_matched_einsum(t_unit)
+
+
+@pytest.mark.parametrize("index", ["2*i", "i + 1", "0", "indices[i]"])
+def test_einsum_matching_rejects_non_iname_indices(index):
+    t_unit = lp.make_kernel(
+        "{[i]: 0 <= i < 4}",
+        f"""
+        subst1(_0) := a[_0]
+        subst2(_0) := b[_0]
+        y[i] = subst1({index}) * subst2(i)
+        """,
+        lang_version=(2018, 2),
+    )
+
+    with pytest.raises(EinsumTunitMatchError, match=r"not called with.*indices"):
+        f.get_a_matched_einsum(t_unit)
+
+
+def test_einsum_matching_scalar_operand():
+    t_unit = lp.make_kernel(
+        "{[i, j]: 0 <= i < 4 and 0 <= j < 3}",
+        """
+        subst() := scale
+        subst2(_0, _1) := a[_0, _1]
+        y[i] = sum(j, subst() * subst2(i, j))
+        """,
+        [
+            lp.ValueArg("scale", dtype=np.float64),
+            lp.GlobalArg("a", dtype=np.float64, shape=(4, 3)),
+            ...,
+        ],
+        lang_version=(2018, 2),
+    )
+
+    inferred_einsum, _ = f.get_a_matched_einsum(t_unit)
+    expected_einsum = f.einsum(
+        ",ij->i",
+        f.array("scale", (), np.float64),
+        f.array("a", (4, 3), np.float64),
+    )
+    assert f.canonicalize_einsum(inferred_einsum) == f.canonicalize_einsum(
+        expected_einsum
     )
 
 

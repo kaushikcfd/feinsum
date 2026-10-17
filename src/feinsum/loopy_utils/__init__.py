@@ -362,6 +362,15 @@ def get_a_matched_einsum(
                 subst_names
             )
 
+        operand_inames = {
+            iname for access in access_to_operands for iname in access
+        }
+        if not frozenset(free_indices) <= operand_inames:
+            raise EinsumTunitMatchError(
+                "Output indices are not all present in the recognized einsum"
+                " operands -> not a part of feinsum's grammar."
+            )
+
         batched_iname_set_to_operands.append(
             {k: frozenset(v) for k, v in access_to_operands.items()}
         )
