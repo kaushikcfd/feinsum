@@ -427,13 +427,14 @@ def transform(
 
     # {{{ Step 6: Realize redn over {r, j_inner} + privatize acc over i_tile,e_r_e
 
+    temps_pre_realize_redn = frozenset(t_unit[kernel_name].temporary_variables)
     t_unit = lp.realize_reduction(
         t_unit,
         insn_id_filter=matched_insn_id,
     )
     (out_acc_name,) = (
         t_unit[kernel_name].id_to_insn[matched_insn_id].read_dependency_names()
-        - t_unit[kernel_name].all_inames()
+        & (t_unit[kernel_name].temporary_variables.keys() - temps_pre_realize_redn)
     )
     t_unit = lp.privatize_temporaries_with_inames(
         t_unit, i_tile_iname, only_var_names=frozenset({out_acc_name})
