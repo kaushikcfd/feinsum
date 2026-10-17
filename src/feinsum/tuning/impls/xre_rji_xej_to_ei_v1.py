@@ -368,7 +368,7 @@ def transform(
         t_unit,
         juprcmpt_e_re,
         within=lp_match.Id(J_fetch_id),
-        tags={juprcmpt_e_re: t_unit[kernel_name].iname_tags(juprcmpt_e_re)},  # type: ignore[dict-item]
+        tags={juprcmpt_e_re: t_unit[kernel_name].iname_tags(juprcmpt_e_re)},
     )
     t_unit = lp.tag_inames(t_unit, {jprcmpt_x: "unr", jprcmpt_r: "unr"})
 
@@ -427,13 +427,13 @@ def transform(
         t_unit,
         juprcmpt_r,
         within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in acc_x_init_ids)),
-        tags=juprcmpt_r_tags,  # type: ignore[arg-type]
+        tags=juprcmpt_r_tags,
     )
     t_unit = lp.duplicate_inames(
         t_unit,
         juprcmpt_r,
         within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in acc_x_assign_ids)),
-        tags=juprcmpt_r_tags,  # type: ignore[arg-type]
+        tags=juprcmpt_r_tags,
     )
 
     # }}}
@@ -499,7 +499,7 @@ def transform(
         t_unit,
         (e_r_e, i_tile_iname),
         within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in out_acc_init_ids)),
-        tags=out_acc_tags,  # type: ignore[arg-type]
+        tags=out_acc_tags,
     )
     e_r_e_assign = vng("e_r_e")
     i_tile_iname_assign = vng("itile")
@@ -508,7 +508,7 @@ def transform(
         (e_r_e, i_tile_iname),
         within=lp_match.Or(tuple(lp_match.Id(id_) for id_ in out_acc_assign_ids)),
         new_inames=(e_r_e_assign, i_tile_iname_assign),
-        tags=out_acc_tags,  # type: ignore[arg-type]
+        tags=out_acc_tags,
     )
 
     # }}}

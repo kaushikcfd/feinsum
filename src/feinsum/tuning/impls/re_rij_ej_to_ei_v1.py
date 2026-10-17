@@ -605,7 +605,7 @@ def transform(
             tuple(lp_match.Id(acc_init_id) for acc_init_id in acc_init_ids)
         ),
         new_inames=(i_tile_init, e_r_e_init),
-        tags={i_tile_iname: "unr", e_r_e: e_r_e_tags},  # type: ignore[dict-item]
+        tags={i_tile_iname: "unr", e_r_e: e_r_e_tags},
     )
     e_r_e_assign = vng(f"{e_r_e}")
     i_tile_assign = vng(f"{i_tile_iname}")
@@ -616,7 +616,7 @@ def transform(
             tuple(lp_match.Id(acc_assign_id) for acc_assign_id in acc_assign_ids)
         ),
         new_inames=(i_tile_assign, e_r_e_assign),
-        tags={i_tile_iname: "unr", e_r_e: e_r_e_tags},  # type: ignore[dict-item]
+        tags={i_tile_iname: "unr", e_r_e: e_r_e_tags},
     )
     t_unit = lp.tag_inames(t_unit, {r: "unr"})
 
